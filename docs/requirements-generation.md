@@ -83,7 +83,7 @@ npm run generate -- generate --provider openai \
 npm run agent -- run generated/cloud-draft.json --headed
 ```
 
-You can override the default cloud model using `--model MODEL` or `OPENAI_MODEL`. The local model can be set with `OLLAMA_MODEL`. `--provider openai` is the default for backwards compatibility.
+You can override the default cloud model using `--model MODEL` or `OPENAI_MODEL`. The local model can be set with `OLLAMA_MODEL`. The `--provider` flag is **required**: cloud inference is never selected implicitly, so there are no surprise API charges.
 
 ## Generate without written requirements
 
