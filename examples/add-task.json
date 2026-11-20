@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "task-lifecycle",
+  "title": "Add, complete and delete a task",
+  "version": 1,
+  "steps": [
+    {
+      "id": "open",
+      "description": "Open the task list",
+      "action": { "kind": "navigate", "url": "/" }
+    },
+    {
+      "id": "empty",
+      "description": "Verify the initial empty state",
+      "action": {
+        "kind": "assert-text",
+        "target": { "by": "role", "role": "status" },
+        "expected": "0 tasks, 0 completed",
+        "provenance": "human-confirmed"
+      }
+    },
+    {
+      "id": "enter",
+      "description": "Enter the task name",
+      "action": {
+        "kind": "fill",
+        "target": { "by": "label", "value": "Task" },
+        "value": "Prepare interview"
+      }
+    },
+    {
+      "id": "add",
+      "description": "Add the task",
+      "action": {
+        "kind": "click",
+        "target": { "by": "role", "role": "button", "name": "Add" }
+      }
+    },
+    {
+      "id": "visible",
+      "description": "Verify the task appears",
+      "action": {
+        "kind": "assert-visible",
+        "target": { "by": "text", "value": "Prepare interview" },
+        "provenance": "human-confirmed"
+      }
+    },
+    {
+      "id": "complete",
+      "description": "Mark the task complete",
+      "action": {
+        "kind": "click",
+        "target": {
+          "by": "role",
+          "role": "checkbox",
+          "name": "Complete Prepare interview"
+        }
+      }
+    },
+    {
+      "id": "completed",
+      "description": "Verify the completed count",
+      "action": {
+        "kind": "assert-text",
+        "target": { "by": "role", "role": "status" },
+        "expected": "1 task, 1 completed",
+        "provenance": "human-confirmed"
+      }
+    },
+    {
+      "id": "delete",
+      "description": "Delete the task",
+      "action": {
+        "kind": "click",
+        "target": {
+          "by": "role",
+          "role": "button",
+          "name": "Delete Prepare interview"
+        }
+      }
+    },
+    {
+      "id": "cleared",
+      "description": "Verify the list is empty again",
+      "action": {
+        "kind": "assert-text",
+        "target": { "by": "role", "role": "status" },
+        "expected": "0 tasks, 0 completed",
+        "provenance": "human-confirmed"
+      }
+    }
+  ]
+}
