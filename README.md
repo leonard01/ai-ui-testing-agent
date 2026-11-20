@@ -18,7 +18,7 @@ A QA engineer should be able to:
 6. Export maintainable TypeScript tests and run them independently in GitHub Actions.
 7. Inspect evidence, failures, assumptions and test changes rather than accepting opaque AI decisions.
 
-A separate functionality tracker records the scope and distinguishes **Accepted**, **Proposed**, **To be considered later** and **Rejected** from delivery status and release target. It will be added to the repository with the implementation scaffold.
+A separate functionality tracker records the scope and distinguishes **Accepted**, **Proposed**, **To be considered later** and **Rejected** from delivery status and release target. It will be added to the repository separately.
 
 ## Current scope and technology
 
@@ -36,7 +36,7 @@ The tool owns the *test definitions and workflow*. Playwright is a likely browse
 
 ## Project status
 
-This repository currently contains this README and an initial `package-lock.json`. The TypeScript scaffold, browser smoke test and GitHub Actions workflow have not yet been added. The AI agent, recorder, interactive browser viewer, existing-test editor and test generator are planned capabilities, not completed features.
+This repository contains a TypeScript development scaffold, provisional domain contracts, a deterministic Playwright browser smoke test and a GitHub Actions workflow. The AI agent, recorder, interactive browser viewer, existing-test editor and test generator are planned capabilities, not completed features.
 
 ### Initial implementation milestones
 
@@ -49,7 +49,19 @@ This repository currently contains this README and an initial `package-lock.json
 
 ## Development setup
 
-The planned stack is Node.js, TypeScript, Playwright and GitHub Actions. Installation and execution instructions will be added when the scaffold is committed and verified. There is no runnable application or configured CI workflow yet.
+Requirements: Node.js 22 or later and npm. Use Node.js 22 to match CI.
+
+```bash
+npm ci
+npx playwright install --with-deps chromium
+npm run typecheck
+npm run build
+npm test
+```
+
+The smoke test creates a small page locally, clicks a button and verifies the status changes. It needs no external website, model credentials or AI service. It verifies the browser tooling, not AI functionality.
+
+GitHub Actions runs these checks on pushes to main and pull requests, and can be started manually. HTML and JUnit reports are uploaded as artifacts; failed tests also retain screenshots and traces. The workflow still requires its first verified CI run.
 
 ## Design principles
 
@@ -62,17 +74,17 @@ The planned stack is Node.js, TypeScript, Playwright and GitHub Actions. Install
 - **Safe browser automation.** Restrict permitted hosts/actions and treat webpage text as untrusted input.
 - **Evidence over claims.** Record execution diagnostics and publish measured benchmark results when available.
 
-## Planned project structure
+## Project structure
 
 ```text
 .github/workflows/ci.yml      CI checks and Chromium smoke test
 src/domain.ts                 Initial test and session data contracts
 src/index.ts                  Public package exports
 tests/smoke.spec.ts           Deterministic Playwright setup verification
-planning/                     Versioned requirements register
-docs/architecture.md          Technical boundaries and proposed components
-docs/roadmap.md               Delivery milestones and acceptance examples
-docs/decisions/               Architecture decision records
+planning/                     Planned requirements register (not committed yet)
+docs/architecture.md          Planned architecture document
+docs/roadmap.md               Planned detailed roadmap
+docs/decisions/               Planned architecture decision records
 ```
 
 ## Contributions

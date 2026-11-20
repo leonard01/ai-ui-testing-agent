@@ -1,0 +1,21 @@
+{
+  "name": "ai-ui-testing-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-native UI test automation with human/AI browser collaboration (early-stage scaffold)",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "^22.15.0",
+    "typescript": "5.9.3"
+  }
+}
