@@ -4,7 +4,6 @@
 
 An AI-native UI test automation platform designed around **human–AI collaboration**. The long-term goal is to let a QA engineer design, demonstrate, run, amend, and maintain UI tests without having to work directly with conventional automation frameworks—while still being able to export editable, standalone test code.
 
-This is an engineering portfolio and learning project. Commercialization is optional, not its primary goal.
 
 ## Vision
 
