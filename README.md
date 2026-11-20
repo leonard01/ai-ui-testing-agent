@@ -61,7 +61,7 @@ npm test
 
 The smoke test creates a small page locally, clicks a button and verifies the status changes. It needs no external website, model credentials or AI service. It verifies the browser tooling, not AI functionality.
 
-GitHub Actions runs these checks on pushes to main and pull requests, and can be started manually. HTML and JUnit reports are uploaded as artifacts; failed tests also retain screenshots and traces. The workflow still requires its first verified CI run.
+GitHub Actions runs these checks on pushes to main and pull requests, and can be started manually. HTML and JUnit reports are uploaded as artifacts; failed tests also retain screenshots and traces. The foundation passed its first [GitHub Actions run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44738495584), including dependency installation, Chromium setup, type-checking, compilation and the browser smoke test.
 
 ## Design principles
 
