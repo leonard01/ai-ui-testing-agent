@@ -1,42 +1,41 @@
-/**
- * Provisional domain contracts for the future agent platform.
- * These are subject to design review and are not execution code.
- */
+import type { z } from "zod";
+import type { testDefinitionSchema } from "./schema.js";
 
+export type TestDefinition = z.infer<typeof testDefinitionSchema>;
+export type TestStep = TestDefinition["steps"][number];
+export type TestAction = TestStep["action"];
 export type ExpectationProvenance =
-  | 'requirements'
-  | 'human-confirmed'
-  | 'inferred';
-
-export type TestAction =
-  | { kind: 'navigate'; url: string }
-  | { kind: 'click'; target: string }
-  | { kind: 'fill'; target: string; value: string }
-  | {
-      kind: 'assert-text';
-      target: string;
-      expected: string;
-      provenance: ExpectationProvenance;
-    };
-
-export interface TestStep {
+  | "requirements"
+  | "human-confirmed"
+  | "inferred";
+export type RunStatus = "passed" | "assertion-failed" | "execution-error";
+export interface StepResult {
   id: string;
   description: string;
-  action: TestAction;
+  status: RunStatus | "skipped";
+  durationMs: number;
+  expected?: string;
+  observed?: string;
+  error?: string;
+}
+export interface RunReport {
+  schemaVersion: 1;
+  testId: string | null;
+  title: string | null;
+  status: RunStatus;
+  startedAt: string;
+  durationMs: number;
+  steps: StepResult[];
+  error?: string;
+  artifacts: { screenshot?: string; trace?: string };
+  evidenceErrors: string[];
 }
 
-export interface TestDefinition {
-  id: string;
-  title: string;
-  version: number;
-  steps: TestStep[];
-}
-
-export type BrowserController = 'human' | 'ai';
+export type BrowserController = "human" | "ai";
 
 export interface SessionState {
   sessionId: string;
   owner: BrowserController;
-  status: 'running' | 'paused' | 'stopped';
+  status: "running" | "paused" | "stopped";
   activeStepId?: string;
 }

@@ -33,15 +33,18 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
-      - name: Run browser smoke test
+      - name: Validate case schema and rejection before browser launch
+        run: npm run test:unit
+      - name: Run browser and structured runner tests
         run: npm test
       - name: Upload browser reports and evidence
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-results
           path: |
             test-results/
             playwright-report/
+            run-results/
           if-no-files-found: ignore
           retention-days: 7

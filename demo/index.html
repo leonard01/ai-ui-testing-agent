@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>Task list test application</title>
+  <style>
+    body {
+      font: 17px system-ui;
+      color: #23334a;
+      background: #f3f5f8;
+      margin: 0;
+    }
+    main {
+      max-width: 620px;
+      margin: 64px auto;
+      background: white;
+      padding: 32px;
+      border-radius: 12px;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+    }
+    input[type="text"] {
+      font: inherit;
+      padding: 10px;
+      border: 1px solid #8996a8;
+      border-radius: 5px;
+    }
+    button {
+      font: inherit;
+      background: #284b80;
+      color: white;
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+    }
+    li span {
+      flex: 1;
+    }
+    li button {
+      background: #6b3444;
+    }
+    input:checked + span {
+      text-decoration: line-through;
+    }
+    ul {
+      padding: 0;
+      list-style: none;
+    }
+    p {
+      color: #526174;
+    }
+  </style>
+  <main>
+    <h1>Task list</h1>
+    <p>
+      Demo application for the structured test runner. Each page load starts
+      empty.
+    </p>
+    <form>
+      <label for="task">Task</label
+      ><input
+        id="task"
+        type="text"
+        maxlength="200"
+        required
+        autocomplete="off"
+      /><button type="submit">Add</button>
+    </form>
+    <ul aria-label="Tasks"></ul>
+    <p role="status">0 tasks, 0 completed</p>
+  </main>
+  <script>
+    const form = document.querySelector("form"),
+      input = document.querySelector("#task"),
+      list = document.querySelector("ul"),
+      status = document.querySelector("[role=status]");
+    function update() {
+      const count = list.children.length,
+        done = list.querySelectorAll("input:checked").length;
+      status.textContent = `${count} ${count === 1 ? "task" : "tasks"}, ${done} completed`;
+    }
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const title = input.value.trim();
+      if (!title) return;
+      const row = document.createElement("li"),
+        check = document.createElement("input"),
+        name = document.createElement("span"),
+        remove = document.createElement("button");
+      check.type = "checkbox";
+      check.setAttribute("aria-label", `Complete ${title}`);
+      name.textContent = title;
+      remove.type = "button";
+      remove.textContent = "Delete";
+      remove.setAttribute("aria-label", `Delete ${title}`);
+      check.addEventListener("change", update);
+      remove.addEventListener("click", () => {
+        row.remove();
+        update();
+      });
+      row.append(check, name, remove);
+      list.append(row);
+      input.value = "";
+      update();
+      input.focus();
+    });
+  </script>
+</html>
