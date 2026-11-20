@@ -1,6 +1,6 @@
-/**
- * Initial public API surface. No agent or browser execution is implemented yet.
- */
+export { runTest } from "./runner.js";
+export type { RunOptions } from "./runner.js";
+export { parseTestDefinition, testDefinitionSchema } from "./schema.js";
 export type {
   BrowserController,
   ExpectationProvenance,
@@ -8,4 +8,7 @@ export type {
   TestAction,
   TestDefinition,
   TestStep,
-} from './domain.js';
+  RunReport,
+  RunStatus,
+  StepResult,
+} from "./domain.js";
