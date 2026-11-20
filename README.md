@@ -7,7 +7,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 **Last repository review:** 20 November 2026. This document describes functionality already merged into `main`, not work prepared in an unmerged patch.
 
 
-**The structured test runner is implemented and verified in CI. AI functionality is not implemented yet.**
+**The structured runner is implemented and CI-verified. This branch adds AI draft generation; CI validation and review are pending.**
 
 | Item | Current position |
 | --- | --- |
@@ -40,9 +40,24 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 The example case has nine steps covering an empty list, adding a task, checking visibility, marking it complete, checking the count, deleting it and checking the empty state again.
 
+### Requirements-to-test generation (in development)
+
+This feature branch adds a review-first AI test generator. It accepts Markdown/plain-text requirements and a bounded webpage snapshot, calls a configured OpenAI model, validates the resulting test against the existing JSON schema, and writes a **draft for human review**. It **never executes a draft automatically**.
+
+```bash
+# Start the demo in another terminal: npm run demo
+export OPENAI_API_KEY="your-api-key"
+npm run build
+npm run generate -- generate --requirements examples/requirements-task-list.md --output generated/task-draft.json
+# Inspect/approve the JSON first, then:
+npm run agent -- run generated/task-draft.json --headed
+```
+
+For first-page exploration without requirements, omit `--requirements`. Real generation requires a separately configured API key; **CI uses a simulated model** and therefore does not measure real model quality. See [AI generation documentation](docs/requirements-generation.md).
+
 ### Not implemented yet
 
-- AI-generated test cases, with or without supplied requirements.
+- Fully evaluated AI generation quality, automatic approval or autonomous multi-page exploration (first generator is a review-only draft).
 - AI discovery of workflows or interpretation of browser targets.
 - Recording a user's interactions into a test case.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover.

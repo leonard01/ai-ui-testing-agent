@@ -14,7 +14,8 @@
     "test:ui": "playwright test --ui",
     "test:unit": "node --test tests/unit/*.test.mjs",
     "demo": "node dist/demo/server.js",
-    "agent": "node dist/cli.js"
+    "agent": "node dist/cli.js",
+    "generate": "node dist/generate-cli.js"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

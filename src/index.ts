@@ -12,3 +12,6 @@ export type {
   RunStatus,
   StepResult,
 } from "./domain.js";
+
+export { generateDraft, makeGenerationPrompt } from "./generation.js";
+export type { DraftOptions, GeneratedDraft, ModelProvider } from "./generation.js";
