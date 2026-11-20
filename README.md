@@ -7,7 +7,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 **Last repository review:** 20 November 2026. This document describes functionality already merged into `main`, not work prepared in an unmerged patch.
 
 
-**The structured runner is implemented and CI-verified. This branch adds AI draft generation; CI validation and review are pending.**
+**The structured runner is merged and CI-verified. This feature branch adds optional AI draft generation and a zero-credit fixture path; review and live-model evaluation are pending.**
 
 | Item | Current position |
 | --- | --- |
@@ -42,18 +42,31 @@ The example case has nine steps covering an empty list, adding a task, checking 
 
 ### Requirements-to-test generation (in development)
 
-This feature branch adds a review-first AI test generator. It accepts Markdown/plain-text requirements and a bounded webpage snapshot, calls a configured OpenAI model, validates the resulting test against the existing JSON schema, and writes a **draft for human review**. It **never executes a draft automatically**.
+This feature branch adds a **review-first** test generator. A bounded browser snapshot plus optional Markdown/plain-text requirements yields a schema-validated JSON draft; **no draft is executed automatically**.
+
+Choose where its output comes from:
+
+| Generation provider | What it tests | API credits |
+| --- | --- | --- |
+| `fixture` | The full integration pipeline with a **prewritten** test, no AI | **None** |
+| `ollama` | Actual AI-generated JSON using a locally running model | **None** (hardware costs apply) |
+| `openai` | Actual AI-generated JSON using an optional cloud model | **Paid usage** |
 
 ```bash
 # Start the demo in another terminal: npm run demo
-export OPENAI_API_KEY="your-api-key"
 npm run build
-npm run generate -- generate --requirements examples/requirements-task-list.md --output generated/task-draft.json
-# Inspect/approve the JSON first, then:
-npm run agent -- run generated/task-draft.json --headed
+
+# First test at zero cost; the output is a fixture, NOT AI-generated:
+npm run generate -- generate --provider fixture --requirements examples/requirements-task-list.md --output generated/fixture-draft.json
+
+# Inspect/approve the JSON first, then execute:
+npm run agent -- run generated/fixture-draft.json --headed
+
+# Optional REAL local AI after installing Ollama and pulling qwen2.5-coder:3b:
+npm run generate -- generate --provider ollama --model qwen2.5-coder:3b --requirements examples/requirements-task-list.md --output generated/ollama-draft.json
 ```
 
-For first-page exploration without requirements, omit `--requirements`. Real generation requires a separately configured API key; **CI uses a simulated model** and therefore does not measure real model quality. See [AI generation documentation](docs/requirements-generation.md).
+The OpenAI option is still available via `--provider openai`, but cloud inference isn't required to run the project. CI never makes a paid model request; it verifies tooling, not live-model quality. See [all three setup paths and limitations](docs/requirements-generation.md).
 
 ### Not implemented yet
 
