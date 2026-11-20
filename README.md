@@ -8,9 +8,9 @@ A UI testing platform being built around editable test definitions and human–A
 
 | Item | Current position |
 | --- | --- |
-| Latest implementation | `feature/structured-runner` |
-| Review | [Pull request #1](https://github.com/leonard01/ai-ui-testing-agent/pull/1), open and not merged |
-| Default branch | `main` contains the earlier foundation; use the feature branch for the runner and demo |
+| Latest implementation | `main` |
+| Review | [Pull request #1](https://github.com/leonard01/ai-ui-testing-agent/pull/1), merged |
+| Default branch | `main` includes the structured runner, demo and current instructions |
 | Verification | **13 checks passed:** 7 validation/CLI checks and 6 browser integration checks |
 | Evidence | [Successful runner CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44742359816) |
 | Stack | TypeScript, Playwright/Chromium, Node.js and GitHub Actions |
@@ -50,20 +50,20 @@ The current runner executes explicitly authored cases. Its data contracts and br
 
 **Requirements:** Node.js 22 or later, npm and a computer that can run Chromium. Use Node.js 22 to match CI. No model account or API key is required.
 
-### 1. Get the implementation branch
+### 1. Get the project
 
 For a new checkout:
 
 ```bash
-git clone --branch feature/structured-runner https://github.com/leonard01/ai-ui-testing-agent.git
+git clone https://github.com/leonard01/ai-ui-testing-agent.git
 cd ai-ui-testing-agent
 ```
 
-If you already have a checkout, fetch and switch to `feature/structured-runner` first:
+If you already have a checkout, switch to `main` and pull the merged changes:
 
 ```bash
-git fetch origin
-git switch feature/structured-runner
+git switch main
+git pull --ff-only
 ```
 
 ### 2. Install and build
