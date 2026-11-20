@@ -13,7 +13,7 @@ async function main() {
       "base-url": { type: "string", default: "http://127.0.0.1:3000" },
       output: { type: "string", default: "generated/draft.json" },
       model: { type: "string" },
-      provider: { type: "string", default: "openai" },
+      provider: { type: "string" },
       fixture: { type: "string", default: "examples/add-task.json" },
     },
   });
@@ -24,6 +24,12 @@ async function main() {
     );
   }
   const kind = values.provider;
+  if (!kind) {
+    throw new Error(
+      "Please specify --provider fixture|ollama|openai. " +
+      "Cloud inference is never selected implicitly to avoid surprise charges.",
+    );
+  }
   let provider: ModelProvider;
   let model: string;
   switch (kind) {
