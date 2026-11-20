@@ -7,6 +7,8 @@ import { runTest } from "../src/runner.js";
 import type { TestDefinition } from "../src/domain.js";
 
 const execute = promisify(execFile);
+// The runner owns tracing for its contexts; avoid the test harness starting it twice.
+test.use({ trace: "off" });
 const baseURL = "http://127.0.0.1:3000";
 async function example(): Promise<TestDefinition> {
   return JSON.parse(await readFile("examples/add-task.json", "utf8"));
