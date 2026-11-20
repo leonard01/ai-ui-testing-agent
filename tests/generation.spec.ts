@@ -58,7 +58,7 @@ async function defectServer(): Promise<{ server: Server; url: string }> {
   const before = 'done = list.querySelectorAll("input:checked").length;';
   if (!original.includes(before)) throw new Error("Demo fixture unexpectedly changed");
   // Deliberately broken: checking a task fails to increment the completed count.
-  const broken = original.replace(before, "const done = 0; // intentional defect");
+  const broken = original.replace(before, "done = 0; // intentional defect");
   const server = createServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(broken);
