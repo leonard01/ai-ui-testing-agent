@@ -1,6 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from "@playwright/test";
 
-test('browser automation scaffold can interact with a page', async ({ page }) => {
+test("browser automation scaffold can interact with a page", async ({
+  page,
+}) => {
   // No external site or AI service needed: deterministic browser smoke test.
   await page.setContent(`
     <main>
@@ -15,7 +17,7 @@ test('browser automation scaffold can interact with a page', async ({ page }) =>
     </script>
   `);
 
-  await expect(page.getByRole('heading', { name: 'Demo UI' })).toBeVisible();
-  await page.getByRole('button', { name: 'Start' }).click();
-  await expect(page.getByRole('status')).toHaveText('Started');
+  await expect(page.getByRole("heading", { name: "Demo UI" })).toBeVisible();
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Started");
 });
