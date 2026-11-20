@@ -35,7 +35,7 @@ The tool owns the *test definitions and workflow*. Playwright is a likely browse
 
 ## Project status
 
-This repository contains a TypeScript development scaffold, provisional domain contracts, a deterministic Playwright browser smoke test and a GitHub Actions workflow. The AI agent, recorder, interactive browser viewer, existing-test editor and test generator are planned capabilities, not completed features.
+This repository contains a validated JSON test format, a structured browser runner, a command-line interface and a local task-list demo. Tests execute through Playwright and produce JSON step results with screenshots and traces on failure. The AI agent, recorder, interactive browser controls, existing-test editor, code exporter and test generator remain planned capabilities.
 
 ### Initial implementation milestones
 
@@ -55,10 +55,45 @@ npm ci
 npx playwright install --with-deps chromium
 npm run typecheck
 npm run build
+npm run test:unit
 npm test
 ```
 
 The smoke test creates a small page locally, clicks a button and verifies the status changes. It needs no external website, model credentials or AI service. It verifies the browser tooling, not AI functionality.
+
+The runner integration tests start the local demo server automatically. They verify a complete task lifecycle, fresh sessions, assertion failures, missing targets, failure artifacts and CLI exit codes. Tests of expected failure handling pass when the runner correctly reports that failure.
+
+## Run a structured test case
+
+After building, start the demo in one terminal:
+
+```bash
+npm run demo
+```
+
+Open http://127.0.0.1:3000 to use the demo yourself. In another terminal:
+
+```bash
+npm run agent -- run examples/add-task.json --headed
+```
+
+Omit `--headed` to run without a visible browser. Edit the JSON case to change the steps and expected results, then run it again. No Playwright test script is needed to author a case.
+
+Optional flags: `--base-url http://127.0.0.1:3000`, `--timeout 5000` (per action or assertion, 1–60000 milliseconds), and `--output run-results/my-run`. The default output directory is unique per invocation; reusing an explicit directory replaces its report. Run one process per explicit output directory.
+
+Supported actions are `navigate`, `click`, `fill`, `assert-text` and `assert-visible`. Targets use exact role/name, label or text matching. Text assertions compare text content after collapsing whitespace. Assertions carry requirement, human-confirmed or inferred provenance. The first step must navigate, step IDs must be unique, and every case must contain an assertion.
+
+The runner validates the case before launching Chromium, uses a fresh browser context, and stops execution at the first failure. Later steps are recorded as skipped. Navigation and network requests are restricted to the configured application origin, so third-party-dependent applications are outside this milestone's scope.
+
+Each run writes `report.json` with its verdict, per-step timings, expected/observed text and errors. Failures after a page is created attempt to save `failure.png` and `trace.zip`. Evidence-capture errors are recorded separately. Invalid cases and browser launch errors still produce an execution-error report. Report-writing failures are printed to the terminal.
+
+| CLI exit code | Meaning |
+| --- | --- |
+| 0 | All steps and assertions passed |
+| 1 | An assertion failed |
+| 2 | Invalid input, missing target or another execution error |
+
+These are deterministic authored cases. The runner does not yet infer targets, generate test cases, pause execution or export scripts.
 
 GitHub Actions runs these checks on pushes to main and pull requests, and can be started manually. HTML and JUnit reports are uploaded as artifacts; failed tests also retain screenshots and traces. The foundation passed its first [GitHub Actions run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44738495584), including dependency installation, Chromium setup, type-checking, compilation and the browser smoke test.
 
@@ -76,10 +111,18 @@ GitHub Actions runs these checks on pushes to main and pull requests, and can be
 ## Project structure
 
 ```text
-.github/workflows/ci.yml      CI checks and Chromium smoke test
-src/domain.ts                 Initial test and session data contracts
-src/index.ts                  Public package exports
-tests/smoke.spec.ts           Deterministic Playwright setup verification
+.github/workflows/ci.yml      TypeScript, unit and browser integration checks
+src/domain.ts                Test, step, report and session types
+src/schema.ts                Strict validation of JSON test definitions
+src/runner.ts                Structured browser execution and evidence
+src/cli.ts                   Command-line entry point
+src/demo/server.ts           Local demo server
+src/index.ts                 Public exports
+demo/index.html              Task-list application under test
+examples/add-task.json       Editable nine-step lifecycle case
+tests/runner.spec.ts          Browser and CLI integration tests
+tests/unit/schema.test.mjs   Validation and pre-browser rejection tests
+tests/smoke.spec.ts           Browser tooling smoke test
 planning/                     Planned requirements register (not committed yet)
 docs/architecture.md          Planned architecture document
 docs/roadmap.md               Planned detailed roadmap

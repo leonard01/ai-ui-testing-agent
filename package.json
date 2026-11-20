@@ -11,11 +11,18 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "playwright test",
-    "test:ui": "playwright test --ui"
+    "test:ui": "playwright test --ui",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "demo": "node dist/demo/server.js",
+    "agent": "node dist/cli.js"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
     "@types/node": "^22.15.0",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "playwright": "1.65.1",
+    "zod": "3.25.76"
   }
 }
