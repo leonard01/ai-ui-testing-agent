@@ -1,6 +1,6 @@
 # AI UI Testing Agent
 
-A UI testing platform being built around editable test definitions and human–AI collaboration.
+An AI-powered UI testing platform being built to turn requirements or live webpages into test cases, ordered steps and executable scripts, covering the full workflow from test design to execution. Designed for human–AI collaboration, it aims to run tests with or without a traditional UI testing framework and integrate generated tests into existing automation suites.
 
 ## Current status
 
