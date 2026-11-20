@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { fixtureProvider, ollamaProvider } from "../../dist/local-providers.js";
 
 test("fixture provider reuses a saved case without cloud inference", async () => {
@@ -43,4 +44,13 @@ test("Ollama errors make the local dependency clear", async () => {
   await assert.rejects(() => ollamaProvider({
     model: "model", system: "system", prompt: "prompt",
   }, async () => new Response("missing model", { status: 404 })), /HTTP 404/);
+});
+
+test("generation CLI requires provider selection rather than making an implicit paid call", () => {
+  const run = spawnSync(process.execPath, ["dist/generate-cli.js", "generate"], {
+    encoding: "utf8",
+    env: { ...process.env, OPENAI_API_KEY: "" },
+  });
+  assert.equal(run.status, 2);
+  assert.match(run.stderr, /Please specify --provider/);
 });
