@@ -4,6 +4,9 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
+**Last repository review:** 20 November 2026. This document describes functionality already merged into `main`, not work prepared in an unmerged patch.
+
+
 **The structured test runner is implemented and verified in CI. AI functionality is not implemented yet.**
 
 | Item | Current position |
@@ -16,6 +19,9 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Stack | TypeScript, Playwright/Chromium, Node.js and GitHub Actions |
 
 ### What you can use now
+
+**Current workflow:** write or edit a JSON case → validate it → execute it with Playwright/Chromium → inspect a step-by-step report and any failure evidence. The current CLI is deterministic; the `agent` script name does **not** indicate that a language model is running.
+
 
 | Capability | Implemented behaviour |
 | --- | --- |
@@ -68,14 +74,20 @@ git pull --ff-only
 
 ### 2. Install and build
 
-Run these commands from the repository root:
+Open **VS Code → Terminal → Git Bash** on Windows, or a shell of your choice on macOS/Linux. Run the following in the repository root:
 
 ```bash
+node --version
+npm --version
 npm ci
-npx playwright install --with-deps chromium
+npx playwright install chromium
 npm run typecheck
 npm run build
 ```
+
+Node.js 22 or newer is required. If `npm` is not found on Windows despite installing Node.js, restart VS Code so its terminal inherits the new PATH. On Linux CI, the workflow uses `npx playwright install --with-deps chromium` to install operating-system libraries as well.
+
+`npm ci` uses the committed lockfile. The build creates `dist/`. Rebuild after changing TypeScript source; editing a JSON case does not require rebuilding.
 
 The build creates `dist/`. Rebuild after changing TypeScript source. Editing a JSON case does not require a rebuild.
 
@@ -90,6 +102,9 @@ npm run demo
 Leave that terminal running. Open [the task-list demo](http://127.0.0.1:3000) to use it manually. Every page load starts with an empty list.
 
 ### 4. Run the example test
+
+**This is an executable browser test, not just a Playwright installation check.** Its nine JSON-defined steps cover initial state, adding a task, completion and deletion, with assertions along the way.
+
 
 In a second terminal, from the same repository root:
 
@@ -107,14 +122,41 @@ npm run agent -- run examples/add-task.json
 
 Edit [examples/add-task.json](examples/add-task.json) to change the steps, task name or expected results, then rerun the command. The case is executed directly; no generated test script is involved.
 
+## Modify and rerun an existing test
+
+Tests are defined in plain JSON. Open [`examples/add-task.json`](examples/add-task.json) and change a test value, description or expected result. For instance, the initial status assertion currently uses:
+
+```json
+{
+  "kind": "assert-text",
+  "target": { "by": "role", "role": "status" },
+  "expected": "0 tasks, 0 completed",
+  "provenance": "human-confirmed"
+}
+```
+
+Change the expected status to an incorrect value such as `"99 tasks, 0 completed"`, save the JSON and run the example again. The runner should report `assertion-failed`, include expected/observed text, stop before later actions, and attempt to save a screenshot and trace.
+
+**Do not commit deliberate failures to `main`.** Undo experimental edits after testing. Currently, JSON cases are modified manually; editing scripts by demonstrating a browser interaction is planned but not implemented.
+
 ## Run the automated checks
 
 After installation and building:
 
 ```bash
+npm run typecheck
+npm run build
 npm run test:unit
 npm test
 ```
+
+Run the Playwright tests in its interactive UI if you prefer:
+
+```bash
+npm run test:ui
+```
+
+The test UI controls **the project's automated checks**, not the proposed human–AI takeover interface.
 
 The browser suite starts the demo server automatically. Locally, it can reuse an already-running demo on port 3000. You do not need to start the demo separately for these checks.
 
@@ -168,6 +210,19 @@ npx playwright show-report
 | 1 | An assertion failed |
 | 2 | Invalid input, missing target or another execution error |
 
+## Troubleshooting (Windows / VS Code)
+
+| Symptom | What to check |
+| --- | --- |
+| `npm: command not found` | Install Node.js 22+ (npm is bundled), restart VS Code, then check `node --version` and `npm --version` |
+| Browser executable is missing | Run `npx playwright install chromium` in the repository directory |
+| `Cannot find module dist/...` | Run `npm run build` and confirm you're in the repository root |
+| `EADDRINUSE` for port 3000 | Close the earlier demo terminal or stop the process already using port 3000 |
+| Test exits with code 1 | Check the assertion's `expected` and `observed` values in its `report.json` |
+| Test exits with code 2 | Check for invalid JSON, an unsupported action, missing/ambiguous target, navigation boundary or browser error |
+| `trace.zip` missing on a passing test | Expected: the structured runner saves failure traces, not traces for passing runs |
+| Generated JSON from AI not available | AI generation isn't on `main` yet; the current case is manually authored |
+
 ## Case format and current limits
 
 A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. Each step has an ID, description and action. See the [complete example](examples/add-task.json).
@@ -180,6 +235,20 @@ A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. E
 - Navigation and network requests are limited to the configured HTTP(S) application origin. Applications requiring third-party resources are outside this milestone's scope.
 - Each case starts a fresh session. Authentication setup, reusable data fixtures and multi-user workflows remain future work.
 - Headed mode is implemented; the automated CI checks run headlessly.
+
+## Development status and next milestones
+
+| Milestone | Status |
+| --- | --- |
+| Project setup, TypeScript, Playwright and GitHub Actions | Implemented |
+| Structured JSON runner, validation, browser evidence and demo | Implemented and CI-verified |
+| Generate a reviewable test from requirements or a page snapshot | **In development; not merged** |
+| Record test steps from human browser use | Planned |
+| Edit an existing test by observing a user's corrections | Planned |
+| Live human ↔ AI browser handoff and playback controls | Planned |
+| Export independent TypeScript test scripts | Planned |
+
+The requirements-to-test feature has been drafted separately, but should only be documented as available here after its branch passes review and merges.
 
 ## Direction and next milestones
 
