@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { generateDraft, type ModelProvider } from "../src/generation.js";
 import { runTest } from "../src/runner.js";
+import { fixtureProvider } from "../src/local-providers.js";
 import type { TestDefinition } from "../src/domain.js";
 
 test.use({ trace: "off" });
@@ -36,6 +37,24 @@ test("creates a valid review-only draft using a live page snapshot", async ({ br
   expect(draft.snapshot.controls).toContainEqual({ kind: "button", name: "Add", type: "submit" });
   expect(draft.snapshot.controls).toContainEqual({ kind: "textbox", name: "Task", type: "text" });
 });
+test("offline fixture mode generates a valid draft and it runs with no model", async ({ browser }, info) => {
+  const draft = await generateDraft({
+    baseURL,
+    model: "deterministic-fixture",
+    requirements: "Add and complete a task then remove it",
+  }, fixtureProvider(), browser);
+  expect(draft.needsReview).toBe(true);
+  expect(draft.definition.steps).toHaveLength(9);
+  expect(draft.definition.steps.some(s =>
+    (s.action.kind === "assert-text" || s.action.kind === "assert-visible") &&
+    s.action.provenance === "human-confirmed"
+  )).toBe(false);
+  const report = await runTest(draft.definition, {
+    baseURL, outputDir: info.outputPath("fixture-run"),
+  }, browser);
+  expect(report.status).toBe("passed");
+});
+
 test("rejects a model falsely claiming human confirmation", async ({ browser }) => {
   const definition = await fixture();
   await expect(generateDraft({
