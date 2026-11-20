@@ -1,134 +1,217 @@
 # AI UI Testing Agent
 
-> **Status: Early development — architecture defined; AI functionality not yet implemented.**
+A UI testing platform being built around editable test definitions and human–AI collaboration.
 
-An AI-native UI test automation platform designed around **human–AI collaboration**. The long-term goal is to let a QA engineer design, demonstrate, run, amend, and maintain UI tests without having to work directly with conventional automation frameworks—while still being able to export editable, standalone test code.
+## Current status
 
+**The structured test runner is implemented and verified in CI. AI functionality is not implemented yet.**
 
-## Vision
-
-A QA engineer should be able to:
-
-1. Supply application requirements **or** ask an AI agent to explore an application and propose test cases.
-2. Demonstrate a user journey in a live browser and turn that interaction into an executable test.
-3. Run a test while watching the browser, adjusting speed, pausing, stepping, or skipping.
-4. Hand browser control to the AI at **any point** and take control back, retaining session state.
-5. Load an **existing** test, demonstrate a correction, review a proposed diff, and update the test.
-6. Export maintainable TypeScript tests and run them independently in GitHub Actions.
-7. Inspect evidence, failures, assumptions and test changes rather than accepting opaque AI decisions.
-
-A separate functionality tracker records the scope and distinguishes **Accepted**, **Proposed**, **To be considered later** and **Rejected** from delivery status and release target. It will be added to the repository separately.
-
-## Current scope and technology
-
-| Area | Direction |
+| Item | Current position |
 | --- | --- |
-| Primary language | TypeScript |
-| Browser adapter | Playwright (proposed; Chromium first) |
-| First exported test format | Standalone TypeScript / Playwright |
-| Test representation | Framework-independent, structured test definitions |
-| CI/CD | GitHub Actions |
-| AI orchestration | Provider and SDK to be selected |
-| User experience | Observable browser sessions with human/AI handoff |
+| Latest implementation | `feature/structured-runner` |
+| Review | [Pull request #1](https://github.com/leonard01/ai-ui-testing-agent/pull/1), open and not merged |
+| Default branch | `main` contains the earlier foundation; use the feature branch for the runner and demo |
+| Verification | **13 checks passed:** 7 validation/CLI checks and 6 browser integration checks |
+| Evidence | [Successful runner CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44742359816) |
+| Stack | TypeScript, Playwright/Chromium, Node.js and GitHub Actions |
 
-The tool owns the *test definitions and workflow*. Playwright is a likely browser execution and export backend, not the central product abstraction.
+### What you can use now
 
-## Project status
+| Capability | Implemented behaviour |
+| --- | --- |
+| JSON test cases | Edit steps and expected results without writing a Playwright test |
+| Validation | Reject malformed cases, unsupported actions, duplicate step IDs and missing assertions before opening the browser |
+| Browser actions | Navigate, click and fill |
+| Assertions | Check exact normalized text and element visibility |
+| Target descriptions | Exact role/name, label or text matching |
+| Isolated runs | Start each case in a fresh browser context |
+| Visible execution | Use `--headed` to watch Chromium locally |
+| Results | JSON verdict, individual step outcomes, timings and expected/observed text |
+| Failure handling | Stop at the first failure and mark later steps as skipped |
+| Failure evidence | Attempt to save a screenshot and browser trace; record evidence-capture errors separately |
+| Demo application | Add, complete and delete tasks on a local webpage |
+| CI | Type-check, compile, run unit/browser checks and upload reports |
 
-This repository contains a validated JSON test format, a structured browser runner, a command-line interface and a local task-list demo. Tests execute through Playwright and produce JSON step results with screenshots and traces on failure. The AI agent, recorder, interactive browser controls, existing-test editor, code exporter and test generator remain planned capabilities.
+The example case has nine steps covering an empty list, adding a task, checking visibility, marking it complete, checking the count, deleting it and checking the empty state again.
 
-### Initial implementation milestones
+### Not implemented yet
 
-- **M0 — Repository foundation:** TypeScript configuration, test runner, CI checks, architecture documentation and feature register.
-- **M1 — One end-to-end AI-authored test:** Application URL and/or requirements → structured case → browser execution → evidence → TypeScript export.
-- **M2 — Record and edit:** Observe a human browser demonstration to create or revise a test; show changes for approval.
-- **M3 — Live human/AI collaboration:** Visible execution, pause/step/skip/speed, AI takeover and manual takeover in the same browser session.
-- **M4 — Reliability and portability:** Export verification, CI runs, diagnostics, test-data controls, safety boundaries and benchmark suites.
-- **M5 — Wider roadmap:** Work through the remaining proposed and later-release features in the tracker, with explicit prioritization.
+- AI-generated test cases, with or without supplied requirements.
+- AI discovery of workflows or interpretation of browser targets.
+- Recording a user's interactions into a test case.
+- Execution speed controls, pause/resume, single-step, skip and manual takeover.
+- A test-management interface or editing existing tests by demonstration.
+- Exporting cases as standalone TypeScript scripts.
+- API, mobile and load testing, or additional language exporters.
 
-## Development setup
+The current runner executes explicitly authored cases. Its data contracts and browser actions provide the execution layer for these later capabilities.
 
-Requirements: Node.js 22 or later and npm. Use Node.js 22 to match CI.
+## Quick start
+
+**Requirements:** Node.js 22 or later, npm and a computer that can run Chromium. Use Node.js 22 to match CI. No model account or API key is required.
+
+### 1. Get the implementation branch
+
+For a new checkout:
+
+```bash
+git clone --branch feature/structured-runner https://github.com/leonard01/ai-ui-testing-agent.git
+cd ai-ui-testing-agent
+```
+
+If you already have a checkout, fetch and switch to `feature/structured-runner` first:
+
+```bash
+git fetch origin
+git switch feature/structured-runner
+```
+
+### 2. Install and build
+
+Run these commands from the repository root:
 
 ```bash
 npm ci
 npx playwright install --with-deps chromium
 npm run typecheck
 npm run build
-npm run test:unit
-npm test
 ```
 
-The smoke test creates a small page locally, clicks a button and verifies the status changes. It needs no external website, model credentials or AI service. It verifies the browser tooling, not AI functionality.
+The build creates `dist/`. Rebuild after changing TypeScript source. Editing a JSON case does not require a rebuild.
 
-The runner integration tests start the local demo server automatically. They verify a complete task lifecycle, fresh sessions, assertion failures, missing targets, failure artifacts and CLI exit codes. Tests of expected failure handling pass when the runner correctly reports that failure.
+### 3. Start the demo
 
-## Run a structured test case
-
-After building, start the demo in one terminal:
+In your first terminal:
 
 ```bash
 npm run demo
 ```
 
-Open http://127.0.0.1:3000 to use the demo yourself. In another terminal:
+Leave that terminal running. Open [the task-list demo](http://127.0.0.1:3000) to use it manually. Every page load starts with an empty list.
+
+### 4. Run the example test
+
+In a second terminal, from the same repository root:
 
 ```bash
 npm run agent -- run examples/add-task.json --headed
 ```
 
-Omit `--headed` to run without a visible browser. Edit the JSON case to change the steps and expected results, then run it again. No Playwright test script is needed to author a case.
+Chromium opens, performs the nine-step case and closes when the run ends. The terminal prints the result and report path.
 
-Optional flags: `--base-url http://127.0.0.1:3000`, `--timeout 5000` (per action or assertion, 1–60000 milliseconds), and `--output run-results/my-run`. The default output directory is unique per invocation; reusing an explicit directory replaces its report. Run one process per explicit output directory.
+For a headless run, omit `--headed`:
 
-Supported actions are `navigate`, `click`, `fill`, `assert-text` and `assert-visible`. Targets use exact role/name, label or text matching. Text assertions compare text content after collapsing whitespace. Assertions carry requirement, human-confirmed or inferred provenance. The first step must navigate, step IDs must be unique, and every case must contain an assertion.
+```bash
+npm run agent -- run examples/add-task.json
+```
 
-The runner validates the case before launching Chromium, uses a fresh browser context, and stops execution at the first failure. Later steps are recorded as skipped. Navigation and network requests are restricted to the configured application origin, so third-party-dependent applications are outside this milestone's scope.
+Edit [examples/add-task.json](examples/add-task.json) to change the steps, task name or expected results, then rerun the command. The case is executed directly; no generated test script is involved.
 
-Each run writes `report.json` with its verdict, per-step timings, expected/observed text and errors. Failures after a page is created attempt to save `failure.png` and `trace.zip`. Evidence-capture errors are recorded separately. Invalid cases and browser launch errors still produce an execution-error report. Report-writing failures are printed to the terminal.
+## Run the automated checks
 
-| CLI exit code | Meaning |
+After installation and building:
+
+```bash
+npm run test:unit
+npm test
+```
+
+The browser suite starts the demo server automatically. Locally, it can reuse an already-running demo on port 3000. You do not need to start the demo separately for these checks.
+
+| Check group | What it verifies |
+| --- | --- |
+| 7 validation/CLI checks | Valid and invalid schemas, unique IDs, required assertions, navigation boundaries, error reports and unreadable files |
+| 6 browser integration checks | Task lifecycle and fresh sessions, incorrect expectations, missing targets, failure artifacts, CLI success/failure exit codes and the original smoke test |
+
+Tests that deliberately supply an incorrect expectation pass when the runner correctly reports an assertion failure. They do not change the expectation to make the case pass.
+
+GitHub Actions runs on pushes to `main`, pull requests and manual dispatch. It uploads HTML/JUnit reports and test output as the `playwright-results` artifact. The original foundation and this runner milestone have both been verified in CI.
+
+## CLI options and results
+
+```bash
+npm run agent -- run examples/add-task.json --base-url http://127.0.0.1:3000 --timeout 5000 --output run-results/demo --headed
+```
+
+| Option | Purpose | Default |
+| --- | --- | --- |
+| `--base-url` | Application origin and base for relative navigation | `http://127.0.0.1:3000` |
+| `--timeout` | Timeout per action/assertion, in milliseconds; 1–60000 | `5000` |
+| `--output` | Report and evidence directory | A unique directory inside `run-results/` |
+| `--headed` | Show the browser locally | Off |
+
+Use a separate output directory for concurrent runs. Reusing an explicit directory replaces its report.
+
+| Output | When produced |
+| --- | --- |
+| `report.json` | Test-case runs, including file-read, validation and browser-launch errors, when the output directory is writable |
+| `failure.png` | Attempted on a failed run after a browser page has been created |
+| `trace.zip` | Attempted on a failed run after tracing has started |
+
+The report distinguishes `passed`, `assertion-failed` and `execution-error`. Later steps become `skipped` after the first failure. Evidence-capture errors are recorded separately. Invalid CLI usage and report-writing errors are printed to the terminal.
+
+To inspect a failed run saved to `run-results/demo`:
+
+```bash
+npx playwright show-trace run-results/demo/trace.zip
+```
+
+For the automated suite's HTML report:
+
+```bash
+npx playwright show-report
+```
+
+| Exit code | Meaning |
 | --- | --- |
 | 0 | All steps and assertions passed |
 | 1 | An assertion failed |
 | 2 | Invalid input, missing target or another execution error |
 
-These are deterministic authored cases. The runner does not yet infer targets, generate test cases, pause execution or export scripts.
+## Case format and current limits
 
-GitHub Actions runs these checks on pushes to main and pull requests, and can be started manually. HTML and JUnit reports are uploaded as artifacts; failed tests also retain screenshots and traces. The foundation passed its first [GitHub Actions run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44738495584), including dependency installation, Chromium setup, type-checking, compilation and the browser smoke test.
+A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. Each step has an ID, description and action. See the [complete example](examples/add-task.json).
 
-## Design principles
+- Supported actions: `navigate`, `click`, `fill`, `assert-text` and `assert-visible`.
+- The first step must navigate; every case must contain an assertion and have unique step IDs.
+- Assertions specify expectation provenance: `requirements`, `human-confirmed` or `inferred`. The runner preserves the supplied case's meaning; it does not infer correctness.
+- Text assertions compare text content after collapsing whitespace.
+- Targets must identify one element. A missing or ambiguous target is an execution error.
+- Navigation and network requests are limited to the configured HTTP(S) application origin. Applications requiring third-party resources are outside this milestone's scope.
+- Each case starts a fresh session. Authentication setup, reusable data fixtures and multi-user workflows remain future work.
+- Headed mode is implemented; the automated CI checks run headlessly.
 
-- **AI assists; humans remain in control.** Browser control can be explicitly transferred in either direction.
-- **Preserve existing tests.** Script edits must be reviewable; unchanged steps should stay unchanged.
-- **Do not confuse observed behaviour with correct behaviour.** Requirements, confirmed expectations, and AI assumptions must be distinguishable.
-- **No silent assertion healing.** A test must not be made to pass by weakening expected outcomes without approval.
-- **Portable outputs.** Exported TypeScript should run outside this application.
-- **Repeatable execution first.** Prefer stable replay; use AI reasoning when needed rather than for every action.
-- **Safe browser automation.** Restrict permitted hosts/actions and treat webpage text as untrusted input.
-- **Evidence over claims.** Record execution diagnostics and publish measured benchmark results when available.
+## Direction and next milestones
+
+The long-term goal is to let a QA engineer design, demonstrate, execute and maintain tests through an AI-assisted interface while retaining editable definitions, reviewable changes and portable code exports.
+
+The next steps are to build AI generation and target resolution on the structured runner, then add recording, interactive execution controls and TypeScript export. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
+
+Design principles:
+
+- Keep humans in control of browser ownership and changes to expected behaviour.
+- Distinguish observed behaviour from specified or confirmed behaviour.
+- Preserve assertions and evidence rather than silently weakening checks.
+- Prefer repeatable execution and use AI reasoning where it adds value.
+- Keep the test representation independent of its browser backend.
 
 ## Project structure
 
 ```text
-.github/workflows/ci.yml      TypeScript, unit and browser integration checks
-src/domain.ts                Test, step, report and session types
-src/schema.ts                Strict validation of JSON test definitions
-src/runner.ts                Structured browser execution and evidence
-src/cli.ts                   Command-line entry point
-src/demo/server.ts           Local demo server
-src/index.ts                 Public exports
-demo/index.html              Task-list application under test
-examples/add-task.json       Editable nine-step lifecycle case
-tests/runner.spec.ts          Browser and CLI integration tests
-tests/unit/schema.test.mjs   Validation and pre-browser rejection tests
-tests/smoke.spec.ts           Browser tooling smoke test
-planning/                     Planned requirements register (not committed yet)
-docs/architecture.md          Planned architecture document
-docs/roadmap.md               Planned detailed roadmap
-docs/decisions/               Planned architecture decision records
+.github/workflows/ci.yml     TypeScript, unit and browser integration checks
+src/domain.ts               Test, step, report and session types
+src/schema.ts               Strict validation of JSON test definitions
+src/runner.ts               Structured browser execution and evidence
+src/cli.ts                  Command-line entry point
+src/demo/server.ts          Local demo server
+src/index.ts                Public exports
+demo/index.html             Application under test
+examples/add-task.json      Editable nine-step lifecycle case
+tests/runner.spec.ts        Browser and CLI integration checks
+tests/unit/schema.test.mjs  Validation and pre-browser rejection checks
+tests/smoke.spec.ts         Browser tooling smoke test
 ```
 
 ## Contributions
 
-This is initially a solo portfolio project. Feedback, issues and discussion are welcome.
+Feedback, issues and discussion are welcome.
