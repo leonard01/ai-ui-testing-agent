@@ -36,24 +36,32 @@ function withIntent(original: TestDefinition): TestDefinition {
   return definition;
 }
 
-async function executePortable(source: string, dir: string, environmentURL = baseURL) {
-  await mkdir(dir, { recursive: true });
-  const spec = join(dir, "independent.spec.ts");
-  const config = join(dir, "playwright.config.cjs");
-  await writeFile(spec, source);
-  await writeFile(config, [
-    "module.exports = {",
-    "  testDir: " + JSON.stringify(dir) + ",",
-    '  testMatch: "**/independent.spec.ts",',
-    "  workers: 1,",
-    '  reporter: "line",',
-    '  use: { browserName: "chromium" },',
-    "};",
-    "",
-  ].join("\n"));
-  return execute(process.execPath, [
-    resolve("node_modules/@playwright/test/cli.js"), "test", "--config", config,
-  ], { cwd: process.cwd(), timeout: 40_000, env: { ...process.env, TEST_BASE_URL: environmentURL } });
+async function executePortable(source: string, resultsDir: string, environmentURL = baseURL) {
+  // Playwright skips the repository's ignored test-results directory when
+  // collecting tests. Generate the independent spec under tests/ instead,
+  // with a unique folder and clean it up immediately after the child run.
+  const dir = await mkdtemp(join(resolve("tests"), "portable-export-"));
+  try {
+    const spec = join(dir, "independent.spec.ts");
+    const config = join(dir, "playwright.config.cjs");
+    await writeFile(spec, source);
+    await writeFile(config, [
+      "module.exports = {",
+      "  testDir: " + JSON.stringify(dir) + ",",
+      "  outputDir: " + JSON.stringify(resultsDir) + ",",
+      '  testMatch: "**/independent.spec.ts",',
+      "  workers: 1,",
+      '  reporter: "line",',
+      '  use: { browserName: "chromium" },',
+      "};",
+      "",
+    ].join("\n"));
+    return await execute(process.execPath, [
+      resolve("node_modules/@playwright/test/cli.js"), "test", "--config", config,
+    ], { cwd: process.cwd(), timeout: 40_000, env: { ...process.env, TEST_BASE_URL: environmentURL } });
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
 }
 
 test("portable TypeScript passes in a separate Playwright process with live intent targets", async ({}, info) => {
