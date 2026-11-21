@@ -324,6 +324,64 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await expect(page.locator("#run-summary")).toContainText("PASSED");
 });
 
+test("editable DOM search works with no initial suggestions and cannot silently fix expectation", async ({ page }) => {
+  const site = createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end('<!doctype html><body><div>Sauce Labs Backpack</div>' +
+      '<button>Add to cart</button></body>');
+  });
+  await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
+  const baseURL = "http://127.0.0.1:" + (site.address() as AddressInfo).port;
+  try {
+    const definition = { schemaVersion: 1, id: "must-not-auto-pass",
+      title: "Missing expected product", version: 1, steps: [
+        { id: "open", description: "Open", action: { kind: "navigate", url: "/" } },
+        { id: "missing", description: "Check incorrect expectation", action: {
+          kind: "assert-text", target: { by: "role", role: "button", name: "Add to cart" },
+          expected: "Sauce Labs Laptop", provenance: "requirements",
+        } },
+      ],
+    };
+    const savedResponse = await page.request.post(url + "/api/save", {
+      data: { definition, baseURL },
+    });
+    expect(savedResponse.status()).toBe(200);
+    const saved = await savedResponse.json();
+    await page.goto(url);
+    await page.getByLabel("Application URL").fill(baseURL);
+    await page.getByLabel("Approved saved test").selectOption(saved.id);
+    await page.getByRole("button", { name: "Run selected test" }).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const picker = page.locator(".run-step").nth(1).locator(".assertion-dom-repair");
+    await expect(picker).toBeVisible();
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(0);
+    const field = picker.getByLabel("Search visible DOM text");
+    await expect(field).toHaveValue("Sauce Labs Laptop");
+    await field.fill("Backpack");
+    await picker.getByRole("button", { name: "Search captured DOM" }).click();
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
+    await expect(picker).toContainText("Sauce Labs Backpack");
+    await picker.locator('input[type="radio"]').check();
+    await picker.getByRole("button", { name: "Save corrected assertion target and rerun" }).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const currentId = await page.getByLabel("Approved saved test").inputValue();
+    expect(currentId).not.toBe(saved.id);
+    expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+    const amended = JSON.parse(await readFile(join(outputDir, currentId), "utf8"));
+    expect(amended.steps[1].action).toEqual({
+      kind: "assert-text", target: { by: "text", value: "Sauce Labs Backpack" },
+      expected: "Sauce Labs Laptop", provenance: "requirements",
+    });
+    await expect(page.locator(".run-step").nth(1)).toContainText('expected "Sauce Labs Laptop"');
+    await expect(page.locator(".run-step").nth(1)).toContainText('observed "Sauce Labs Backpack"');
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      site.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("wrong existing button text assertion searches product div and repairs selector via UI", async ({ page }) => {
   const site = createServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
