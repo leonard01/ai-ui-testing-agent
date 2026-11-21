@@ -10,7 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
-import { AmbiguousIntentError, discoverTarget } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -189,6 +189,22 @@ export async function runTest(
           // Evidence comes from the live DOM, not an AI guess or error parsing.
           // Execution deliberately stops without acting on any candidate.
           result.ambiguity = error.ambiguity;
+        } else if (page && (step.action.kind === "click" || step.action.kind === "fill") &&
+          step.action.target.by !== "intent" && result.status === "execution-error" &&
+          /Timeout.*exceeded|strict mode violation|waiting for getBy/i.test(message(error))) {
+          try {
+            const currentLocator = locate(page, step.action.target);
+            // Only propose a replacement when the declared target no longer
+            // resolves to exactly one element. Never override app action failures.
+            if (await currentLocator.count() !== 1) {
+              const alternatives = await findLocatorAlternatives(
+                page, step.action.target, step.action.kind,
+              );
+              if (alternatives.candidates.length) result.locatorAlternatives = alternatives;
+            }
+          } catch {
+            // Preserve the original failure even if optional discovery fails.
+          }
         }
         result.error = message(error);
         report.status = result.status;
