@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { join } from "node:path";
 
 export const SAVED_NAME = /^reviewed-\d{13}-[a-f0-9]{8}\.json$/;
@@ -34,7 +35,7 @@ export function websiteDirectory(savedDir: string, raw: string): string {
  */
 export async function listSavedFiles(savedDir: string): Promise<Array<{ id: string; path: string }>> {
   const files: Array<{ id: string; path: string }> = [];
-  let entries: Awaited<ReturnType<typeof readdir<"utf8">>> | undefined;
+  let entries: Dirent[];
   try {
     entries = await readdir(savedDir, { withFileTypes: true });
   } catch (error) {
@@ -46,7 +47,7 @@ export async function listSavedFiles(savedDir: string): Promise<Array<{ id: stri
       files.push({ id: entry.name, path: join(savedDir, entry.name) });
     }
   }
-  let sites: typeof entries;
+  let sites: Dirent[];
   try {
     sites = await readdir(join(savedDir, "sites"), { withFileTypes: true });
   } catch (error) {
