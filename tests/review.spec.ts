@@ -276,6 +276,78 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   });
 });
 
+test("missing Add label exposes live Add button for UI-only repair and complete rerun", async ({ page }) => {
+  const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  definition.id = "test-one-missing-add";
+  definition.title = "Buy groceries task lifecycle";
+  for (const step of definition.steps) {
+    step.description = step.description.replaceAll("Prepare interview", "Buy groceries");
+    if (typeof step.action.value === "string") {
+      step.action.value = step.action.value.replaceAll("Prepare interview", "Buy groceries");
+    }
+    const target = step.action.target;
+    if (target?.name) target.name = target.name.replaceAll("Prepare interview", "Buy groceries");
+    if (target?.value) target.value = target.value.replaceAll("Prepare interview", "Buy groceries");
+  }
+  definition.steps[3].action.target = { by: "label", value: "Add" };
+  const savedResponse = await page.request.post(url + "/api/save", {
+    data: { definition, baseURL: "http://127.0.0.1:3000" },
+  });
+  expect(savedResponse.status(), await savedResponse.text()).toBe(200);
+  const saved = await savedResponse.json();
+  await page.goto(url);
+  await page.getByLabel("Approved saved test").selectOption(saved.id);
+  await page.getByRole("button", { name: "Run selected test" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
+  await expect(page.locator("#run-summary")).toContainText("FAILED");
+  const failed = page.locator(".run-step").nth(3);
+  await expect(failed).toContainText("getByLabel('Add'");
+  const repair = failed.locator(".locator-repair");
+  await expect(repair).toBeVisible();
+  await expect(repair).toContainText("Failed locator: field labelled \"Add\"");
+  await expect(repair.locator(".locator-option")).toHaveCount(1);
+  await expect(repair).toContainText("button named Add");
+  const save = repair.getByRole("button", { name: "Save corrected locator and rerun from start" });
+  await expect(save).toBeDisabled();
+  const reportLink = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  if (!reportLink) throw new Error("Missing report link");
+  const report = await (await fetch(url + reportLink)).json();
+  expect(report.steps[3].locatorAlternatives).toMatchObject({
+    attempted: { by: "label", value: "Add" },
+    total: 1,
+    candidates: [{ role: "button", name: "Add" }],
+  });
+  const runId = reportLink.split("/")[3];
+  const tampered = await page.request.post(url + "/api/repair-target", {
+    data: { runId, stepId: "enter", candidateIndex: 0 },
+  });
+  expect(tampered.status()).toBe(400);
+  const outOfRange = await page.request.post(url + "/api/repair-target", {
+    data: { runId, stepId: "add", candidateIndex: 99 },
+  });
+  expect(outOfRange.status()).toBe(400);
+
+  await repair.locator(".locator-option input[type=radio]").check();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  const correctedId = await page.getByLabel("Approved saved test").inputValue();
+  expect(correctedId).not.toBe(saved.id);
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  const corrected = JSON.parse(await readFile(join(outputDir, correctedId), "utf8"));
+  expect(original.steps[3].action.target).toEqual({ by: "label", value: "Add" });
+  expect(corrected.steps[3].action.target).toEqual({
+    by: "role", role: "button", name: "Add",
+  });
+  expect(corrected.steps.filter((step: { id: string }) => step.id !== "add"))
+    .toEqual(original.steps.filter((step: { id: string }) => step.id !== "add"));
+  const finalReportLink = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  const final = await (await fetch(url + finalReportLink)).json();
+  expect(final.status).toBe("passed");
+  expect(final.steps.every((step: { status: string }) => step.status === "passed")).toBe(true);
+});
+
 test("human chooses among live checkbox candidates; repaired copy reruns successfully", async ({ page }) => {
   const ambiguous = {
     schemaVersion: 1,
