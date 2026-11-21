@@ -44,7 +44,7 @@ async function executePortable(source: string, dir: string, environmentURL = bas
   await writeFile(config, [
     "module.exports = {",
     "  testDir: " + JSON.stringify(dir) + ",",
-    '  testMatch: "independent.spec.ts",',
+    '  testMatch: "**/independent.spec.ts",',
     "  workers: 1,",
     '  reporter: "line",',
     '  use: { browserName: "chromium" },',
