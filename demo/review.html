@@ -204,8 +204,14 @@
       if (action.kind === "navigate") return 'Open "' + action.url + '"';
       if (action.kind === "fill") return 'Enter "' + action.value + '" into ' + describeTarget(action.target);
       if (action.kind === "click") return "Click " + describeTarget(action.target);
+      if (action.kind === "check") return "Check " + describeTarget(action.target);
+      if (action.kind === "uncheck") return "Uncheck " + describeTarget(action.target);
+      if (action.kind === "select-option") return 'Select option value "' + action.value + '" in ' + describeTarget(action.target);
+      if (action.kind === "press") return 'Press ' + action.key + " on " + describeTarget(action.target);
       if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + ' equals "' + action.expected + '"';
       if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
+      if (action.kind === "assert-count") return "Verify " + describeTarget(action.target) + " matches " + action.expected + " elements";
+      if (action.kind === "assert-url") return 'Verify current URL equals "' + action.expected + '"';
       return "Unsupported action";
     }
     function labeledInput(parent, name, value, onChange) {
@@ -223,6 +229,10 @@
       labeledInput(edits, "Description", clone.description, (v) => { clone.description = v; });
       if (clone.action.kind === "navigate") {
         labeledInput(edits, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
+      } else if (clone.action.kind === "assert-url") {
+        labeledInput(edits, "Expected URL / path", clone.action.expected, (v) => {
+          clone.action.expected = v;
+        });
       } else {
         const strategyLabel = make("label", "Locator strategy");
         const strategySelect = make("select");
@@ -230,7 +240,8 @@
           ["role", "Accessible role and name"],
           ["label", "Form label"],
           ["text", "Visible text"],
-          ["intent", "Live DOM intent (recommended for unknown elements)"],
+          ...(clone.action.kind === "assert-count" ? [] :
+            [["intent", "Live DOM intent (recommended for unknown elements)"]]),
         ]) {
           const option = make("option", title);
           option.value = value;
@@ -250,7 +261,7 @@
             });
             const roleLabel = make("label", "Expected role (optional)");
             const roleSelect = make("select");
-            for (const role of ["", "button", "textbox", "checkbox", "heading", "status", "listitem"]) {
+            for (const role of ["", "button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]) {
               const option = make("option", role || "Any");
               option.value = role;
               roleSelect.append(option);
@@ -265,7 +276,7 @@
           } else if (t.by === "role") {
             const roleLabel = make("label", "Element role");
             const roleSelect = make("select");
-            for (const role of ["button", "textbox", "checkbox", "heading", "status", "listitem"]) {
+            for (const role of ["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]) {
               const option = make("option", role);
               option.value = role;
               roleSelect.append(option);
@@ -289,13 +300,17 @@
           if (strategySelect.value === "role") {
             clone.action.target = {
               by: "role",
-              role: clone.action.kind === "fill" ? "textbox" : "button",
+              role: clone.action.kind === "fill" || clone.action.kind === "press"
+                ? "textbox" : clone.action.kind === "select-option" ? "combobox" :
+                ["check", "uncheck"].includes(clone.action.kind) ? "checkbox" : "button",
               ...(name ? { name } : {}),
             };
           } else if (strategySelect.value === "intent") {
             clone.action.target = {
               by: "intent", value: name || step.description,
-              ...(clone.action.kind === "fill" ? { role: "textbox" } : {}),
+              ...(clone.action.kind === "fill" || clone.action.kind === "press" ? { role: "textbox" } :
+                clone.action.kind === "select-option" ? { role: "combobox" } :
+                ["check", "uncheck"].includes(clone.action.kind) ? { role: "checkbox" } : {}),
             };
           } else {
             clone.action.target = { by: strategySelect.value, value: name };
@@ -303,11 +318,41 @@
           renderLocatorFields();
         });
         renderLocatorFields();
-        if (clone.action.kind === "fill") {
-          labeledInput(edits, "Value to enter", clone.action.value, (v) => { clone.action.value = v; });
+        if (clone.action.kind === "fill" || clone.action.kind === "select-option") {
+          labeledInput(edits, clone.action.kind === "fill" ? "Value to enter" : "Option value",
+            clone.action.value, (v) => { clone.action.value = v; });
+        }
+        if (clone.action.kind === "press") {
+          const label = make("label", "Keyboard key");
+          const input = make("select");
+          for (const key of ["Enter", "Tab", "Escape", "Backspace", "Delete",
+              "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space",
+              "Home", "End", "PageUp", "PageDown"]) {
+            const option = make("option", key);
+            option.value = key;
+            input.append(option);
+          }
+          input.value = clone.action.key;
+          input.addEventListener("change", () => { clone.action.key = input.value; });
+          label.append(input);
+          edits.append(label);
         }
         if (clone.action.kind === "assert-text") {
           labeledInput(edits, "Expected exact text", clone.action.expected, (v) => { clone.action.expected = v; });
+        }
+        if (clone.action.kind === "assert-count") {
+          const label = make("label", "Expected element count");
+          const input = make("input");
+          input.type = "number";
+          input.min = "0";
+          input.max = "100000";
+          input.step = "1";
+          input.value = String(clone.action.expected);
+          input.addEventListener("input", () => {
+            clone.action.expected = input.value === "" ? -1 : Number(input.value);
+          });
+          label.append(input);
+          edits.append(label);
         }
       }
       const buttons = make("div", null, "actions");
