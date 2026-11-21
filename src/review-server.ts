@@ -60,7 +60,7 @@ async function readJSON(req: IncomingMessage): Promise<unknown> {
 function localOrigin(req: IncomingMessage): boolean {
   const host = req.headers.host ?? "";
   const origin = req.headers.origin;
-  return /^127\\.0\\.0\\.1:\\d+$/.test(host) && (!origin || origin === "http://" + host);
+  return /^127\.0\.0\.1:\d+$/.test(host) && (!origin || origin === "http://" + host);
 }
 
 function requestDetails(body: unknown): { baseURL: string; requirements: string; provider: "groq" | "fixture" } {
