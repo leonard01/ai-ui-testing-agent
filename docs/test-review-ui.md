@@ -48,6 +48,19 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
+## Debugging GroqCloud HTTP 400 during generation
+
+If the GroqCloud model rejects a request, the review interface now separates:
+- **Local input validation** (HTTP 400 from the local Test Builder)
+- **Upstream GroqCloud errors** (Groq may return HTTP 400; the Test Builder responds with HTTP 502 and labels the **provider HTTP status**)
+- **JSON/schema generation validation** (HTTP 422 from the Test Builder)
+
+The error panel shows a **safe category**, optional provider error code/type/parameter, and length of the **user's instruction text**. The raw upstream error body is deliberately not echoed or logged, because providers sometimes include user input, credentials, or partial completions. No API key should ever be pasted into a bug report.
+
+For critical [Issue #4](https://github.com/leonard01/ai-ui-testing-agent/issues/4), rerun the exact Test 1 requirements after updating and rebuilding. Capture the *whole error panel*, including source, category, provider status and safe code; if a request succeeds, capture the fact that it succeeded. That evidence is required before attributing the HTTP 400 to length, JSON generation, unsupported model settings or another cause. The test input is far shorter than the 12,000-character local limit.
+
+The CI regression exercises a **mocked** Groq HTTP 400; it does not spend provider tokens and does not establish the cause of the user's original live failure. This issue stays open until a real provider reproduction or successful confirmation.
+
 ## Failure diagnoses
 
 Diagnosis is **deterministic**, not a new AI request. Possible categories include assertion mismatch, ambiguous target, locator/timing issue and browser/environment issue. The UI labels likely causes as suggestions, not proven root causes.
