@@ -419,6 +419,8 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     expect(savedResponse.status()).toBe(200);
     const saved = await savedResponse.json();
     await page.goto(url);
+    // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
@@ -484,6 +486,8 @@ test("wrong existing button text assertion searches product div and repairs sele
     const saved = await resp.json();
     const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
+    // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
@@ -618,6 +622,8 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     const saved = await savedResponse.json();
     const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
+    // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
