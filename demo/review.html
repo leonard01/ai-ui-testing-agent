@@ -177,6 +177,7 @@
     let selectedBaseURL = "";
     let running = false;
     let selectedApprovedId = "";
+    let editingSavedId = null;
 
     function make(tag, text, cls) {
       const node = document.createElement(tag);
@@ -710,6 +711,7 @@
       try {
         const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
         definition = payload.definition;
+        editingSavedId = id;
         approvals = new Set();
         selectedBaseURL = $("base-url").value;
         $("saved").replaceChildren();
@@ -721,8 +723,8 @@
         $("draft-title").textContent = "Editing " + definition.title + " · " +
           definition.steps.length + " steps";
         $("draft-hint").textContent = "Loaded an approved test for editing. " +
-          "Review and confirm every step, then save a NEW copy. " +
-          "The original saved test is unchanged.";
+          "Review and confirm every step. When saved, the amended version " +
+          "replaces the old entry in your saved test list.";
         renderSteps();
         $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch(error) {
@@ -793,6 +795,7 @@
             (data.error || "Could not generate draft"));
         }
         definition = data.definition;
+        editingSavedId = null;
         approvals = new Set();
         selectedBaseURL = baseURL;
         $("approved-tests").value = "";
@@ -819,12 +822,17 @@
       try {
         const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ definition, baseURL: selectedBaseURL }),
+          body: JSON.stringify({ definition, baseURL: selectedBaseURL,
+            ...(editingSavedId ? { replaceId: editingSavedId } : {}),
+          }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not save test");
+        editingSavedId = null;
         await refreshApprovedTests(data.id);
-        $("saved").append(make("strong", "Saved and ready to execute. The test has NOT been executed."));
+        $("saved").append(make("strong", data.replacedId
+          ? "Amended test saved; old version removed from the list. Ready to execute."
+          : "Saved and ready to execute. The test has NOT been executed."));
         $("saved").append(make("p", "JSON file: " + data.file));
         const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
         const pre = make("pre", command);
