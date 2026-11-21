@@ -456,14 +456,20 @@
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
-        if (step.status === "execution-error" && step.assertionAlternatives?.candidates?.length) {
+        if ((step.status === "execution-error" || step.status === "assertion-failed") &&
+            step.assertionAlternatives?.candidates?.length) {
           const evidence = step.assertionAlternatives;
+          const mismatch = step.status === "assertion-failed";
           const repair = make("div", null, "locator-repair assertion-dom-repair");
           repair.append(make("h3", "Find assertion target in live DOM"));
-          repair.append(make("p",
-            'The expected element "' + evidence.query + '" was not found using its original locator. ' +
-            "The runner searched visible elements on the page at failure time. " +
-            "Choose a matching element only if it represents the requirement."));
+          repair.append(make("p", mismatch
+            ? 'The original selector read "' + step.observed +
+              '", but the expected "' + evidence.query +
+              '" was found elsewhere as visible page text. ' +
+              "Select the correct element if the test expectation is valid."
+            : 'The expected element "' + evidence.query + '" was not found using its original locator. ' +
+              "The runner searched visible elements on the page at failure time. " +
+              "Choose a matching element only if it represents the requirement."));
           repair.append(make("p", "Original locator: " + describeTarget(evidence.attempted), "muted"));
           const choices = make("fieldset");
           choices.append(make("legend", "Which DOM element should this assertion check?"));
@@ -663,8 +669,10 @@
           review.append(make("h3", "Review failed text assertion"));
           review.append(make("p",
             "The observed text comes from the application, not the test requirements. " +
-            "A mismatch can indicate an application defect or an incorrect test expectation. " +
-            "Only revise this assertion if you have verified what the requirement actually specifies."));
+            "A mismatch can indicate a wrong locator, an application defect, or an incorrect expectation. " +
+            (step.assertionAlternatives?.candidates?.length
+              ? "The expected text is visible elsewhere. Consider repairing the locator above before changing the expected result."
+              : "Only revise this assertion if you have verified what the requirement actually specifies.")));
           review.append(make("p", "Original expected: " + step.expected, "muted"));
           review.append(make("p", "Observed from run: " + step.observed, "muted"));
           const field = make("label", "New expected text");
