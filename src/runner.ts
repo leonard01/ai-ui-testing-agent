@@ -115,6 +115,7 @@ export async function runTest(
       const result: StepResult = {
         id: step.id,
         description: step.description,
+        actionKind: step.action.kind,
         status: "skipped",
         durationMs: 0,
       };
@@ -279,13 +280,15 @@ export async function runTest(
           }
         } else if (page && (step.action.kind === "assert-text" ||
             step.action.kind === "assert-visible") &&
-          step.action.target.by !== "intent" && result.status === "execution-error" &&
-          /Timeout.*exceeded|strict mode violation|waiting for getBy|exactly one element/i.test(message(error))) {
+          result.status === "execution-error") {
           try {
-            const currentLocator = locate(page, step.action.target);
-            // Do not turn a genuine mismatch into a selector repair.
-            // Only search the DOM if the expected target itself is missing.
-            if (await currentLocator.count() === 0) {
+            // The assertion can fail because the model guessed an inaccessible
+            // role/name (not only an explicit Playwright selector). Suggest
+            // other verified targets when the original matches NOTHING.
+            // Never override a real invisible element or change expectations.
+            const missing = step.action.target.by === "intent" ||
+              await locate(page, step.action.target).count() === 0;
+            if (missing) {
               const alternatives = await findAssertionAlternatives(
                 page, step.action.target, step.action.kind,
                 step.action.kind === "assert-text" ? step.action.expected : undefined,
