@@ -73,6 +73,24 @@ npm run generate -- generate --provider groq --model openai/gpt-oss-20b --requir
 
 The OpenAI option remains available via `--provider openai`, but AI inference is never required to run an approved test. CI mocks all model providers and makes no real hosted-model request; it verifies tooling, not live-model quality. See [all four setup paths and limitations](docs/requirements-generation.md).
 
+### Live DOM discovery for intent-based test steps (feature branch)
+
+The runner now supports a selector-free **intent target**, resolved against the DOM **when that step executes**:
+
+```json
+"target": { "by": "intent", "value": "Add task", "role": "button" }
+```
+
+Playwright examines relevant visible elements and their nearby text, checks uniqueness, and records the verified match in the step's `resolution` section of `report.json`. Ambiguous or missing matches stop safely rather than guess. This supports dynamically created controls and poorly associated labels, while existing role/label/text targets remain compatible. AI drafting is instructed to prefer intent targets when element details are unknown.
+
+```bash
+# Terminal 1: npm run demo
+# Terminal 2:
+npm run agent -- run examples/task-intent.json
+```
+
+[Architecture, example, limits and evidence format](docs/targeted-dom-discovery.md).
+
 ### Plain-English test review UI (early MVP, feature branch only)
 
 For testers who don't want to write Markdown files and edit raw JSON, this feature branch includes a **local web interface** for natural-language test drafting and review.
