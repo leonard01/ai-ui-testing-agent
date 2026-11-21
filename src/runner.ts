@@ -258,7 +258,7 @@ export async function runTest(
             const alternatives = await findAssertionAlternatives(
               page, step.action.target, "assert-text", step.action.expected, true,
             );
-            if (alternatives.candidates.length) result.assertionAlternatives = alternatives;
+            result.assertionAlternatives = alternatives; // Keep original locator/query even with no suggested matches.
           } catch {
             // Keep the failed assertion even if diagnostic search fails.
           }
@@ -293,7 +293,7 @@ export async function runTest(
                 page, step.action.target, step.action.kind,
                 step.action.kind === "assert-text" ? step.action.expected : undefined,
               );
-              if (alternatives.candidates.length) result.assertionAlternatives = alternatives;
+              result.assertionAlternatives = alternatives; // Keep original locator/query even with no suggested matches.
             }
           } catch {
             // Candidate discovery is best-effort; retain the original error.
