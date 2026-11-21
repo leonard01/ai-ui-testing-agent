@@ -376,6 +376,92 @@ test("cannot run an unsaved or arbitrary path, or access nonexistent report", as
   expect(notFound.status).toBe(404);
 });
 
+test("Test 1 repairs string-valued steps with one extra mocked Groq call", async ({ page, browser }) => {
+  const valid = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  valid.id = "groq-test-one";
+  valid.title = "Buy groceries task lifecycle";
+  for (const step of valid.steps) {
+    step.description = step.description.replaceAll("Prepare interview", "Buy groceries");
+    if (step.action.value) step.action.value = step.action.value.replaceAll("Prepare interview", "Buy groceries");
+    if (step.action.target?.name) {
+      step.action.target.name = step.action.target.name.replaceAll("Prepare interview", "Buy groceries");
+    }
+    if (step.action.target?.value) {
+      step.action.target.value = step.action.target.value.replaceAll("Prepare interview", "Buy groceries");
+    }
+    if (step.action.provenance === "human-confirmed") step.action.provenance = "requirements";
+  }
+  const malformed = {
+    ...valid,
+    steps: Array.from({ length: 13 }, (_, index) =>
+      [4, 6, 8, 10, 12].includes(index)
+        ? "Verify a task count" : structuredClone(valid.steps[index % 9]),
+    ),
+  };
+  const prompts: string[] = [];
+  const mock = async ({ prompt }: { prompt: string }) => {
+    prompts.push(prompt);
+    return JSON.stringify(prompts.length === 1 ? malformed : valid);
+  };
+  const temporary = await createReviewServer(outputDir, browser, mock);
+  await new Promise<void>((resolve) => temporary.listen(0, "127.0.0.1", resolve));
+  const tempURL = "http://127.0.0.1:" + (temporary.address() as AddressInfo).port;
+  try {
+    await page.goto(tempURL);
+    await page.getByLabel("Your test instructions").fill(
+      'Open the task list, add "Buy groceries", complete it, delete it and verify each count.',
+    );
+    await page.getByRole("button", { name: "Generate draft" }).click();
+    await expect(page.locator("#generation-status")).toContainText("Draft ready", { timeout: 25000 });
+    await expect(page.locator("#generation-status")).toContainText("One extra AI call");
+    await expect(page.locator("#generation-error")).toBeEmpty();
+    await expect(page.locator(".step")).toHaveCount(9);
+    await expect(page.locator("#draft-hint")).toContainText("first AI draft was invalid");
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("steps[4]");
+    expect(prompts[1]).toContain("expected object, received string");
+    expect(prompts[1]).toContain("COMPLETE test definition");
+    await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      temporary.close((err) => err ? reject(err) : resolve()));
+  }
+});
+
+test("two malformed responses stop after one bounded retry with safe step diagnostics", async ({ page, browser }) => {
+  const mockOutput = JSON.stringify({
+    schemaVersion: 1, id: "invalid-test", title: "Invalid output", version: 1,
+    steps: [
+      { id: "open", description: "Open", action: { kind: "navigate", url: "/" } },
+      "Verify task count",
+      { id: "status", description: "Check count", action: {
+        kind: "assert-text", target: { by: "role", role: "status" },
+        expected: "0 tasks, 0 completed", provenance: "requirements",
+      } },
+    ],
+  });
+  let calls = 0;
+  const temporary = await createReviewServer(outputDir, browser, async () => {
+    calls++;
+    return mockOutput;
+  });
+  await new Promise<void>((resolve) => temporary.listen(0, "127.0.0.1", resolve));
+  const tempURL = "http://127.0.0.1:" + (temporary.address() as AddressInfo).port;
+  try {
+    await page.goto(tempURL);
+    await page.getByLabel("Your test instructions").fill("Open and verify initial task count");
+    await page.getByRole("button", { name: "Generate draft" }).click();
+    await expect(page.locator("#generation-error")).toContainText("schema-validation", { timeout: 25000 });
+    await expect(page.locator("#generation-error")).toContainText("steps[1]: expected object, received string");
+    await expect(page.locator("#generation-error")).toContainText("Attempts: 2");
+    expect(calls).toBe(2);
+    await expect(page.locator("#draft")).toBeHidden();
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      temporary.close((err) => err ? reject(err) : resolve()));
+  }
+});
+
 test("Test 1 Groq upstream 400 is identified correctly in the generator UI without a real model call", async ({ page, browser }) => {
   const testOneInstructions = [
     '1. Open the task list application.',
