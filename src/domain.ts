@@ -14,6 +14,8 @@ export type RunStatus = "passed" | "assertion-failed" | "execution-error";
 export interface StepResult {
   id: string;
   description: string;
+  /** Action that produced this run step; enables reliable repair UI fallbacks. */
+  actionKind?: TestAction["kind"];
   status: RunStatus | "skipped";
   durationMs: number;
   expected?: string;

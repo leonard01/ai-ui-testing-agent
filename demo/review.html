@@ -814,8 +814,11 @@
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
-        if ((step.status === "execution-error" || step.status === "assertion-failed") &&
-            (step.assertionSearchAvailable || step.assertionAlternatives?.candidates?.length)) {
+        const failedAssertion = (step.status === "execution-error" ||
+          step.status === "assertion-failed") &&
+          (step.actionKind === "assert-visible" || step.actionKind === "assert-text" ||
+           step.assertionSearchAvailable || step.assertionAlternatives);
+        if (failedAssertion) {
           const mismatch = step.status === "assertion-failed";
           const repair = make("div", null, "locator-repair assertion-dom-repair");
           repair.append(make("h3", "Find assertion target in captured DOM"));
@@ -842,7 +845,8 @@
           repair.append(field);
           const searchButton = make("button", "Search captured DOM", "secondary");
           searchButton.type = "button";
-          searchButton.disabled = !searchInput.value.trim();
+          const canSearchCapturedDOM = step.assertionSearchAvailable === true;
+          searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
           repair.append(searchButton);
           const searchStatus = make("p", "", "muted");
           searchStatus.setAttribute("role", "status");
@@ -894,16 +898,23 @@
             }
           };
           renderChoices(activeEvidence);
+          if (!canSearchCapturedDOM) {
+            searchStatus.textContent =
+              "No searchable DOM evidence was retained for this failed assertion. " +
+              "You can still edit its locator in the test review form.";
+          }
           repair.append(choices);
           searchInput.addEventListener("input", () => {
             save.disabled = true;
             selected = -1;
-            searchButton.disabled = !searchInput.value.trim();
-            searchStatus.textContent = "Search again to refresh the matching elements.";
+            searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
+            searchStatus.textContent = canSearchCapturedDOM
+              ? "Search again to refresh the matching elements."
+              : "No searchable DOM snapshot was retained. Edit the assertion locator manually.";
           });
           searchButton.addEventListener("click", async () => {
             const query = searchInput.value.trim();
-            if (!query || running) return;
+            if (!query || running || !canSearchCapturedDOM) return;
             searchButton.disabled = true;
             save.disabled = true;
             searchStatus.textContent = "Searching text captured at the failed step...";
@@ -921,7 +932,7 @@
             } catch (error) {
               searchStatus.textContent = error.message || String(error);
             } finally {
-              searchButton.disabled = !searchInput.value.trim();
+              searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
             }
           });
           repair.append(make("p",
@@ -951,7 +962,14 @@
               save.disabled = false;
             }
           });
-          repair.append(save);
+          const manual = make("button", "Edit failing assertion locator", "secondary");
+          manual.type = "button";
+          manual.disabled = !result.fileId;
+          manual.addEventListener("click", () => {
+            if (!result.fileId) return;
+            void loadSavedForEditing(result.fileId, step.id);
+          });
+          repair.append(save, manual);
           card.append(repair);
         }
         if (step.status === "execution-error" && step.locatorAlternatives?.candidates?.length) {
@@ -1462,8 +1480,7 @@
         $("suite-error").textContent = error.message || String(error);
       }
     });
-    $("edit-saved").addEventListener("click", async () => {
-      const id = selectedApprovedId;
+    async function loadSavedForEditing(id, focusStepId) {
       if (!id || running) return;
       $("edit-saved").disabled = true;
       $("run-error").textContent = "";
@@ -1476,7 +1493,7 @@
         editingSavedId = id;
         approvals = new Set();
         clearPreflight();
-        selectedBaseURL = $("base-url").value;
+        selectedBaseURL = definition.sourceUrl || $("base-url").value;
         $("saved").replaceChildren();
         $("save-error").textContent = "";
         $("approved-tests").value = "";
@@ -1489,11 +1506,23 @@
           "Review and confirm every step. When saved, the amended version " +
           "replaces the old entry in your saved test list.";
         renderSteps();
-        $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
+        const index = focusStepId ? definition.steps.findIndex((step) =>
+          step.id === focusStepId) : -1;
+        if (index >= 0) {
+          const card = $("step-list").querySelectorAll(".step")[index];
+          const edit = card?.querySelector("button.textbtn");
+          if (edit) edit.click();
+          card?.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       } catch(error) {
         $("run-error").textContent = error.message || String(error);
         updateRunButton();
       }
+    }
+    $("edit-saved").addEventListener("click", () => {
+      void loadSavedForEditing(selectedApprovedId);
     });
 
     void refreshApprovedTests().catch((error) => {
