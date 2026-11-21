@@ -498,7 +498,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 (step.action.kind !== "assert-text" ||
                  step.action.expected !== failed.expected ||
                  !failed.observed || failed.observed === failed.expected ||
-                 evidence.query !== failed.expected.replace(/\\s+/g, " ").trim()))) {
+                 evidence.query !== failed.expected.replace(/\s+/g, " ").trim()))) {
             throw new Error("Saved assertion differs from the failing run; rerun before repairing");
           }
           const target = selected.target;
