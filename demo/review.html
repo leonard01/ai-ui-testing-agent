@@ -720,7 +720,7 @@
       }
       const selectedTest = approvedCatalog.find((test) => test.id === select.value);
       const chosen = selectedTest?.siteUrl || (selectedTest ? "__legacy__" : previousSite);
-      if ([...website.options].some((item) => item.value === chosen)) {
+      if (chosen && [...website.options].some((item) => item.value === chosen)) {
         website.value = chosen;
       } else if (website.options.length > 1) {
         website.selectedIndex = 1;
