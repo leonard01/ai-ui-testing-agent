@@ -3,7 +3,7 @@ import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { parseTestDefinition } from "./schema.js";
 
-type Target = Exclude<TestAction, { kind: "navigate" }>["target"];
+type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 export type PreflightStatus = "matched" | "initial-match" | "warning" | "deferred";
 
 export interface PreflightFinding {
@@ -86,6 +86,7 @@ export async function preflightSelectors(
   ensureAllowedNavigation(base.href, base);
   for (const step of definition.steps) {
     if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
+    if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
   }
   const first = definition.steps[0].action;
   if (first.kind !== "navigate") throw new Error("First step must navigate");
@@ -114,6 +115,7 @@ export async function preflightSelectors(
         if (index > 0) navigatedAgain = true;
         continue;
       }
+      if (action.kind === "assert-url") continue; // URL has no locator to preflight.
       const item = (status: PreflightStatus, message: string, extra: Partial<PreflightFinding> = {}) => {
         findings.push({ stepId: step.id, stepNumber: index + 1, status, message, ...extra });
       };
@@ -125,7 +127,14 @@ export async function preflightSelectors(
         const target = action.target;
         const found = locator(page, target);
         const count = await found.count();
-        if (count === 0) {
+        if (action.kind === "assert-count") {
+          item(stateMayHaveChanged ? "deferred" :
+            count === action.expected ? "matched" : "warning",
+            stateMayHaveChanged
+              ? "Element count depends on earlier actions. Check during execution."
+              : "Starting-page match count is " + count + "; expected " + action.expected + ".",
+            { matches: count });
+        } else if (count === 0) {
           const suggestedTarget = await obviousAlternative(page, target);
           if (suggestedTarget) {
             item("warning", "Original locator matches nothing on the starting page; a different locator does match: " +
@@ -153,6 +162,13 @@ export async function preflightSelectors(
         } else if (action.kind === "fill" && !await isFillable(found)) {
           item("warning", "This locator points to an element that cannot be filled on the starting page.",
             { matches: 1 });
+        } else if (action.kind === "select-option" &&
+            !await found.evaluate((element) => element instanceof HTMLSelectElement)) {
+          item("warning", "Select-option requires a native select element.", { matches: 1 });
+        } else if ((action.kind === "check" || action.kind === "uncheck") &&
+            !await found.evaluate((element) => element instanceof HTMLInputElement &&
+              (element.type === "checkbox" || element.type === "radio"))) {
+          item("warning", "Check/uncheck requires a checkbox or radio input.", { matches: 1 });
         } else {
           item(stateMayHaveChanged ? "initial-match" : "matched",
             stateMayHaveChanged
@@ -161,7 +177,8 @@ export async function preflightSelectors(
             { matches: 1 });
         }
       }
-      if (action.kind === "click" || action.kind === "fill") stateMayHaveChanged = true;
+      if (["click", "fill", "select-option", "check", "uncheck", "press"].includes(action.kind))
+        stateMayHaveChanged = true;
     }
     return {
       inspectedURL: page.url(),
