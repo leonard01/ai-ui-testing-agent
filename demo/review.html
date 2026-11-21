@@ -315,6 +315,14 @@
             step.action.target.role === "listitem" && step.action.target.name) {
           card.append(make("div", "Check this locator: list items do not always have accessible names.", "note"));
         }
+        if (step.action.target && step.action.target.by === "intent" &&
+            ["checkbox", "button"].includes(step.action.target.role) &&
+            /^(complete|delete|remove|edit|finish|mark complete)$/i.test(step.action.target.value.trim())) {
+          card.append(make("div",
+            "Ambiguous target risk: this action names only a generic control. " +
+            "If the page contains multiple tasks or rows, include the specific item name " +
+            '(for example "Complete preparing a presentation").', "note"));
+        }
         const edit = make("button", "Edit fields", "textbtn");
         edit.type = "button";
         edit.onclick = () => { edit.disabled = true; beginEdit(card, step, index); };
