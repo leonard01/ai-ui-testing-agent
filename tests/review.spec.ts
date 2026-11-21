@@ -364,10 +364,12 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     await expect(picker).toContainText("Sauce Labs Backpack");
     await picker.locator('input[type="radio"]').check();
     await picker.getByRole("button", { name: "Save corrected assertion target and rerun" }).click();
+    await expect.poll(async () =>
+      page.getByLabel("Approved saved test").inputValue(), { timeout: 30000 },
+    ).not.toBe(saved.id);
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
     const currentId = await page.getByLabel("Approved saved test").inputValue();
-    expect(currentId).not.toBe(saved.id);
     expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
     const amended = JSON.parse(await readFile(join(outputDir, currentId), "utf8"));
     expect(amended.steps[1].action).toEqual({
