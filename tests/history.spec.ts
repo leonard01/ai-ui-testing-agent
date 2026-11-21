@@ -139,8 +139,8 @@ test("run/suite reports and failure evidence survive a full review-server restar
 
     // Browser view must surface both types of historical result without rerunning.
     await page.goto(session.url);
-    await expect(page.locator("#history-run-list .run-step")).toHaveCount(4);
-    await expect(page.locator("#history-suite-list .run-step")).toHaveCount(1);
+    await expect(page.locator("#history-run-list .history-entry")).toHaveCount(4);
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
     await page.locator("#history-suite-list").getByRole("button", {
       name: "Open previous suite",
     }).click();
