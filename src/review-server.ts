@@ -98,6 +98,7 @@ function validatedBaseURL(raw: unknown): URL {
 function verifyNavigations(definition: TestDefinition, base: URL): void {
   for (const step of definition.steps) {
     if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
+    if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
   }
 }
 
