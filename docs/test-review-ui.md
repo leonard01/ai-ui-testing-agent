@@ -41,7 +41,23 @@ Open **http://127.0.0.1:3100/** in a browser.
 5. Click **Generate draft**. The server inspects the specified page in a headless Chromium session, sends the selected instructions and bounded snapshot to the chosen model, and validates the returned JSON with the existing schema.
 6. Inspect the **human-readable plan**. Each card shows the real operation, target, value or expectation and assertion provenance. Inferred assertions and suspicious named listitem locators are flagged.
 7. Change fields via **Edit fields** if needed, including switching a locator between accessible role/name, form label and visible text. For example, replace an incorrect form-label locator for the **Add** button with role **button**, accessible name **Add**. Then individually confirm each step represents your intended behaviour.
-8. Click **Approve and save JSON test**. This saves an ordinary, framework-neutral file under `generated/`. It **does not execute** the test. Use the displayed `npm run agent -- run ...` command afterward.
+8. Click **Approve and save JSON test**. This saves an ordinary, framework-neutral file under `generated/`. It **does not execute** the test.
+9. In **3. Execute and diagnose**, choose your saved test (newly saved tests are selected automatically), choose a 5/10/15-second per-step timeout, and click **Run selected test**.
+10. The local server launches headless Playwright for that explicitly saved test, with **one browser execution at a time** to reduce pressure on slower laptops.
+11. The UI polls for completion, then shows per-step results, expected and observed text, locator-discovery evidence, and the first failure's likely category. When available, click **Open failure screenshot**, **Download Playwright trace** or **View full JSON report**.
+
+After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
+
+## Failure diagnoses
+
+Diagnosis is **deterministic**, not a new AI request. Possible categories include assertion mismatch, ambiguous target, locator/timing issue and browser/environment issue. The UI labels likely causes as suggestions, not proven root causes.
+
+- **Assertion failure**: preserve the expected requirement; compare it with the observed value. Do not automatically change assertions to make tests pass.
+- **Locator or intent failure**: inspect the role, name, nearby DOM evidence and captured screenshot; edit the test definition and approve/save a revised copy.
+- **Ambiguous target**: improve the intent with distinct context; never silently click the first plausible element.
+- **Browser failure**: inspect the full error and Playwright installation.
+
+Artifacts are accessible through limited local UI routes for runs created in the current server session. No arbitrary filesystem paths can be read through the run-artifact endpoints.
 
 Editing is intentionally small in this first version: field values, locators, descriptions, paths and expected text; adding/removing/reordering steps without regenerating is not yet supported. Revise the instructions and generate another draft to change the overall workflow.
 
@@ -51,7 +67,7 @@ Editing is intentionally small in this first version: field values, locators, de
 - Uploading PDF/Word files (use plain text or Markdown for now)
 - Appending natural-language instructions into an existing approved JSON case
 - Semantic correctness verification, reliable locator validation or guaranteed requirement coverage
-- Automatic execution on approval, test-suite management, or a deployed/multi-user server
+- Automatic execution on approval (intentional), test-suite management/history viewer, or a deployed/multi-user server
 
 If the test page does not expose a suitable Add User interface, an input such as **"add user Bob"** might generate a plausible but non-runnable plan. The reviewer must check the target application and expectations. This is why drafts require explicit approval.
 
@@ -62,4 +78,5 @@ If the test page does not expose a suitable Add User interface, an input such as
 - API keys are read locally from `.env` by the server and are not embedded in HTML, JSON test definitions or displayed error messages. `.env` is already ignored by Git.
 - GroqCloud is subject to provider free-tier rate and token allowances. A **Generate draft** click makes a model call; test review, saving, and deterministic execution do not.
 - The fixture mode is entirely offline with respect to AI. CI uses this mode and never sends a real GroqCloud request.
-- No generated tests are silently executed. Approval does not automatically mark assertions as `human-confirmed`; that provenance requires an intentional future workflow.
+- No generated tests are silently executed. Approval does not automatically mark assertions as `human-confirmed`; that provenance requires an intentional future workflow. Execution requires clicking Run selected test after saving.
+- Screenshot and trace files can contain sensitive application data. The local server serves them only on 127.0.0.1 using explicit run IDs, but this prototype should not be exposed beyond loopback.
