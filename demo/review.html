@@ -456,6 +456,77 @@
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
+        if (step.status === "execution-error" && step.assertionAlternatives?.candidates?.length) {
+          const evidence = step.assertionAlternatives;
+          const repair = make("div", null, "locator-repair assertion-dom-repair");
+          repair.append(make("h3", "Find assertion target in live DOM"));
+          repair.append(make("p",
+            'The expected element "' + evidence.query + '" was not found using its original locator. ' +
+            "The runner searched visible elements on the page at failure time. " +
+            "Choose a matching element only if it represents the requirement."));
+          repair.append(make("p", "Original locator: " + describeTarget(evidence.attempted), "muted"));
+          const choices = make("fieldset");
+          choices.append(make("legend", "Which DOM element should this assertion check?"));
+          const save = make("button", "Save corrected assertion target and rerun");
+          save.type = "button";
+          save.disabled = true;
+          let selected = -1;
+          evidence.candidates.forEach((candidate, index) => {
+            const label = make("label", null, "locator-option assertion-dom-option");
+            const radio = make("input");
+            radio.type = "radio";
+            radio.name = "assertion-missing-" + result.id + "-" + step.id;
+            radio.value = String(index);
+            const info = make("span");
+            const description = candidate.target.by === "text"
+              ? 'Visible text "' + candidate.target.value + '"'
+              : candidate.target.role + ' named "' + candidate.target.name + '"';
+            info.append(make("strong", description));
+            info.append(make("small", "<" + candidate.tag + "> · role: " +
+              (candidate.role || "no explicit role")));
+            if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
+            label.append(radio, info);
+            radio.addEventListener("change", () => {
+              selected = index;
+              save.disabled = running || evidence.total !== evidence.candidates.length;
+            });
+            choices.append(label);
+          });
+          repair.append(choices);
+          if (evidence.total !== evidence.candidates.length) {
+            repair.append(make("p",
+              "Some potential matches cannot be uniquely identified. " +
+              "Use Edit selected saved test in review form if a suitable option is missing.",
+              "note"));
+          }
+          repair.append(make("p",
+            "Only the selector changes. The expected text, assertion type and its " +
+            "provenance remain unchanged. The failed saved version will be replaced, " +
+            "then the entire test reruns from step 1.", "muted"));
+          save.addEventListener("click", async () => {
+            if (running || selected < 0 || evidence.total !== evidence.candidates.length) return;
+            save.disabled = true;
+            $("run-error").textContent = "";
+            try {
+              const updated = await requestJSON("/api/repair-assertion-target", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  runId: result.id, stepId: step.id, candidateIndex: selected,
+                }),
+              });
+              await refreshApprovedTests(updated.id);
+              $("run-status").textContent = "Saved corrected assertion target for " +
+                updated.repairedStepId + ". Rerunning from step 1...";
+              await executeApproved(updated.id);
+            } catch(error) {
+              $("run-error").textContent = error.message || String(error);
+              save.disabled = false;
+            }
+          });
+          repair.append(save);
+          card.append(repair);
+        }
         if (step.status === "execution-error" && step.locatorAlternatives?.candidates?.length) {
           const evidence = step.locatorAlternatives;
           const repair = make("div", null, "locator-repair");
