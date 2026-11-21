@@ -302,7 +302,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -446,6 +446,77 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid locator repair" });
+        }
+        return;
+      }
+      if (path === "/api/repair-assertion-target") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a repair request object");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Failed assertion step ID is required");
+          }
+          if (typeof input.candidateIndex !== "number" ||
+              !Number.isInteger(input.candidateIndex) || input.candidateIndex < 0) {
+            throw new Error("Choose one of the displayed DOM matches");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || job.report?.status !== "execution-error") {
+            throw new Error("No completed unresolved assertion target is available");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.status === "execution-error" &&
+            !!step.assertionAlternatives,
+          );
+          const evidence = failed?.assertionAlternatives;
+          if (!failed || !evidence || !evidence.candidates.length ||
+              evidence.total !== evidence.candidates.length) {
+            throw new Error("A complete set of verified live DOM matches is required");
+          }
+          const selected = evidence.candidates[input.candidateIndex];
+          if (!selected || !selected.target) {
+            throw new Error("Choose a verified element from the failed run");
+          }
+          if (evidence.candidates.some((candidate, index) =>
+            index !== input.candidateIndex &&
+            JSON.stringify(candidate.target) === JSON.stringify(selected.target))) {
+            throw new Error("This candidate cannot be uniquely identified");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || (step.action.kind !== "assert-visible" && step.action.kind !== "assert-text") ||
+              JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted)) {
+            throw new Error("Saved assertion differs from the failing run; rerun before repairing");
+          }
+          const target = selected.target;
+          if (target.by !== "text" && target.by !== "role") {
+            throw new Error("Only verified role and visible-text locators are accepted");
+          }
+          if (target.by === "role" && !target.name ||
+              target.by === "text" && !target.value.trim()) {
+            throw new Error("Assertion target must uniquely identify a named element");
+          }
+          // Only the target is changed. Expected text, provenance, assertion
+          // kind and all other steps are preserved. Actual page text is never
+          // promoted to a passing expectation.
+          const previousTarget = step.action.target;
+          step.action.target = target;
+          const corrected = parseTestDefinition(definition);
+          const { id, replacedId } = await saveApproved(corrected, job.fileId);
+          json(res, 201, {
+            id, replacedId, repairedStepId: step.id,
+            previousTarget, approvedTarget: target,
+            message: "Assertion target corrected from reviewed DOM evidence; expected results unchanged. No run started.",
+          });
+        } catch (error) {
+          json(res, 400, {
+            error: error instanceof Error ? error.message : "Invalid assertion locator repair",
+          });
         }
         return;
       }
