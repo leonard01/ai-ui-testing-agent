@@ -91,7 +91,7 @@ test("unique Google Search button blocked by autocomplete offers human-approved 
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
     const link = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
-    expect(link).toBeTruthy();
+    if (!link) throw new Error("Missing failure report link");
     const runId = link.match(/\/api\/runs\/([a-f0-9-]{36})\//)?.[1];
     expect(runId).toBeTruthy();
     const before = await (await page.request.get(site.reviewURL + link)).json();
