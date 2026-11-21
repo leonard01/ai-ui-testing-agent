@@ -457,60 +457,122 @@
         }
         if (step.error) card.append(make("pre", step.error));
         if ((step.status === "execution-error" || step.status === "assertion-failed") &&
-            step.assertionAlternatives?.candidates?.length) {
-          const evidence = step.assertionAlternatives;
+            (step.assertionSearchAvailable || step.assertionAlternatives?.candidates?.length)) {
           const mismatch = step.status === "assertion-failed";
           const repair = make("div", null, "locator-repair assertion-dom-repair");
-          repair.append(make("h3", "Find assertion target in live DOM"));
+          repair.append(make("h3", "Find assertion target in captured DOM"));
           repair.append(make("p", mismatch
-            ? 'The original selector read "' + step.observed +
-              '", but the expected "' + evidence.query +
-              '" was found elsewhere as visible page text. ' +
-              "Select the correct element if the test expectation is valid."
-            : 'The expected element "' + evidence.query + '" was not found using its original locator. ' +
-              "The runner searched visible elements on the page at failure time. " +
-              "Choose a matching element only if it represents the requirement."));
-          repair.append(make("p", "Original locator: " + describeTarget(evidence.attempted), "muted"));
+            ? 'The original selector returned "' + step.observed +
+              '". You can search for "' + step.expected +
+              '" or enter different visible text to find the intended element.'
+            : "The original selector could not locate the element. " +
+              "Search for text that was visible on the page when this step failed."));
+          repair.append(make("p",
+            "Changing the DOM search phrase does NOT change the test's expected result. " +
+            "No previous test steps are replayed while searching.", "muted"));
+          if (step.assertionAlternatives?.attempted) {
+            repair.append(make("p",
+              "Original locator: " + describeTarget(step.assertionAlternatives.attempted), "muted"));
+          }
+          const field = make("label", "Search visible DOM text");
+          const searchInput = make("input");
+          searchInput.type = "text";
+          searchInput.maxLength = 180;
+          searchInput.value = step.assertionAlternatives?.query ||
+            (mismatch && typeof step.expected === "string" ? step.expected : "");
+          field.append(searchInput);
+          repair.append(field);
+          const searchButton = make("button", "Search captured DOM", "secondary");
+          searchButton.type = "button";
+          searchButton.disabled = !searchInput.value.trim();
+          repair.append(searchButton);
+          const searchStatus = make("p", "", "muted");
+          searchStatus.setAttribute("role", "status");
+          repair.append(searchStatus);
           const choices = make("fieldset");
-          choices.append(make("legend", "Which DOM element should this assertion check?"));
+          choices.append(make("legend", "Choose a verified element from the page"));
           const save = make("button", "Save corrected assertion target and rerun");
           save.type = "button";
           save.disabled = true;
           let selected = -1;
-          evidence.candidates.forEach((candidate, index) => {
-            const label = make("label", null, "locator-option assertion-dom-option");
-            const radio = make("input");
-            radio.type = "radio";
-            radio.name = "assertion-missing-" + result.id + "-" + step.id;
-            radio.value = String(index);
-            const info = make("span");
-            const description = candidate.target.by === "text"
-              ? 'Visible text "' + candidate.target.value + '"'
-              : candidate.target.role + ' named "' + candidate.target.name + '"';
-            info.append(make("strong", description));
-            info.append(make("small", "<" + candidate.tag + "> · role: " +
-              (candidate.role || "no explicit role")));
-            if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
-            label.append(radio, info);
-            radio.addEventListener("change", () => {
-              selected = index;
-              save.disabled = running || evidence.total !== evidence.candidates.length;
+          let activeEvidence = step.assertionAlternatives || null;
+          const renderChoices = (evidence) => {
+            selected = -1;
+            save.disabled = true;
+            activeEvidence = evidence;
+            choices.replaceChildren(make("legend", "Choose a verified element from the page"));
+            const candidates = evidence?.candidates || [];
+            candidates.forEach((candidate, index) => {
+              const label = make("label", null, "locator-option assertion-dom-option");
+              const radio = make("input");
+              radio.type = "radio";
+              radio.name = "assertion-search-" + result.id + "-" + step.id;
+              radio.value = String(index);
+              const info = make("span");
+              const description = candidate.target.by === "text"
+                ? 'Visible text "' + candidate.target.value + '"'
+                : candidate.target.role + ' named "' + candidate.target.name + '"';
+              info.append(make("strong", description));
+              info.append(make("small", "<" + candidate.tag + "> · role: " +
+                (candidate.role || "no explicit role")));
+              if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
+              label.append(radio, info);
+              radio.addEventListener("change", () => {
+                selected = index;
+                save.disabled = running || evidence.total !== candidates.length;
+              });
+              choices.append(label);
             });
-            choices.append(label);
-          });
+            if (!candidates.length) {
+              searchStatus.textContent = "No uniquely addressable matches yet. " +
+                "Enter a phrase and search the captured DOM.";
+            } else if (evidence.total > candidates.length) {
+              searchStatus.textContent = evidence.total + " matches found, but only " +
+                candidates.length + " can be shown. Refine your search to select safely.";
+            } else {
+              searchStatus.textContent = candidates.length + " matching " +
+                (candidates.length === 1 ? "element" : "elements") +
+                " found. Select one to replace the locator.";
+            }
+          };
+          renderChoices(activeEvidence);
           repair.append(choices);
-          if (evidence.total !== evidence.candidates.length) {
-            repair.append(make("p",
-              "Some potential matches cannot be uniquely identified. " +
-              "Use Edit selected saved test in review form if a suitable option is missing.",
-              "note"));
-          }
+          searchInput.addEventListener("input", () => {
+            save.disabled = true;
+            selected = -1;
+            searchButton.disabled = !searchInput.value.trim();
+            searchStatus.textContent = "Search again to refresh the matching elements.";
+          });
+          searchButton.addEventListener("click", async () => {
+            const query = searchInput.value.trim();
+            if (!query || running) return;
+            searchButton.disabled = true;
+            save.disabled = true;
+            searchStatus.textContent = "Searching text captured at the failed step...";
+            try {
+              const response = await requestJSON("/api/search-assertion-dom", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ runId: result.id, stepId: step.id, query }),
+              });
+              renderChoices(response.alternatives);
+              if (!response.alternatives.candidates.length) {
+                searchStatus.textContent = 'No uniquely identifiable visible text matched "' +
+                  query + '". Try a shorter or more distinctive phrase.';
+              }
+            } catch (error) {
+              searchStatus.textContent = error.message || String(error);
+            } finally {
+              searchButton.disabled = !searchInput.value.trim();
+            }
+          });
           repair.append(make("p",
-            "Only the selector changes. The expected text, assertion type and its " +
-            "provenance remain unchanged. The failed saved version will be replaced, " +
-            "then the entire test reruns from step 1.", "muted"));
+            "Only the selected locator changes. The assertion's expected result " +
+            "and provenance remain unchanged. The failed saved version is replaced " +
+            "after a successful save; the corrected test reruns from step 1.", "muted"));
           save.addEventListener("click", async () => {
-            if (running || selected < 0 || evidence.total !== evidence.candidates.length) return;
+            if (running || selected < 0 || !activeEvidence ||
+                activeEvidence.total !== activeEvidence.candidates.length) return;
             save.disabled = true;
             $("run-error").textContent = "";
             try {
@@ -519,13 +581,14 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   runId: result.id, stepId: step.id, candidateIndex: selected,
+                  ...(activeEvidence.searched ? { searchToken: activeEvidence.searchToken } : {}),
                 }),
               });
               await refreshApprovedTests(updated.id);
               $("run-status").textContent = "Saved corrected assertion target for " +
                 updated.repairedStepId + ". Rerunning from step 1...";
               await executeApproved(updated.id);
-            } catch(error) {
+            } catch (error) {
               $("run-error").textContent = error.message || String(error);
               save.disabled = false;
             }
