@@ -74,6 +74,13 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
   await expect(addStep.getByLabel("Accessible name (may be blank)")).toHaveValue("Add");
   await addStep.getByRole("button", { name: "Apply changes" }).click();
 
+  const taskStep = page.locator(".step").nth(4);
+  await taskStep.getByRole("button", { name: "Edit fields" }).click();
+  await taskStep.getByLabel("Locator strategy").selectOption("intent");
+  await taskStep.getByLabel("Target intention (not a CSS selector)").fill("Prepare interview");
+  await taskStep.getByRole("button", { name: "Apply changes" }).click();
+  await expect(taskStep).toContainText('element matching intent "Prepare interview"');
+
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved!");
