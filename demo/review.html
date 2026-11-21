@@ -67,6 +67,14 @@
     .repair-option span { display:block; overflow-wrap:anywhere; font-size:13px; }
     .repair-option small { display:block; margin-top:4px; color:#52677b; }
     .repair-choice button { margin-top:12px; }
+    .assertion-repair { background:#f5f7fa; border:1px solid #c8d3df; border-radius:9px; padding:15px; margin:14px 0 5px; }
+    .assertion-repair h3 { margin:0 0 10px; font-size:14px; }
+    .assertion-repair label { display:block; font-size:13px; font-weight:600; margin-top:12px; }
+    .assertion-repair textarea { display:block; width:100%; min-height:70px; box-sizing:border-box; resize:vertical; font:13px/1.5 ui-monospace,monospace; margin-top:7px; padding:9px; border:1px solid #a7b5c7; border-radius:6px; }
+    .assertion-repair .confirm-label { display:flex; gap:9px; align-items:flex-start; font-weight:400; }
+    .assertion-repair .confirm-label input { margin-top:3px; flex:none; }
+    .assertion-repair .actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:12px; }
+
 
     #execution-panel [hidden] { display:none; }
 
@@ -500,6 +508,80 @@
           });
           repair.append(save);
           card.append(repair);
+        }
+        if (step.status === "assertion-failed" &&
+            typeof step.expected === "string" && typeof step.observed === "string") {
+          const review = make("div", null, "assertion-repair");
+          review.append(make("h3", "Review failed text assertion"));
+          review.append(make("p",
+            "The observed text comes from the application, not the test requirements. " +
+            "A mismatch can indicate an application defect or an incorrect test expectation. " +
+            "Only revise this assertion if you have verified what the requirement actually specifies."));
+          review.append(make("p", "Original expected: " + step.expected, "muted"));
+          review.append(make("p", "Observed from run: " + step.observed, "muted"));
+          const field = make("label", "New expected text");
+          const input = make("textarea");
+          input.value = step.expected;
+          input.maxLength = 10000;
+          field.append(input);
+          review.append(field);
+          const confirmLabel = make("label", null, "confirm-label");
+          const confirmation = make("input");
+          confirmation.type = "checkbox";
+          confirmLabel.append(confirmation, make("span",
+            "I verified this new expected text against the intended requirements. " +
+            "I understand accepting observed behaviour could hide a real defect."));
+          review.append(confirmLabel);
+          const controls = make("div", null, "actions");
+          const useObserved = make("button", "Use observed text as draft", "secondary");
+          useObserved.type = "button";
+          const save = make("button", "Save reviewed assertion and rerun from start");
+          save.type = "button";
+          save.disabled = true;
+          const update = () => {
+            save.disabled = running || !confirmation.checked ||
+              input.value === step.expected || input.value.length > 10000;
+          };
+          const edit = (value) => {
+            input.value = value;
+            confirmation.checked = false;
+            update();
+          };
+          useObserved.addEventListener("click", () => {
+            edit(step.observed);
+            input.focus();
+          });
+          input.addEventListener("input", () => {
+            confirmation.checked = false;
+            update();
+          });
+          confirmation.addEventListener("change", update);
+          save.addEventListener("click", async () => {
+            if (running || !confirmation.checked || input.value === step.expected) return;
+            save.disabled = true;
+            $("run-error").textContent = "";
+            try {
+              const revised = await requestJSON("/api/repair-assertion", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  runId: result.id, stepId: step.id,
+                  expected: input.value, confirmed: true,
+                }),
+              });
+              await refreshApprovedTests(revised.id);
+              $("run-status").textContent =
+                "Saved reviewed expectation for " + revised.revisedStepId +
+                ". Starting a fresh run from step 1...";
+              await executeApproved(revised.id);
+            } catch(error) {
+              $("run-error").textContent = error.message || String(error);
+              update();
+            }
+          });
+          controls.append(useObserved, save);
+          review.append(controls);
+          card.append(review);
         }
         container.append(card);
       }
