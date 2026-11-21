@@ -48,6 +48,16 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
+## Map requirements to assertions (new feature branch)
+
+Within **2. Review proposed steps**, the optional **Requirements traceability** panel lets you enter *one requirement per line* and click **Load requirements for mapping**. The reviewer then selects the action and assertion steps that are genuinely relevant to each requirement. Requirements are assigned `R1`, `R2`… IDs, and the links are stored in the approved test JSON only after the normal review/save step. No mapping is generated or approved by Groq.
+
+The panel distinguishes requirements with no links, requirements mapped only to actions, requirements mapped only to AI-inferred assertion expectations, and those linked to at least one non-inferred assertion. It also counts assertion steps that have **no** requirement mapping. These are **design-time coverage links**, not executed test results or a claim that the expected behavior is correct.
+
+A saved approved test provides **View requirement matrix (JSON)** next to the test selection, accessible at `/api/tests/<approved-id>/traceability`. The report includes linked step IDs and descriptions, assertion kinds and expected-result provenance, and a coverage gap summary. Existing tests without requirements mapping remain valid. Loading changed requirement text invalidates links from the previous version of that statement; matching unchanged statements retain their selections. No extra AI calls are made.
+
+For full limitations, schema and examples, see [requirements traceability](requirements-traceability.md).
+
 ## Download independent Playwright TypeScript (export milestone)
 
 Once a draft has been **approved and saved**, select that saved test in the **Approved saved test** dropdown. Click **Export Playwright (.spec.ts)** to download a single editable Playwright TypeScript test file. It runs in another Playwright project using only `@playwright/test`; no agent source, Groq model, approved JSON, or extra runtime package is required.
