@@ -276,6 +276,38 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   });
 });
 
+test("saved test can be loaded, edited and resaved entirely via the review UI", async ({ page }) => {
+  await generateFixture(page);
+  await approveDraft(page);
+  const originalId = await page.getByLabel("Approved saved test").inputValue();
+  expect(originalId).toMatch(/^reviewed-/);
+  await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
+  await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
+  await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
+  await expect(page.locator(".step")).toHaveCount(9);
+  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+  const fourth = page.locator(".step").nth(3);
+  await fourth.getByRole("button", { name: "Edit fields" }).click();
+  await fourth.getByLabel("Description").fill("Add a task via the button");
+  await fourth.getByRole("button", { name: "Apply changes" }).click();
+  await expect(fourth).toContainText("Add a task via the button");
+  for (const box of await page.locator(".step input[type=checkbox]").all()) {
+    await box.check();
+  }
+  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const revisedId = await page.getByLabel("Approved saved test").inputValue();
+  expect(revisedId).not.toBe(originalId);
+  const original = JSON.parse(await readFile(join(outputDir, originalId), "utf8"));
+  const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
+  expect(original.steps[3].description).not.toBe("Add a task via the button");
+  expect(revised.steps[3].description).toBe("Add a task via the button");
+  expect(revised.steps[3].action).toEqual(original.steps[3].action);
+  await page.getByRole("button", { name: "Run selected test" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+});
+
 test("missing Add label exposes live Add button for UI-only repair and complete rerun", async ({ page }) => {
   const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
   definition.id = "test-one-missing-add";
