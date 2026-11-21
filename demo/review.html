@@ -159,6 +159,21 @@
       </div>
       <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
       <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
+      <div id="suite-panel" style="margin-top:22px;padding:16px;border:1px solid #d5dce3;border-radius:12px">
+        <h3 style="margin:0 0 8px">Run a test suite</h3>
+        <p class="muted">Select up to 10 approved tests. They run sequentially, each in a fresh browser context, and a failing case does not stop the remaining cases.</p>
+        <div id="suite-test-list" role="group" aria-label="Tests to include in suite"></div>
+        <p id="suite-selection-status" class="muted">0 tests selected</p>
+        <div class="actions">
+          <button type="button" id="suite-select-all" class="secondary">Select first 10</button>
+          <button type="button" id="suite-run" disabled>Run selected suite</button>
+        </div>
+        <p id="suite-status" role="status" class="status"></p>
+        <div id="suite-error" role="alert" class="error"></div>
+        <div id="suite-summary" class="muted"></div>
+        <div id="suite-results"></div>
+        <div id="suite-artifacts" class="artifact-links"></div>
+      </div>
       <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
       <div id="run-results" hidden>
@@ -474,13 +489,30 @@
       if (!response.ok) throw new Error(payload.error || "Request failed (" + response.status + ")");
       return payload;
     }
+    function suiteSelectedIds() {
+      return Array.from(document.querySelectorAll("#suite-test-list input[type=checkbox]:checked"),
+        (input) => input.value);
+    }
+    function updateSuiteSelection() {
+      const count = suiteSelectedIds().length;
+      $("suite-selection-status").textContent = count + " tests selected (maximum 10)";
+      $("suite-run").disabled = running || count === 0 || count > 10;
+      $("suite-select-all").disabled = running || !$("suite-test-list").childElementCount;
+      for (const checkbox of document.querySelectorAll("#suite-test-list input[type=checkbox]")) {
+        checkbox.disabled = running;
+      }
+    }
     function updateRunButton() {
       selectedApprovedId = $("approved-tests").value;
       $("run-test").disabled = running || !selectedApprovedId;
       $("edit-saved").disabled = running || !selectedApprovedId;
+      updateSuiteSelection();
     }
     async function refreshApprovedTests(preferredId = $("approved-tests").value) {
+      const preservedSuiteSelection = new Set(suiteSelectedIds());
       const payload = await requestJSON("/api/tests");
+      const suiteList = $("suite-test-list");
+      suiteList.replaceChildren();
       const select = $("approved-tests");
       select.replaceChildren();
       const blank = make("option", "Select a saved test");
@@ -490,6 +522,21 @@
         const option = make("option", test.title + " (" + test.steps + " steps) — " + test.id);
         option.value = test.id;
         select.append(option);
+        const row = make("label", null, "suite-case");
+        row.style.display = "flex";
+        row.style.gap = "10px";
+        row.style.alignItems = "center";
+        row.style.margin = "8px 0";
+        const checkbox = make("input");
+        checkbox.type = "checkbox";
+        checkbox.value = test.id;
+        checkbox.checked = preservedSuiteSelection.has(test.id);
+        checkbox.addEventListener("change", updateSuiteSelection);
+        row.append(checkbox, make("span", test.title + " (" + test.steps + " steps)"));
+        suiteList.append(row);
+      }
+      if (!payload.tests.length) {
+        suiteList.append(make("p", "No approved tests saved yet.", "muted"));
       }
       if (payload.tests.some((item) => item.id === preferredId)) select.value = preferredId;
       updateRunButton();
@@ -911,6 +958,96 @@
         break;
       }
     }
+    function renderSuite(suite) {
+      const totals = suite.summary;
+      $("suite-status").textContent = suite.state === "running"
+        ? "Suite running — " + totals.completed + " of " + totals.total + " completed"
+        : "Suite complete — " + suite.verdict.toUpperCase();
+      $("suite-summary").textContent = totals.passed + " passed, " + totals.failed +
+        " failed, " + totals.errors + " runner errors; " + totals.completed +
+        " of " + totals.total + " completed";
+      const list = $("suite-results");
+      list.replaceChildren();
+      for (const item of suite.tests) {
+        const card = make("div", null, "run-step");
+        card.style.marginTop = "8px";
+        const verdict = item.verdict || (item.state === "error" ? "runner error" : item.state);
+        card.append(make("strong", item.title + " — " + verdict.toUpperCase()));
+        if (item.durationMs !== undefined) {
+          card.append(make("span", " · " + (item.durationMs / 1000).toFixed(1) + "s", "muted"));
+        }
+        if (item.error) card.append(make("div", item.error, "error"));
+        if (item.detailAvailable && item.state === "finished") {
+          const details = make("button", "View details for " + item.title, "secondary");
+          details.type = "button";
+          details.addEventListener("click", async () => {
+            $("run-error").textContent = "";
+            try {
+              const result = await requestJSON("/api/runs/" + encodeURIComponent(item.runId));
+              renderResult(result);
+              $("run-status").textContent = "Viewing suite result: " + item.title;
+              $("run-results").scrollIntoView({ behavior: "smooth", block: "start" });
+            } catch (error) {
+              $("suite-error").textContent = error.message || String(error);
+            }
+          });
+          card.append(details);
+        }
+        list.append(card);
+      }
+      const links = $("suite-artifacts");
+      links.replaceChildren();
+      if (suite.report) {
+        const link = make("a", "Open suite JSON report");
+        link.href = suite.report;
+        link.target = "_blank";
+        link.rel = "noopener";
+        links.append(link);
+      }
+    }
+    async function watchSuite(id) {
+      while (true) {
+        await new Promise((done) => setTimeout(done, 500));
+        const suite = await requestJSON("/api/suites/" + encodeURIComponent(id));
+        renderSuite(suite);
+        if (suite.state === "finished") break;
+      }
+    }
+    async function executeSuite() {
+      const ids = suiteSelectedIds();
+      if (running || ids.length < 1 || ids.length > 10) return;
+      running = true;
+      updateRunButton();
+      $("suite-error").textContent = "";
+      $("suite-summary").textContent = "";
+      $("suite-results").replaceChildren();
+      $("suite-artifacts").replaceChildren();
+      $("suite-status").textContent = "Starting sequential test suite...";
+      try {
+        const suite = await requestJSON("/api/suites", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ids, baseURL: $("base-url").value, timeoutMs: Number($("run-timeout").value),
+          }),
+        });
+        renderSuite(suite);
+        await watchSuite(suite.id);
+      } catch (error) {
+        $("suite-error").textContent = error.message || String(error);
+        $("suite-status").textContent = "Suite could not complete.";
+      } finally {
+        running = false;
+        updateRunButton();
+      }
+    }
+    $("suite-select-all").addEventListener("click", () => {
+      const boxes = Array.from(document.querySelectorAll("#suite-test-list input[type=checkbox]"));
+      const allSelected = boxes.length > 0 && boxes.slice(0, 10).every((box) => box.checked) &&
+        boxes.slice(10).every((box) => !box.checked);
+      boxes.forEach((box, i) => { box.checked = !allSelected && i < 10; });
+      updateSuiteSelection();
+    });
+    $("suite-run").addEventListener("click", () => { void executeSuite(); });
     $("approved-tests").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
       if (running || !id) return;
