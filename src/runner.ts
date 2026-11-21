@@ -22,8 +22,10 @@ export interface RunOptions {
 }
 type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 function locate(page: Page, target: Target): Locator {
-  if (target.by === "role")
-    return page.getByRole(target.role, { name: target.name, exact: true });
+  if (target.by === "role") {
+    const matches = page.getByRole(target.role, { name: target.name, exact: true });
+    return "nth" in target && target.nth !== undefined ? matches.nth(target.nth) : matches;
+  }
   if (target.by === "label")
     return page.getByLabel(target.value, { exact: true });
   if (target.by === "text")

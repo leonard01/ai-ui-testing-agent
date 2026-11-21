@@ -78,6 +78,16 @@ In **3. Execute and diagnose → Run a test suite**, choose a **Test suite (webs
 
 See [website test suite organization and storage](website-test-suites.md) for details.
 
+## Repairing identically named buttons and controls
+
+When a step says "Click one Delete button" after the page creates two identical **Delete** buttons, the live DOM resolver intentionally stops rather than guessing which element to click. The **Choose the intended element** panel now displays the candidate order as **match 1 of 2** and **match 2 of 2**, provided Playwright verifies the elements correspond exactly to the inspected live DOM.
+
+Selecting a match enables **Save corrected copy and rerun from start** and the chosen test step is saved with an explicit role, name and zero-based `nth` match index. For example, `{ "by": "role", "role": "button", "name": "Delete", "nth": 0 }` selects the first matching Delete button. The original test is replaced by the corrected approved copy; the test is replayed from step one and the original expected outcomes remain unchanged.
+
+**Important:** positional locators are more fragile than stable accessible names or test IDs. If items reorder, the selected position can refer to a different element. For a test referring to a *specific* task or row, refine the target to include a distinctive name or context instead. The repair UI will not offer positional saving unless the order is verified against Playwright's matching elements. Repair errors appear immediately beside the save button.
+
+Indexed role locators are supported by the runner, selector preflight and standalone Playwright TypeScript export. The role locator's optional `nth` is zero-based (0–249); count assertions intentionally do not accept it.
+
 ## Run multiple approved tests as a suite (on main)
 
 After saving at least two test definitions, use **3. Execute and diagnose → Run a test suite**:

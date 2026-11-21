@@ -16,6 +16,9 @@ const target = z.discriminatedUnion("by", [
         "listitem",
       ]),
       name: text.optional(),
+      // Explicit zero-based position among elements with this accessible
+      // role/name. Only human-confirmed repairs should introduce this field.
+      nth: z.number().int().min(0).max(249).optional(),
     })
     .strict(),
   z.object({ by: z.literal("label"), value: text }).strict(),

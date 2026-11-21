@@ -24,6 +24,10 @@ export interface AmbiguousCandidate {
   role: string;
   name: string;
   nearby: string;
+  /** Zero-based DOM order among identical accessible role/name matches. */
+  nth?: number;
+  /** Total verified matches for that role/name at the failure point. */
+  matchCount?: number;
 }
 export interface AmbiguousResolution {
   intent: string;
@@ -438,12 +442,42 @@ export async function discoverTarget(
       const bestScore = ranked[0].score;
       const top = ranked.filter((entry) => entry.score === bestScore);
       if (top.length !== 1) {
-        throw new AmbiguousIntentError({
-          intent: target.value, role: target.role, total: top.length,
-          candidates: top.slice(0, 20).map(({ candidate }) => ({
+        const options: AmbiguousCandidate[] = [];
+        for (const { candidate } of top.slice(0, 20)) {
+          const option: AmbiguousCandidate = {
             tag: candidate.tag, role: candidate.role,
             name: candidate.name, nearby: candidate.nearby,
-          })),
+          };
+          // Only offer a positional correction if Playwright's EXACT role/name
+          // results match the inspected live DOM elements in order. A user
+          // must explicitly choose this fragile but sometimes necessary index.
+          const roles = ["button", "checkbox", "radio", "textbox", "combobox",
+            "heading", "status", "listitem"] as const;
+          if (candidate.name && roles.some((role) => role === candidate.role)) {
+            const same = candidates.filter((other) =>
+              other.role === candidate.role && other.name === candidate.name);
+            if (same.length > 1) {
+              const nth = same.findIndex((entry) => entry.index === candidate.index);
+              const locator = page.getByRole(candidate.role as typeof roles[number],
+                { name: candidate.name, exact: true });
+              if (nth >= 0 && await locator.count() === same.length) {
+                const inspected = await page.locator(selector)
+                  .nth(candidate.index).elementHandle();
+                const matched = await locator.nth(nth).elementHandle();
+                if (inspected && matched &&
+                    await inspected.evaluate((element, expected) =>
+                      element === expected, matched)) {
+                  option.nth = nth;
+                  option.matchCount = same.length;
+                }
+              }
+            }
+          }
+          options.push(option);
+        }
+        throw new AmbiguousIntentError({
+          intent: target.value, role: target.role, total: top.length,
+          candidates: options,
         });
       }
       const match = top[0].candidate;
