@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requestGroq } from "../../dist/hosted-providers.js";
+import { requestGroq, GroqProviderError } from "../../dist/hosted-providers.js";
 
 const request = {
   model: "openai/gpt-oss-20b",
@@ -85,6 +85,52 @@ test("GroqCloud gives actionable errors without leaking API credentials", async 
     await assert.rejects(
       requestGroq(request, async () => new Response(JSON.stringify({ choices: [] }))),
       /no generated JSON text/,
+    );
+  } finally {
+    if (old === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = old;
+  }
+});
+
+test("GroqCloud HTTP 400 surfaces safe JSON error category without leaking raw provider text", async () => {
+  const old = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "gsk_test_fake_not_real";
+  try {
+    for (const [code, category, hint] of [
+      ["json_validate_failed", "json-generation", /acceptable JSON/],
+      ["context_length_exceeded", "request-too-large", /context\/token limit/],
+      ["model_not_found", "invalid-model", /model ID/],
+    ]) {
+      await assert.rejects(
+        requestGroq(request, async () => new Response(JSON.stringify({
+          error: {
+            code, type: "invalid_request_error", param: "model",
+            message: "Raw upstream details secret-data from user requirements gsk_test_fake_not_real",
+          },
+        }), { status: 400 })),
+        (error) => {
+          assert.ok(error instanceof GroqProviderError);
+          assert.equal(error.source, "groqcloud");
+          assert.equal(error.httpStatus, 400);
+          assert.equal(error.providerCode, code);
+          assert.equal(error.category, category);
+          assert.match(error.message, hint);
+          assert.ok(!error.message.includes("secret-data"));
+          assert.ok(!error.message.includes("gsk_test_fake_not_real"));
+          return true;
+        },
+      );
+    }
+    await assert.rejects(
+      requestGroq(request, async () => new Response(JSON.stringify({
+        error: { code: "unrecognized_400", type: "invalid_request_error", message: "secret-data" },
+      }), { status: 400 })),
+      (error) => {
+        assert.equal(error.category, "bad-request");
+        assert.match(error.message, /GroqCloud HTTP 400/);
+        assert.ok(!error.message.includes("secret-data"));
+        return true;
+      },
     );
   } finally {
     if (old === undefined) delete process.env.GROQ_API_KEY;
