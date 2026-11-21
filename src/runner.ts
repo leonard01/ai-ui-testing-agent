@@ -20,7 +20,7 @@ export interface RunOptions {
   timeoutMs?: number;
   onAssertionSearchIndex?: (stepId: string, entries: AssertionSearchEntry[]) => void;
 }
-type Target = Exclude<TestAction, { kind: "navigate" }>["target"];
+type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 function locate(page: Page, target: Target): Locator {
   if (target.by === "role")
     return page.getByRole(target.role, { name: target.name, exact: true });
@@ -88,8 +88,10 @@ export async function runTest(
       base.password
     )
       throw new Error("baseURL must be an HTTP(S) URL without credentials");
-    for (const step of definition.steps)
+    for (const step of definition.steps) {
       if (step.action.kind === "navigate") navigationURL(step.action.url, base);
+      if (step.action.kind === "assert-url") navigationURL(step.action.expected, base);
+    }
     await mkdir(outputDir, { recursive: true });
     browser =
       suppliedBrowser ?? (await chromium.launch({ headless: !options.headed }));
@@ -122,15 +124,32 @@ export async function runTest(
       let checkingAssertion = false;
       try {
         const action = step.action;
-        if (action.kind === "navigate")
+        if (action.kind === "navigate") {
           await page.goto(navigationURL(action.url, base), {
             waitUntil: "domcontentloaded",
           });
-        else {
+        } else if (action.kind === "assert-url") {
+          checkingAssertion = true;
+          result.expected = navigationURL(action.expected, base);
+          const deadline = performance.now() + timeout;
+          while (true) {
+            result.observed = page.url();
+            if (result.observed === result.expected) break;
+            const remaining = deadline - performance.now();
+            if (remaining <= 0) {
+              throw new Error("URL assertion failed: expected " +
+                JSON.stringify(result.expected) + ", observed " + JSON.stringify(result.observed));
+            }
+            await delay(Math.min(50, remaining));
+          }
+        } else {
           let target: Locator;
           if (action.target.by === "intent") {
             const { locator, evidence } = await discoverTarget(
-              page, action.target, action.kind, timeout,
+              page, action.target,
+              action.kind === "uncheck" ? "check" :
+                action.kind === "assert-count" ? "assert-visible" : action.kind,
+              timeout,
             );
             result.resolution = evidence;
             target = locator;
@@ -139,7 +158,27 @@ export async function runTest(
           }
           if (action.kind === "click") await target.click();
           else if (action.kind === "fill") await target.fill(action.value);
-          else {
+          else if (action.kind === "check") await target.check();
+          else if (action.kind === "uncheck") await target.uncheck();
+          else if (action.kind === "select-option") await target.selectOption(action.value);
+          else if (action.kind === "press") await target.press(action.key);
+          else if (action.kind === "assert-count") {
+            // Zero elements is a valid expectation; do not require an attached target.
+            checkingAssertion = true;
+            result.expected = String(action.expected);
+            const deadline = performance.now() + timeout;
+            while (true) {
+              const count = await target.count();
+              result.observed = String(count);
+              if (count === action.expected) break;
+              const remaining = deadline - performance.now();
+              if (remaining <= 0) {
+                throw new Error("Count assertion failed: expected " +
+                  action.expected + ", observed " + count);
+              }
+              await delay(Math.min(50, remaining));
+            }
+          } else {
             // Missing or ambiguous targets are execution errors.
             await target.waitFor({ state: "attached", timeout });
             if ((await target.count()) !== 1)

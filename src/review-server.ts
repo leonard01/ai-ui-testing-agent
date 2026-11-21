@@ -98,6 +98,7 @@ function validatedBaseURL(raw: unknown): URL {
 function verifyNavigations(definition: TestDefinition, base: URL): void {
   for (const step of definition.steps) {
     if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
+    if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
   }
 }
 
@@ -384,6 +385,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((step) => step.id === failed.id);
           if (!step || step.action.kind === "navigate" ||
+              step.action.kind === "assert-url" || step.action.kind === "assert-count" ||
               step.action.target.by !== "intent" ||
               step.action.target.value !== ambiguity.intent ||
               step.action.target.role !== ambiguity.role) {
@@ -391,7 +393,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }
           const candidateRole = selected.role;
           const groundedRole = candidateRole === "button" || candidateRole === "textbox" ||
-            candidateRole === "checkbox" || candidateRole === "heading" ||
+            candidateRole === "checkbox" || candidateRole === "radio" ||
+            candidateRole === "combobox" || candidateRole === "heading" ||
             candidateRole === "status" || candidateRole === "listitem"
             ? candidateRole : undefined;
           const selectedRole = ambiguity.role || groundedRole;

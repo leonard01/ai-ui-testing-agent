@@ -48,6 +48,20 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
+## Broader browser actions and assertions (development branch)
+
+Generated and reviewed JSON cases may now include:
+
+- `select-option`: native single-value dropdown selection (the JSON `value` is an option's HTML value)
+- `check` / `uncheck`: set checkbox state (or check a radio input), without toggling blindly
+- `press`: send a supported single key to an element, such as `Enter`, `Tab` or an arrow key
+- `assert-url`: verify the exact same-origin URL, resolving relative URLs against the application base
+- `assert-count`: verify an exact number of matched DOM elements, including zero. Use explicit role/name, label or text targets (not intent); no additional visibility filter is applied
+
+The **Edit fields** interface displays each action in readable language and permits its fields to be changed without editing JSON. It does not yet offer an action-type conversion menu; use generation to create new action kinds. All assertions still require reviewed provenance. Count and URL mismatches remain test failures; locator preflight is only advisory and cannot prove actions will succeed after state changes.
+
+This feature is on `feature/broader-browser-actions` until CI and review pass.
+
 ## Read-only selector preflight (feature branch)
 
 Before confirming and saving a generated or edited draft, click **Check selectors (read-only)** below the step list. The local server opens just the first navigation URL in a fresh, isolated Chromium context and checks explicit role/name, label and visible-text locators. No test click, fill or assertion is executed, no AI model is contacted, and no test fields are modified.

@@ -106,12 +106,11 @@ export async function generateDraft(
       throw new GeneratedDraftValidationError(attempt, problems);
     }
     for (const step of definition.steps) {
-      if (step.action.kind === "navigate") {
-        ensureAllowedNavigation(step.action.url, base);
-      } else if (
-        (step.action.kind === "assert-text" || step.action.kind === "assert-visible") &&
-        step.action.provenance === "human-confirmed"
-      ) {
+      if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
+      if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
+      if ((step.action.kind === "assert-text" || step.action.kind === "assert-visible" ||
+           step.action.kind === "assert-url" || step.action.kind === "assert-count") &&
+          step.action.provenance === "human-confirmed") {
         throw new Error("Model cannot claim human-confirmed assertion provenance");
       }
     }
@@ -130,17 +129,26 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "Incorrect: \"steps\":[{\"id\":\"open\",\"description\":\"Open\",\"action\":{\"kind\":\"navigate\",\"url\":\"/\"}},\"Verify the status\"]",
     "Correct: \"steps\":[{\"id\":\"open\",\"description\":\"Open\",\"action\":{\"kind\":\"navigate\",\"url\":\"/\"}},{\"id\":\"verify\",\"description\":\"Verify the status\",\"action\":{\"kind\":\"assert-text\",\"target\":{\"by\":\"role\",\"role\":\"status\"},\"expected\":\"0 tasks, 0 completed\",\"provenance\":\"requirements\"}}]",
 
-    "Each step action kind must be navigate, click, fill, assert-text, or assert-visible.",
+    "Allowed actions: navigate, click, fill, check, uncheck, select-option, press, assert-text, assert-visible, assert-url, assert-count.",
     "Navigate action: {kind:'navigate',url:'/'}; the first step must navigate to the application's path.",
     "Click action: {kind:'click',target:TARGET}. Fill action: {kind:'fill',target:TARGET,value:string}.",
+    "Checkbox/radio actions: {kind:'check',target:TARGET} and {kind:'uncheck',target:TARGET}; check means set checked, not toggle.",
+    "Dropdown action: {kind:'select-option',target:TARGET,value:string}; value is the native select option VALUE, not its visible label.",
+    "Keyboard action: {kind:'press',target:TARGET,key:'Enter|Tab|Escape|Backspace|Delete|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|Space|Home|End|PageUp|PageDown'}.",
+    "Only use check/uncheck for checkbox or radio inputs, and select-option for an actual native select element.",
+    "Use 'press' sparingly; only when the requirements require keyboard interaction.",
     "For AI-generated tests, PREFER live DOM intent targets (e.g. {by:'intent',value:'Add',role:'button'}) instead of predicting CSS, labels or other selectors.",
     "The label locator targets form fields with associated labels (for example the input labelled Task), NOT ordinary buttons bearing text.",
     "If you do use explicit locators, only use accessible role/name for buttons and checkboxes when the initial snapshot supports them. Never infer a label from button text.",
     "Assert-text action: {kind:'assert-text',target:TARGET,expected:string,provenance:string}.",
     "Assert-visible action: {kind:'assert-visible',target:TARGET,provenance:string}.",
-    "TARGET is {by:'role',role:'button|textbox|checkbox|heading|status|listitem',name?:string},",
+    "Assert-url action: {kind:'assert-url',expected:'/same-origin-path',provenance:string}; exact URL including path/query/hash, origin must remain the configured app origin.",
+    "Assert-count action: {kind:'assert-count',target:EXPLICIT_TARGET,expected:nonNegativeInteger,provenance:string}; counts all matched DOM elements, including hidden.",
+    "For assert-count, EXPLICIT_TARGET must use role, label or text, NOT intent (which requires a unique match).",
+    "Never invent expected URL paths, option values or element counts that requirements or the page snapshot do not justify.",
+    "TARGET is {by:'role',role:'button|textbox|checkbox|radio|combobox|heading|status|listitem',name?:string},",
     "or {by:'label',value:string}, or {by:'text',value:string}. Use JSON double quotes throughout.",
-    "TARGET may also be {by:'intent',value:'meaningful target description',role?:'button|textbox|checkbox|heading|status|listitem'}.",
+    "TARGET may also be {by:'intent',value:'meaningful target description',role?:'button|textbox|checkbox|radio|combobox|heading|status|listitem'}.",
     "For test steps involving dynamically appearing or poorly labelled elements, use intent targets rather than guessing locators.",
     "The runner resolves intent from the live DOM at EACH step, including after actions that change the page.",
     "Use concise but DISTINCTIVE grounded intent descriptions: e.g. {by:'intent',value:'Add',role:'button'} for a unique button, {by:'intent',value:'Username',role:'textbox'} for a unique input.",
