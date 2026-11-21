@@ -217,6 +217,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   });
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
   await page.goto(url);
   await page.getByLabel("Approved saved test").selectOption(saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
@@ -253,12 +254,15 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   await expect(reviseButton).toBeDisabled();
   await confirm.check();
   await expect(reviseButton).toBeEnabled();
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
   await reviseButton.click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   const revisedId = await page.getByLabel("Approved saved test").inputValue();
   expect(revisedId).not.toBe(saved.id);
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+  await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
+  expect((await page.request.get(url + originalReportLink)).status()).toBe(404);
   const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
   expect(original.steps[8].action).toMatchObject({
     expected: "1 tasks, 1 completed", provenance: "requirements",
@@ -282,6 +286,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   const originalId = await page.getByLabel("Approved saved test").inputValue();
   expect(originalId).toMatch(/^reviewed-/);
   await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
+  const original = JSON.parse(await readFile(join(outputDir, originalId), "utf8"));
   await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
   await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   await expect(page.locator(".step")).toHaveCount(9);
@@ -295,10 +300,12 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
     await box.check();
   }
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
-  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  await expect(page.locator("#saved")).toContainText("old version removed from the list");
   const revisedId = await page.getByLabel("Approved saved test").inputValue();
   expect(revisedId).not.toBe(originalId);
-  const original = JSON.parse(await readFile(join(outputDir, originalId), "utf8"));
+  await expect(page.locator("#approved-tests option[value='" + originalId + "']")).toHaveCount(0);
+  await expect(page.locator("#approved-tests option[value='" + revisedId + "']")).toHaveCount(1);
+  await expect.poll(async () => (await readdir(outputDir)).includes(originalId)).toBe(false);
   const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
   expect(original.steps[3].description).not.toBe("Add a task via the button");
   expect(revised.steps[3].description).toBe("Add a task via the button");
@@ -366,7 +373,10 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   const correctedId = await page.getByLabel("Approved saved test").inputValue();
   expect(correctedId).not.toBe(saved.id);
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+  await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
+  const discarded = await page.request.get(url + reportLink);
+  expect(discarded.status()).toBe(404);
   const corrected = JSON.parse(await readFile(join(outputDir, correctedId), "utf8"));
   expect(original.steps[3].action.target).toEqual({ by: "label", value: "Add" });
   expect(corrected.steps[3].action.target).toEqual({
@@ -435,6 +445,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   await radio.check();
   const firstRun = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
   if (!firstRun) throw new Error("Missing report link");
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
   const originalReport = await (await fetch(url + firstRun)).json();
   const failingStep = originalReport.steps.find((step: { id: string }) => step.id === "finish");
   expect(failingStep.status).toBe("execution-error");
@@ -453,7 +464,6 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   const newFile = await page.getByLabel("Approved saved test").inputValue();
   expect(newFile).not.toBe(saved.id);
   const files = await readdir(outputDir);
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
   const repaired = JSON.parse(await readFile(join(outputDir, newFile), "utf8"));
   expect(original.steps[5].action.target.value).toBe("Complete");
   expect(repaired.steps[5].action.target).toEqual({
@@ -462,7 +472,9 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   expect(repaired.steps[6].action.expected).toBe("2 tasks, 1 completed");
   expect(repaired.steps[8].action.expected).toBe("1 task, 1 completed");
   expect(files).toContain(newFile);
-  expect(files).toContain(saved.id);
+  expect(files).not.toContain(saved.id);
+  await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
+  expect((await page.request.get(url + firstRun)).status()).toBe(404);
   const finalReportURL = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
   const finalReport = await (await fetch(url + finalReportURL)).json();
   expect(finalReport.status).toBe("passed");
