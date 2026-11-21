@@ -615,7 +615,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -630,7 +630,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
-      if (path === "/api/delete-test" || path === "/api/delete-site") {
+      if (path === "/api/delete-test" || path === "/api/delete-site" || path === "/api/assign-site") {
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Cannot delete saved scripts or suites while a browser operation or deletion is active" });
           return;
@@ -642,7 +642,35 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (input.confirmed !== true) {
             throw new Error("Explicit deletion confirmation is required");
           }
-          if (path === "/api/delete-test") {
+          if (path === "/api/assign-site") {
+            // Explicit migration only: never guess the originating URL for a
+            // legacy file from its title or AI-written browser steps.
+            if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
+              throw new Error("Invalid legacy test script ID");
+            }
+            const file = await findSavedFile(savedDir, input.id);
+            const definition = await readSaved(input.id);
+            if (dirname(file) !== savedDir || definition.sourceUrl) {
+              throw new Error("Only an unassigned legacy script can be assigned this way");
+            }
+            const base = validatedBaseURL(input.baseURL);
+            verifyNavigations(definition, base);
+            const targetFolder = websiteDirectory(savedDir, base.href);
+            const target = join(targetFolder, input.id);
+            const approved = parseTestDefinition({ ...definition, sourceUrl: base.href });
+            await mkdir(targetFolder, { recursive: true });
+            await writeFile(target, JSON.stringify(approved, null, 2) + "\n", { flag: "wx" });
+            try {
+              await unlink(file);
+            } catch (error) {
+              await unlink(target).catch(() => {});
+              throw error;
+            }
+            json(res, 200, {
+              assignedId: input.id, siteUrl: websiteOrigin(base.href),
+              message: "Existing test script assigned to the selected website suite.",
+            });
+          } else if (path === "/api/delete-test") {
             if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
               throw new Error("Invalid test script ID");
             }
