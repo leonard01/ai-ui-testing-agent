@@ -18,6 +18,38 @@ interface DomCandidate {
   testId: string;
   id: string;
 }
+/** Page-derived alternatives offered for explicit human selection only. */
+export interface AmbiguousCandidate {
+  tag: string;
+  role: string;
+  name: string;
+  nearby: string;
+}
+export interface AmbiguousResolution {
+  intent: string;
+  role?: IntentTarget["role"];
+  candidates: AmbiguousCandidate[];
+  total: number;
+}
+
+/** Deliberately stop before any click or fill if the live DOM is ambiguous. */
+export class AmbiguousIntentError extends Error {
+  readonly ambiguity: AmbiguousResolution;
+  constructor(ambiguity: AmbiguousResolution) {
+    super(
+      "Ambiguous intent " + JSON.stringify(ambiguity.intent) + ": " +
+      ambiguity.total + " equally plausible elements: " +
+      ambiguity.candidates.map((candidate) =>
+        "<" + candidate.tag + "> role=" + JSON.stringify(candidate.role) +
+        " name=" + JSON.stringify(candidate.name) +
+        " nearby=" + JSON.stringify(candidate.nearby)
+      ).join("; "),
+    );
+    this.name = "AmbiguousIntentError";
+    this.ambiguity = ambiguity;
+  }
+}
+
 export interface DiscoveryEvidence {
   intent: string;
   method: "live-dom";
@@ -150,15 +182,13 @@ export async function discoverTarget(
       const bestScore = ranked[0].score;
       const top = ranked.filter((entry) => entry.score === bestScore);
       if (top.length !== 1) {
-        throw new Error(
-          "Ambiguous intent " + JSON.stringify(target.value) + ": " +
-          top.length + " equally plausible elements: " +
-          top.slice(0, 6).map(({ candidate }) =>
-            "<" + candidate.tag + "> role=" + JSON.stringify(candidate.role) +
-            " name=" + JSON.stringify(candidate.name) +
-            " nearby=" + JSON.stringify(candidate.nearby),
-          ).join("; "),
-        );
+        throw new AmbiguousIntentError({
+          intent: target.value, role: target.role, total: top.length,
+          candidates: top.slice(0, 20).map(({ candidate }) => ({
+            tag: candidate.tag, role: candidate.role,
+            name: candidate.name, nearby: candidate.nearby,
+          })),
+        });
       }
       const match = top[0].candidate;
       // Stable attributes preferred; positional fallback is resolved afresh
