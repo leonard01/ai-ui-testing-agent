@@ -251,7 +251,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -264,6 +264,70 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         body = await readJSON(req);
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/repair") {
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected a request object");
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (!Number.isInteger(input.candidateIndex) ||
+              (input.candidateIndex as number) < 0) {
+            throw new Error("Choose one of the displayed candidate elements");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || !job.report ||
+              job.report.status !== "execution-error") {
+            throw new Error("No completed ambiguous execution is available for repair");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.status === "execution-error" && !!step.ambiguity,
+          );
+          const ambiguity = failed?.ambiguity;
+          if (!failed || !ambiguity || ambiguity.total > ambiguity.candidates.length) {
+            throw new Error("No complete set of candidate choices is available for this run");
+          }
+          const selected = ambiguity.candidates[input.candidateIndex as number];
+          if (!selected || !selected.name.trim()) {
+            throw new Error("This candidate has no meaningful name; edit the locator manually");
+          }
+          if (ambiguity.candidates.some((candidate, index) =>
+            index !== input.candidateIndex && candidate.name === selected.name &&
+            candidate.role === selected.role)) {
+            throw new Error("These candidates have identical names; choose a more specific locator manually");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((step) => step.id === failed.id);
+          if (!step || step.action.kind === "navigate" ||
+              step.action.target.by !== "intent" ||
+              step.action.target.value !== ambiguity.intent ||
+              step.action.target.role !== ambiguity.role) {
+            throw new Error("The saved test changed since this execution; rerun it before repairing");
+          }
+          const supportedRoles = ["button", "textbox", "checkbox", "heading", "status", "listitem"];
+          const selectedRole = ambiguity.role ||
+            (supportedRoles.includes(selected.role) ? selected.role : undefined);
+          step.action.target = {
+            by: "intent",
+            value: selected.name,
+            ...(selectedRole ? { role: selectedRole } : {}),
+          };
+          const repaired = parseTestDefinition(definition);
+          const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
+          const file = join(savedDir, id);
+          await mkdir(savedDir, { recursive: true });
+          await writeFile(file, JSON.stringify(repaired, null, 2) + "\n", { flag: "wx" });
+          json(res, 201, {
+            id, file, repairedStepId: failed.id,
+            previousIntent: ambiguity.intent,
+            approvedIntent: selected.name,
+            message: "Repaired copy saved. Original test and assertions remain unchanged; no test has been executed.",
+          });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid repair request" });
+        }
         return;
       }
       if (path === "/api/run") {
