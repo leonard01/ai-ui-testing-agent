@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. PR #3 is merged into `main`; the optional selector-preflight work described below is on a separate feature branch.
+**Last repository review:** 21 November 2026. PRs #3, #11 and #12 are merged into `main`. The sequential test-suite dashboard is being developed on `feature/sequential-test-suites`.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #3](https://github.com/leonard01/ai-ui-testing-agent/pull/3), merged |
+| Most recent merged feature | [Pull request #12](https://github.com/leonard01/ai-ui-testing-agent/pull/12), expanded browser actions and assertions |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -27,8 +27,8 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | --- | --- |
 | JSON test cases | Edit steps and expected results without writing a Playwright test |
 | Validation | Reject malformed cases, unsupported actions, duplicate step IDs and missing assertions before opening the browser |
-| Browser actions | Navigate, click, fill; on this feature branch also select dropdown options, check/uncheck and press keyboard keys |
-| Assertions | Check exact normalized text and element visibility; on this feature branch also exact URL and matched-element counts |
+| Browser actions | Navigate, click, fill, native dropdown select, check/uncheck and permitted keyboard keys |
+| Assertions | Check exact normalized text, visibility, URL and matched-element counts |
 | Target descriptions | Exact role/name, label or text matching |
 | Isolated runs | Start each case in a fresh browser context |
 | Visible execution | Use `--headed` to watch Chromium locally |
@@ -149,7 +149,7 @@ In the draft review UI, **Check selectors (read-only)** inspects the starting pa
 
 This optional check does **not** click, fill, replay steps, modify expectations or targets, call a model, or approve any test. Locators for dynamic elements after clicks/fills or further navigation may be **deferred**. Results are warnings, not proof of test success, and they are invalidated when fields are edited.
 
-This feature remains on `feature/selector-preflight` until merged.
+This feature is merged into `main` through PR #11.
 
 ### Broader browser actions and assertions (new feature branch)
 
@@ -171,7 +171,17 @@ For example, a valid test can contain:
 
 Counts use Playwright locator matching, without an extra visibility filter; role locators normally exclude accessibility-hidden elements. A count assertion intentionally **cannot** use an intent target, because live intent resolution requires one unique element. Check and select target resolution happens at execution time. All assertions keep provenance, and a wrong expected URL/count is a genuine assertion failure with expected/observed evidence. The actions do not automatically execute until the tester approves and runs the saved case.
 
-**Development status:** `feature/broader-browser-actions`, not yet merged; verify via its pull request CI.
+**Development status:** merged into `main` through PR #12.
+
+### Sequential test-suite execution (new feature branch)
+
+In **3. Execute and diagnose → Run a test suite**, select 1–10 approved saved tests and click **Run selected suite**. The application validates **all** saved scripts and same-origin navigation targets before the first browser run. Tests execute **sequentially**, each with a new isolated browser context. An assertion or execution error in one case does **not** stop the remaining cases.
+
+The live suite dashboard displays progress, per-test verdicts, completed counts, total passes/failures, and duration. **View details** opens the original per-step report, screenshot and trace in the existing diagnosis panel, including human-approved repair functionality. You can also open a consolidated JSON report; an additional report file is saved to `run-results/suites/<suite-id>/report.json`.
+
+Suite runs share the same execution lock as single-test runs and selector preflight, so they cannot compete for browser resources on slower laptops. A pending case cannot be replaced while its suite is running. Execution requires an explicit click, uses the saved approved JSON files, and makes no model requests. Suite history remains available **in the current server session**; reloading history after server restart remains a future task.
+
+This work is on `feature/sequential-test-suites` pending CI and review.
 
 ### Not implemented yet
 
@@ -179,7 +189,7 @@ Counts use Playwright locator matching, without an extra visibility filter; role
 - AI discovery of workflows or interpretation of browser targets.
 - Recording a user's interactions into a test case.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover (the review UI provides limited per-step timeout selection).
-- Full test management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
+- Full project management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
 - Exporting cases as standalone TypeScript scripts.
 - API, mobile and load testing, or additional language exporters.\n- Advanced keyboard chords, rich multiselect semantics, and visual assertions.
 
