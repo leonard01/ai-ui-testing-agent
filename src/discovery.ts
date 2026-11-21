@@ -220,7 +220,7 @@ export async function findLocatorAlternatives(
           if (!await item.isVisible()) continue;
           const context = await item.evaluate((element) => {
             const clip = (text: string | null | undefined) =>
-              (text ?? "").replace(/\\s+/g, " ").trim().slice(0, 180);
+              (text ?? "").replace(/\s+/g, " ").trim().slice(0, 180);
             return {
               tag: element.tagName.toLowerCase(),
               nearby: clip(element.parentElement?.textContent),
