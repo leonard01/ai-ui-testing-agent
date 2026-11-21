@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. PRs #3, #11, #12, #13, #14, #15 and #16 are merged into `main`. Website-based suite organization is in development on `feature/site-test-suites`.
+**Last repository review:** 21 November 2026. Site suites, persistent history, repaired selectors and TodoMVC fixes are merged through PR #21. Suite-only execution history cleanup is in development on `feature/suite-history-cleanup`.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #16](https://github.com/leonard01/ai-ui-testing-agent/pull/16), persistent execution history |
+| Most recent merged feature | [Pull request #21](https://github.com/leonard01/ai-ui-testing-agent/pull/21), assertion-selector review fallback |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -205,15 +205,15 @@ After saving, `GET /api/tests/<approved-id>/traceability` provides a read-only m
 
 [Full traceability workflow, schema and limitations](docs/requirements-traceability.md). This feature is merged into `main` through PR #15.
 
-### Persistent execution history (new feature branch)
+### Website-based execution history (improved in this branch)
 
-Completed individual run reports and suite summaries are now available across **local review-server restarts**. The Review UI includes an **Execution history** panel with timestamps, statuses and **Open previous run/suite** actions. Reopening past results never executes a test or contacts an AI provider.
+**History is now suite-focused.** A website URL identifies a test suite; each execution can contain one script or a selected batch. Choose **Show History** at the very bottom of the Review UI, select a website from the dropdown, and browse **10 executions per page**. There is no separate individual-run history list, and runs inside a batch are not double-counted. Each row shows the website suite's URL, timestamp, outcome and pass/fail totals. Open past execution details without rerunning tests or calling a model.
 
-Reports and screenshots/traces remain under `run-results/`. New small `run-metadata.json` sidecars record the saved-test identity and optional suite association. At server startup the tool restores up to **100 completed runs and 20 completed suites**, including older valid `report.json` files without metadata. It ignores corrupt and interrupted reports rather than presenting them as passing tests. Loaded results have their original diagnoses and available evidence.
+Historical results survive local server restarts. The server can restore up to **1,000 individual run reports and 1,000 completed batch summaries** from disk, displaying only the selected website's ten most recent executions per page. Old reports missing a website URL are grouped under **Older / unknown website**.
 
-**Current limitation:** Existing reviewed-assertion repair workflows remove the superseded approved test and its old run evidence; this history is not yet a revision-preserving audit log. The in-memory limit is not automatic disk cleanup. See [storage and history guidance](docs/persistent-history.md).
+The expanded history includes **Delete All History** (with confirmation), which clears generated execution reports, screenshots and traces **for every website**, but leaves approved saved JSON test scripts untouched. History deletion cannot occur during active execution or preflight. Existing approved-test replacement can still remove superseded run evidence, so this is not a permanent audit log.
 
-The feature is merged into `main` through PR #16.
+[Execution history, site filtering, paging and deletion details](docs/persistent-history.md). This cleanup is on `feature/suite-history-cleanup` pending CI and review.
 
 ### Website-based test suites and deletion (new feature branch)
 

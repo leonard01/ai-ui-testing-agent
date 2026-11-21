@@ -91,10 +91,16 @@ test("run/suite reports and failure evidence survive a full review-server restar
     });
 
     const before = await (await fetch(url + "/api/history")).json();
-    expect(before.runs).toHaveLength(4);
-    expect(before.suites).toHaveLength(1);
-    expect(before.runs.some((run: any) =>
-      run.fileId === ids[1] && run.verdict === "assertion-failed")).toBe(true);
+    // One website suite, three executions (two single runs and one batch).
+    // Four individual member reports are NOT displayed separately.
+    expect(before.sites).toEqual([{
+      siteUrl: "http://127.0.0.1:3000", label: "http://127.0.0.1:3000", executions: 3,
+    }]);
+    expect(before.entries).toHaveLength(3);
+    expect(before.entries.filter((entry: any) => entry.kind === "single")).toHaveLength(2);
+    expect(before.entries.filter((entry: any) => entry.kind === "batch")).toHaveLength(1);
+    expect(before.entries.every((entry: any) =>
+      entry.siteUrl === "http://127.0.0.1:3000")).toBe(true);
 
     const metadata = JSON.parse(await readFile(join(
       dir, "run-results", failed.id, "run-metadata.json"), "utf8"));
@@ -107,10 +113,10 @@ test("run/suite reports and failure evidence survive a full review-server restar
     session = await start(dir, browser);
     current = session.server;
     const restored = await (await fetch(session.url + "/api/history")).json();
-    expect(restored.runs).toHaveLength(4);
-    expect(restored.suites).toHaveLength(1);
-    expect(restored.runs.map((run: any) => run.id)).toEqual(
-      [...before.runs.map((run: any) => run.id)]);
+    expect(restored.entries).toHaveLength(3);
+    expect(restored.sites).toEqual(before.sites);
+    expect(restored.entries.map((entry: any) => entry.id)).toEqual(
+      before.entries.map((entry: any) => entry.id));
 
     const restoredRun = await (await fetch(
       session.url + "/api/runs/" + failed.id)).json();
@@ -137,19 +143,29 @@ test("run/suite reports and failure evidence survive a full review-server restar
       session.url + restoredSuite.report)).json();
     expect(report.summary.failed).toBe(1);
 
-    // Browser view must surface both types of historical result without rerunning.
+    // History is collapsed, last on the page, and combines single/batch
+    // executions under the same named website without duplicating members.
     await page.goto(session.url);
-    await expect(page.locator("#history-run-list .history-entry")).toHaveCount(4);
-    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await expect(page.locator("#history-panel")).toBeHidden();
+    await expect(page.getByRole("button", { name: "Show History" })).toBeVisible();
+    await expect(page.locator("#execution-panel").locator("section").last())
+      .toHaveAttribute("id", "history-panel");
+    await page.getByRole("button", { name: "Show History" }).click();
+    await expect(page.locator("#history-site")).toHaveValue("http://127.0.0.1:3000");
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(3);
+    await expect(page.locator("#history-run-list")).toHaveCount(0);
+    await expect(page.locator("#history-page-info")).toContainText("Page 1 of 1");
     await page.locator("#history-suite-list").getByRole("button", {
-      name: "Open previous suite",
-    }).click();
-    await expect(page.locator("#suite-results .run-step")).toHaveCount(2);
-    await page.locator("#history-run-list").getByRole("button", {
-      name: "Open previous run",
+      name: "Open results",
     }).first().click();
+    await expect(page.locator("#suite-results .run-step")).toHaveCount(2);
+    await page.locator("#history-suite-list").getByRole("button", {
+      name: "Open results",
+    }).nth(1).click();
     await expect(page.locator("#run-results")).toBeVisible();
     await expect(page.locator("#run-status")).toContainText("No test was rerun");
+    await page.getByRole("button", { name: "Hide History" }).click();
+    await expect(page.locator("#history-panel")).toBeHidden();
   } finally {
     if (current) await stop(current);
     await rm(dir, { recursive: true, force: true });
@@ -182,12 +198,14 @@ test("restoration ignores incomplete, corrupt and unrecognized directories", asy
     const instance = await start(dir, browser);
     current = instance.server;
     const payload = await (await fetch(instance.url + "/api/history")).json();
-    expect(payload.runs).toHaveLength(1);
-    expect(payload.runs[0]).toMatchObject({
-      id: legacy, fileId: null, verdict: "passed",
-      title: "Pre-history valid report",
+    expect(payload.entries).toHaveLength(1);
+    expect(payload.entries[0]).toMatchObject({
+      id: legacy, kind: "single", verdict: "passed",
+      siteUrl: "__legacy__", title: "Pre-history valid report",
     });
-    expect(payload.suites).toHaveLength(0);
+    expect(payload.sites).toEqual([{
+      siteUrl: "__legacy__", label: "Older / unknown website", executions: 1,
+    }]);
     const unavailable = await fetch(instance.url + "/api/runs/" + ignored);
     expect(unavailable.status).toBe(404);
     const legacyResponse = await fetch(instance.url + "/api/runs/" + legacy);

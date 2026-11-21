@@ -141,7 +141,12 @@ test("deleting website suite removes scripts but retains completed run evidence"
   expect((await fetch(url + "/api/tests/" + second)).status).toBe(404);
   const again = await (await fetch(url + "/api/runs/" + started.body.id)).json();
   expect(again.report.status).toBe("passed");
-  expect((await (await fetch(url + "/api/history")).json()).runs).toHaveLength(1);
+  const history = await (await fetch(url + "/api/history")).json();
+  expect(history.entries).toHaveLength(1);
+  expect(history.entries[0]).toMatchObject({
+    kind: "single", siteUrl: local, verdict: "passed",
+  });
+  expect(history.sites[0].siteUrl).toBe(local);
 });
 
 test("existing flat JSON scripts stay visible under unassigned suite and can be deleted", async ({ page }) => {
