@@ -6,7 +6,7 @@ import { GroqProviderError } from "../src/hosted-providers.js";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 let server: Server;
@@ -322,6 +322,103 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
+});
+
+test("live DOM Products text repairs missing heading assertion through UI, then reruns", async ({ page }) => {
+  // Mirrors real-world inventory markup: "Products" is a visible span,
+  // not an accessible heading. No SauceDemo network access is needed in CI.
+  const external = createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end('<!doctype html><html><title>Shop</title><main>' +
+      '<div class="inventory_header"><span class="title">Products</span></div>' +
+      '<div>Welcome to the inventory</div></main></html>');
+  });
+  await new Promise<void>((resolve) => external.listen(0, "127.0.0.1", resolve));
+  const baseURL = "http://127.0.0.1:" + (external.address() as AddressInfo).port;
+  try {
+    const definition = {
+      schemaVersion: 1, id: "shop-products-assertion", title: "Products page",
+      version: 1, steps: [
+        { id: "navigate", description: "Open shop", action: {
+          kind: "navigate", url: "/",
+        } },
+        { id: "products", description: "Verify Products heading", action: {
+          kind: "assert-visible",
+          target: { by: "role", role: "heading", name: "Products" },
+          provenance: "requirements",
+        } },
+      ],
+    };
+    const savedResponse = await page.request.post(url + "/api/save", {
+      data: { definition, baseURL },
+    });
+    expect(savedResponse.status(), await savedResponse.text()).toBe(200);
+    const saved = await savedResponse.json();
+    const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+    await page.goto(url);
+    await page.getByLabel("Application URL").fill(baseURL);
+    await page.getByLabel("Approved saved test").selectOption(saved.id);
+    await page.getByRole("button", { name: "Run selected test" }).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const failed = page.locator(".run-step").nth(1);
+    await expect(failed).toContainText("getByRole('heading'");
+    const picker = failed.locator(".assertion-dom-repair");
+    await expect(picker).toBeVisible();
+    await expect(picker).toContainText('Products');
+    await expect(picker).toContainText('<span>');
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
+    await expect(picker).toContainText('Visible text "Products"');
+    const action = picker.getByRole("button", { name: "Save corrected assertion target and rerun" });
+    await expect(action).toBeDisabled();
+
+    const reportLink = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+    if (!reportLink) throw new Error("Missing report link");
+    const report = await (await fetch(url + reportLink)).json();
+    expect(report.steps[1].assertionAlternatives).toMatchObject({
+      attempted: { by: "role", role: "heading", name: "Products" },
+      query: "Products", total: 1,
+      candidates: [{
+        tag: "span", name: "Products",
+        target: { by: "text", value: "Products" },
+      }],
+    });
+    const runId = reportLink.split("/")[3];
+    const invalidStep = await page.request.post(url + "/api/repair-assertion-target", {
+      data: { runId, stepId: "navigate", candidateIndex: 0 },
+    });
+    expect(invalidStep.status()).toBe(400);
+    const invalidChoice = await page.request.post(url + "/api/repair-assertion-target", {
+      data: { runId, stepId: "products", candidateIndex: 99 },
+    });
+    expect(invalidChoice.status()).toBe(400);
+    // No candidate may be applied without explicit selection in the UI.
+    await picker.locator('input[type="radio"]').check();
+    await expect(action).toBeEnabled();
+    await action.click();
+    await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    const correctedId = await page.getByLabel("Approved saved test").inputValue();
+    expect(correctedId).not.toBe(saved.id);
+    const amended = JSON.parse(await readFile(join(outputDir, correctedId), "utf8"));
+    expect(original.steps[1].action.target).toEqual({
+      by: "role", role: "heading", name: "Products",
+    });
+    expect(amended.steps[1].action).toEqual({
+      kind: "assert-visible", target: { by: "text", value: "Products" },
+      provenance: "requirements",
+    });
+    expect(amended.steps[0]).toEqual(original.steps[0]);
+    expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+    await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
+    expect((await page.request.get(url + reportLink)).status()).toBe(404);
+    const latest = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+    const passed = await (await fetch(url + latest)).json();
+    expect(passed.steps.map((step: { status: string }) => step.status)).toEqual(["passed", "passed"]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      external.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test("missing Add label exposes live Add button for UI-only repair and complete rerun", async ({ page }) => {
