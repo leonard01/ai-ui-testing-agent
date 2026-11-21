@@ -22,8 +22,9 @@ import type { RunReport, TestDefinition } from "./domain.js";
 const MAX_BODY_BYTES = 110_000;
 const MAX_REQUIREMENTS_CHARS = 12_000;
 const RUN_ID = /^[a-f0-9-]{36}$/;
-const MAX_RUN_HISTORY = 100;
-const MAX_SUITE_HISTORY = 20;
+const MAX_RUN_HISTORY = 1000;
+const MAX_SUITE_HISTORY = 1000;
+const HISTORY_PAGE_SIZE = 10;
 const MAX_SUITE_CASES = 10;
 
 type RunJob = {
@@ -354,32 +355,71 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   }
   await restoreHistory();
 
-  function historySnapshot() {
-    const runs = [...jobs.values()]
-      .filter((job) => job.state !== "running")
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-      .slice(0, MAX_RUN_HISTORY)
-      .map((job) => ({
-        id: job.id, fileId: job.fileId || null, suiteId: job.suiteId ?? null,
-        baseURL: job.baseURL ?? null,
-        title: job.report?.title ?? "Unknown test",
-        startedAt: job.startedAt, state: job.state,
-        verdict: job.report?.status ?? "runner-error",
-        durationMs: job.report?.durationMs ?? null,
-      }));
-    const suiteList = [...suites.values()]
-      .filter((suite) => suite.state === "finished")
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-      .slice(0, MAX_SUITE_HISTORY)
-      .map((suite) => {
-        const summary = suiteSnapshot(suite);
-        return {
-          id: suite.id, startedAt: suite.startedAt,
-          finishedAt: suite.finishedAt,
-          verdict: summary.verdict, summary: summary.summary,
-        };
+  // A website is the saved test suite, whether the user executed one
+  // script or a sequential batch. Expose one unified history per website.
+  // Individual reports remain available inside a batch, not in a second list.
+  function historySnapshot(requestedSite = "", requestedPage = 1) {
+    type HistoryEntry = {
+      kind: "batch" | "single";
+      id: string;
+      siteUrl: string;
+      startedAt: string;
+      verdict: "passed" | "failed";
+      title: string;
+      summary: { total: number; passed: number; failed: number; errors: number };
+    };
+    const siteOf = (base?: string) => {
+      if (!base) return "__legacy__";
+      try { return websiteOrigin(base); }
+      catch { return "__legacy__"; }
+    };
+    const entries: HistoryEntry[] = [];
+    for (const suite of suites.values()) {
+      if (suite.state !== "finished") continue;
+      const data = suiteSnapshot(suite);
+      const siteUrl = siteOf(suite.baseURL);
+      entries.push({
+        kind: "batch", id: suite.id, siteUrl,
+        startedAt: suite.startedAt, verdict: data.verdict === "passed" ? "passed" : "failed",
+        title: siteUrl, summary: {
+          total: data.summary.total, passed: data.summary.passed,
+          failed: data.summary.failed, errors: data.summary.errors,
+        },
       });
-    return { runs, suites: suiteList };
+    }
+    for (const run of jobs.values()) {
+      // Batch members are counted exclusively under their suite execution.
+      if (run.suiteId || run.state === "running") continue;
+      const siteUrl = siteOf(run.baseURL);
+      const passed = run.report?.status === "passed";
+      entries.push({
+        kind: "single", id: run.id, siteUrl,
+        startedAt: run.startedAt, verdict: passed ? "passed" : "failed",
+        title: run.report?.title ?? "One test script",
+        summary: { total: 1, passed: passed ? 1 : 0,
+          failed: run.report && !passed ? 1 : 0,
+          errors: run.state === "error" ? 1 : 0 },
+      });
+    }
+    entries.sort((a, b) =>
+      b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
+    const counts = new Map<string, number>();
+    for (const entry of entries) counts.set(
+      entry.siteUrl, (counts.get(entry.siteUrl) ?? 0) + 1);
+    const sites = [...counts.entries()].map(([siteUrl, executions]) => ({
+      siteUrl,
+      label: siteUrl === "__legacy__" ? "Older / unknown website" : siteUrl,
+      executions,
+    }));
+    const selectedSiteUrl = requestedSite || sites[0]?.siteUrl || "";
+    const matching = entries.filter((entry) => entry.siteUrl === selectedSiteUrl);
+    const pages = Math.max(1, Math.ceil(matching.length / HISTORY_PAGE_SIZE));
+    const page = Math.min(requestedPage, pages);
+    return {
+      sites, selectedSiteUrl, page, pages,
+      pageSize: HISTORY_PAGE_SIZE, total: matching.length,
+      entries: matching.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE),
+    };
   }
 
   async function readSaved(id: string): Promise<TestDefinition> {
@@ -503,7 +543,15 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (req.method === "GET" && path === "/api/history") {
-        json(res, 200, historySnapshot());
+        const query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams;
+        const siteUrl = query.get("siteUrl") ?? "";
+        const page = Number(query.get("page") ?? 1);
+        if (!Number.isSafeInteger(page) || page < 1 || page > 100_000 ||
+            siteUrl.length > 2048) {
+          json(res, 400, { error: "Invalid history page or website filter" });
+          return;
+        }
+        json(res, 200, historySnapshot(siteUrl, page));
         return;
       }
       const suitePath = /^\/api\/suites\/([a-f0-9-]{36})(?:\/(report\.json))?$/.exec(path);
@@ -615,7 +663,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -628,6 +676,56 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         body = await readJSON(req);
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/history/delete-all") {
+        if (activeRun || activePreflight || activeDeletion ||
+            [...jobs.values()].some((job) => job.state === "running")) {
+          json(res, 409, { error: "Finish the active test or preflight before clearing history" });
+          return;
+        }
+        if (!body || typeof body !== "object" || Array.isArray(body) ||
+            (body as Record<string, unknown>).confirmed !== true ||
+            (body as Record<string, unknown>).confirmationText !== "DELETE ALL HISTORY") {
+          json(res, 400, { error: "Explicit confirmation to delete all execution history is required" });
+          return;
+        }
+        activeDeletion = true;
+        try {
+          // Only delete known generated UUID directories. Never delete
+          // saved test scripts or unrelated items in the results folder.
+          let directories: Awaited<ReturnType<typeof readdir>>;
+          try { directories = await readdir(resultsDir, { withFileTypes: true }); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+            directories = [];
+          }
+          for (const entry of directories) {
+            if (!entry.isDirectory()) continue;
+            if (RUN_ID.test(entry.name)) {
+              await rm(join(resultsDir, entry.name), { recursive: true, force: true });
+            } else if (entry.name === "suites") {
+              const suiteDir = join(resultsDir, "suites");
+              const suiteEntries = await readdir(suiteDir, { withFileTypes: true });
+              for (const child of suiteEntries) {
+                if (child.isDirectory() && RUN_ID.test(child.name)) {
+                  await rm(join(suiteDir, child.name), { recursive: true, force: true });
+                }
+              }
+              await rmdir(suiteDir).catch(() => {});
+            }
+          }
+          jobs.clear();
+          suites.clear();
+          json(res, 200, {
+            deleted: true,
+            message: "All local execution history, screenshots and traces deleted. Saved test scripts are unchanged.",
+          });
+        } catch {
+          json(res, 500, { error: "Could not finish clearing history; check local file permissions" });
+        } finally {
+          activeDeletion = false;
+        }
         return;
       }
       if (path === "/api/delete-test" || path === "/api/delete-site" || path === "/api/assign-site") {
@@ -1116,7 +1214,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid suite request" });
           return;
         }
-        if (activeRun || activePreflight) {
+        if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "A test or selector preflight is already running. Finish it before starting another." });
           return;
         }
