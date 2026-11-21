@@ -466,11 +466,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("Choose one of the displayed DOM matches");
           }
           const job = jobs.get(input.runId);
-          if (!job || job.state !== "finished" || job.report?.status !== "execution-error") {
-            throw new Error("No completed unresolved assertion target is available");
+          if (!job || job.state !== "finished" ||
+              (job.report?.status !== "execution-error" &&
+               job.report?.status !== "assertion-failed")) {
+            throw new Error("No completed failed assertion target is available");
           }
           const failed = job.report.steps.find((step) =>
-            step.id === input.stepId && step.status === "execution-error" &&
+            step.id === input.stepId &&
+            (step.status === "execution-error" || step.status === "assertion-failed") &&
             !!step.assertionAlternatives,
           );
           const evidence = failed?.assertionAlternatives;
@@ -490,7 +493,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((entry) => entry.id === failed.id);
           if (!step || (step.action.kind !== "assert-visible" && step.action.kind !== "assert-text") ||
-              JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted)) {
+              JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted) ||
+              (failed.status === "assertion-failed" &&
+                (step.action.kind !== "assert-text" ||
+                 step.action.expected !== failed.expected ||
+                 !failed.observed || failed.observed === failed.expected ||
+                 evidence.query !== failed.expected.replace(/\\s+/g, " ").trim()))) {
             throw new Error("Saved assertion differs from the failing run; rerun before repairing");
           }
           const target = selected.target;
