@@ -35,6 +35,36 @@ async function generateFixture(page: import("@playwright/test").Page) {
   await expect(page.locator(".step")).toHaveCount(9);
 }
 
+test("read-only selector preflight suggests an Add button when generated label is wrong", async ({ page }) => {
+  await generateFixture(page);
+  const addStep = page.locator(".step").nth(3);
+  await addStep.getByRole("button", { name: "Edit fields" }).click();
+  await addStep.getByLabel("Locator strategy").selectOption("label");
+  await addStep.getByRole("button", { name: "Apply changes" }).click();
+
+  await page.getByRole("button", { name: "Check selectors (read-only)" }).click();
+  await expect(page.locator("#selector-preflight-status")).toContainText(
+    "Selector check complete", { timeout: 20_000 });
+  await expect(page.locator("#selector-preflight-results")).toContainText(
+    'button named "Add"');
+  await expect(page.locator("#selector-preflight-results")).toContainText("Step 4 (warning)");
+  await expect(page.locator("#selector-preflight-results")).toContainText("deferred");
+  // Preflight did not auto-confirm any step, save, change expectations or run a test.
+  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.locator("#saved")).toBeEmpty();
+  await expect(page.locator("#run-status")).toContainText("Select an approved test");
+
+  await addStep.getByRole("button", { name: "Edit fields" }).click();
+  await addStep.getByLabel("Locator strategy").selectOption("role");
+  await addStep.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#selector-preflight-status")).toBeEmpty();
+  await page.getByRole("button", { name: "Check selectors (read-only)" }).click();
+  await expect(page.locator("#selector-preflight-status")).toContainText(
+    "Selector check complete", { timeout: 20_000 });
+  await expect(page.locator("#selector-preflight-results")).not.toContainText(
+    'a different locator does match: button named "Add"');
+});
+
 test("plain-English input produces a readable review-only fixture draft", async ({ page }) => {
   await generateFixture(page);
   await expect(page.getByText("Fixture is a prewritten demonstration, not AI-generated.")).toBeVisible();
