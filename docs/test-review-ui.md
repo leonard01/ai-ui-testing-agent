@@ -68,6 +68,16 @@ Every step becomes a named `test.step` and assertions preserve the approved expe
 
 **Important:** review generated files for test credentials or sensitive input values before committing them publicly. See [independent run setup and compatibility notes](playwright-export.md).
 
+## Nested website paths and hash-router URLs
+
+Some applications are not hosted at the domain root—for example, TodoMVC at `https://demo.playwright.dev/todomvc/#/`. A test whose first navigation is a bare `"/"` now opens the **configured application URL**, including its nested path and `#/` fragment, rather than sending the browser to `https://demo.playwright.dev/` (which serves a 404).
+
+New AI-generated drafts are explicitly instructed to use the inspected page's **full URL** for their first navigation; if the model still supplies `"/"`, draft generation records the inspected nested application URL instead. This also makes the starting path visible during human review. Previously approved tests with `"/"` continue to work without reapproval because execution and preflight both apply the app-aware shorthand.
+
+Other absolute same-origin URLs and relative paths continue to follow standard browser URL rules. If you specifically need the **domain root** rather than the configured application URL, use its complete URL, e.g. `https://demo.playwright.dev/`. All navigation remains restricted to the configured origin.
+
+Standalone Playwright exports preserve the corrected path and hash fragment, and URL assertions share the same interpretation of the bare `"/"` shorthand.
+
 ## Website test suites and saved test scripts (prototype organization)
 
 A **test suite** now means the saved collection of test scripts for one website URL, rather than a historical execution batch. Each saved script records the application URL used when it was approved; scripts from the same website origin are stored together under `generated/sites/<website-name>/`.
