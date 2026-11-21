@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. Site suites, persistent history, repaired selectors and TodoMVC fixes are merged through PR #21. Suite-only execution history cleanup is in development on `feature/suite-history-cleanup`.
+**Last repository review:** 21 November 2026. The prototype's core workflows, website suites, execution history and selector-repair fixes are merged through PR #25. The final v0.1 usability polish—suite-scoped script selection and Add All draft approval—is on `ui/v0.1-suite-filter-and-add-all` pending CI and merge.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #21](https://github.com/leonard01/ai-ui-testing-agent/pull/21), assertion-selector review fallback |
+| Most recent merged feature | [Pull request #25](https://github.com/leonard01/ai-ui-testing-agent/pull/25), intercepted search click repair |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -135,7 +135,7 @@ npm run demo
 npm run review
 ```
 
-Open **http://127.0.0.1:3100/**. Enter an instruction such as **"Add a task called Prepare interview; verify it appears; complete it and delete it."** or import a `.txt`/`.md` file. Choose GroqCloud (hosted model) or Fixture (prewritten no-AI example). The result is a **plain-English ordered step preview** with locator details, expected outcomes and provenance. Testers can edit individual fields, verify each step and explicitly approve saving the draft JSON.
+Open **http://127.0.0.1:3100/**. Enter an instruction such as **"Add a task called Prepare interview; verify it appears; complete it and delete it."** or import a `.txt`/`.md` file. Choose GroqCloud (hosted model) or Fixture (prewritten no-AI example). The result is a **plain-English ordered step preview** with locator details, expected outcomes and provenance. Testers can edit individual fields, verify steps one at a time or click **Add All** to confirm the reviewed draft at once, and explicitly save the JSON. Add All does not save or execute tests.
 
 **Saving doesn't execute any tests.** After approval, use the new **3. Execute and diagnose** panel to select an approved saved case and click **Run selected test** (or use the CLI). The interface runs deterministic Playwright, displays pass/fail details for every step, expected/observed assertion values, locator-discovery evidence, and a likely cause and next action when a step fails. Where available, you can view the failure screenshot, download the Playwright trace, or open the full JSON report **without using the command line**. The `GROQ_API_KEY` stays on the local server; executing saved tests does not require another model call.
 
@@ -173,7 +173,7 @@ Counts use Playwright locator matching, without an extra visibility filter; role
 
 **Development status:** merged into `main` through PR #12.
 
-**One consolidated execution panel:** Under **3. Execute and diagnose → Run Tests**, select a website suite, then use **Run one test script** for one approved case (with timeout, edit, delete, Playwright export and requirement-matrix actions) or **Run multiple test scripts** for up to ten selected cases. Both modes are inside the same panel; there is no separate saved-test row above it. This is a UI consolidation only; execution logic and reports are unchanged.
+**One consolidated execution panel:** Under **3. Execute and diagnose → Run Tests**, select a website suite, then use **Run one test script** for one approved case (with timeout, edit, delete, Playwright export and requirement-matrix actions) or **Run multiple test scripts** for up to ten selected cases. Both modes are inside the same panel; there is no separate saved-test row above it. **The single-script dropdown now contains only scripts for the selected website suite**, just like the batch checklist. Switching suites clears an out-of-suite selection and disables its script actions until another case is chosen. Execution logic and reports are unchanged.
 
 ### Sequential test-suite execution (new feature branch)
 
