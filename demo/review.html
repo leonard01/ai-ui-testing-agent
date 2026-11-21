@@ -58,6 +58,16 @@
     #run-screenshot { max-width:100%; display:block; border:1px solid #d2dbe6; border-radius:9px; }
     #run-summary { font-weight:700; }
     .artifact-links { display:flex; gap:16px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
+    .repair-choice { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }
+    .repair-choice h3 { margin:0 0 8px; font-size:14px; }
+    .repair-choice fieldset { border:0; margin:0; padding:0; min-width:0; }
+    .repair-choice legend { font-size:13px; font-weight:650; margin:0 0 10px; }
+    .repair-option { display:flex; gap:10px; cursor:pointer; padding:10px; margin:7px 0; border:1px solid #cfdae7; border-radius:8px; background:#fff; align-items:flex-start; }
+    .repair-option input { margin-top:4px; flex:none; accent-color:#205e86; }
+    .repair-option span { display:block; overflow-wrap:anywhere; font-size:13px; }
+    .repair-option small { display:block; margin-top:4px; color:#52677b; }
+    .repair-choice button { margin-top:12px; }
+
     #execution-panel [hidden] { display:none; }
 
     @media(max-width:820px) { main { display:block; } section { margin-bottom:15px; } header { padding:20px; } }
@@ -426,6 +436,71 @@
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
+        if (step.ambiguity && step.ambiguity.candidates?.length) {
+          const ambiguity = step.ambiguity;
+          const repair = make("div", null, "repair-choice");
+          repair.append(make("h3", "Choose the intended element"));
+          repair.append(make("p",
+            'The intent "' + ambiguity.intent + '" matched multiple elements. ' +
+            "The runner stopped without selecting one. Choose only if you can confirm the intended target."));
+          const choices = make("fieldset");
+          choices.append(make("legend", "Which element should this step use?"));
+          const group = "repair-" + result.id + "-" + step.id;
+          const save = make("button", "Save corrected copy and rerun from start");
+          save.type = "button";
+          save.disabled = true;
+          let selected = -1;
+          ambiguity.candidates.forEach((candidate, index) => {
+            const label = make("label", null, "repair-option");
+            const radio = make("input");
+            radio.type = "radio";
+            radio.name = group;
+            radio.value = String(index);
+            const labelText = make("span");
+            labelText.append(make("strong", candidate.name || "<unnamed element>"));
+            labelText.append(make("small",
+              "<" + candidate.tag + "> · role: " + (candidate.role || "not specified")));
+            if (candidate.nearby) labelText.append(make("small", "Nearby: " + candidate.nearby));
+            radio.addEventListener("change", () => {
+              selected = index;
+              save.disabled = running || ambiguity.total > ambiguity.candidates.length ||
+                !candidate.name?.trim();
+            });
+            label.append(radio, labelText);
+            choices.append(label);
+          });
+          repair.append(choices);
+          if (ambiguity.total > ambiguity.candidates.length) {
+            repair.append(make("p",
+              "More candidates were found than can be shown safely. Edit this step manually instead.",
+              "note"));
+          }
+          repair.append(make("p",
+            "Your original saved test will be preserved. This changes only the selected " +
+            "step's target, not its expected results. The corrected test will restart from step 1.",
+            "muted"));
+          save.addEventListener("click", async () => {
+            if (running || selected < 0) return;
+            save.disabled = true;
+            $("run-error").textContent = "";
+            try {
+              const repaired = await requestJSON("/api/repair", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ runId: result.id, candidateIndex: selected }),
+              });
+              await refreshApprovedTests(repaired.id);
+              $("run-status").textContent = 'Saved new test with target "' +
+                repaired.approvedIntent + '". Starting test again from step 1...';
+              await executeApproved(repaired.id);
+            } catch(error) {
+              $("run-error").textContent = error.message || String(error);
+              save.disabled = false;
+            }
+          });
+          repair.append(save);
+          card.append(repair);
+        }
         container.append(card);
       }
     }
@@ -443,9 +518,8 @@
       }
     }
     $("approved-tests").addEventListener("change", updateRunButton);
-    $("run-test").addEventListener("click", async () => {
-      if (running || !selectedApprovedId) return;
-      const id = selectedApprovedId;
+    async function executeApproved(id) {
+      if (running || !id) return;
       running = true;
       updateRunButton();
       $("run-error").textContent = "";
@@ -468,7 +542,8 @@
         running = false;
         updateRunButton();
       }
-    });
+    }
+    $("run-test").addEventListener("click", () => { void executeApproved(selectedApprovedId); });
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
