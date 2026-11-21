@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { runTest } from "../src/runner.js";
-import { discoverTarget } from "../src/discovery.js";
+import { discoverTarget, findAssertionAlternatives } from "../src/discovery.js";
 import type { TestDefinition } from "../src/domain.js";
 
 test.use({ trace: "off" });
@@ -95,6 +95,32 @@ test("resolves intent after opening a dynamic form with a poorly labelled input"
   });
   expect(entered?.resolution?.nearby).toContain("Username");
   expect(report.steps.find((step) => step.id === "visible")?.resolution?.tag).toBe("span");
+});
+
+test("assertion DOM search finds visible Products span, not absent heading", async ({ browser }) => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<!doctype html><main><header><span class="title">Products</span></header>' +
+      '<p>Browse products here</p></main>');
+    const candidates = await findAssertionAlternatives(
+      page, { by: "role", role: "heading", name: "Products" }, "assert-visible",
+    );
+    expect(candidates).toMatchObject({
+      query: "Products",
+      total: 1,
+      candidates: [{ tag: "span", name: "Products",
+        target: { by: "text", value: "Products" } }],
+    });
+    expect(await page.getByRole("heading", { name: "Products" }).count()).toBe(0);
+    expect(await page.getByText("Products", { exact: true }).count()).toBe(1);
+    const missing = await findAssertionAlternatives(
+      page, { by: "role", role: "heading", name: "Invoices" }, "assert-visible",
+    );
+    expect(missing.candidates).toHaveLength(0);
+    expect(missing.total).toBe(0);
+  } finally {
+    await page.close();
+  }
 });
 
 test("ambiguous intent stops safely without clicking a random button", async ({ browser }, info) => {
