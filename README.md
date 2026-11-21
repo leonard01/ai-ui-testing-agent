@@ -95,6 +95,10 @@ npm run agent -- run examples/task-intent.json
 
 When a text assertion fails, the Test Builder shows **expected vs observed** and lets the tester edit the expected text. A **Use observed text as draft** shortcut is provided, but the change requires explicit confirmation that the new expectation matches the requirements. **Save reviewed assertion and rerun from start** creates a *new* saved test, marks only the revised assertion as `human-confirmed`, retains the original file and reruns from step 1. No model call is required, and the application output is **never accepted automatically**.
 
+### UI-only test editing and repair (feature branch)
+
+**No manual JSON changes required.** A saved test can be reopened from **Execute and diagnose → Edit selected saved test in review form**, corrected with human-readable fields, reconfirmed and saved as a new copy. When an explicit locator finds no element (e.g. `getByLabel("Add")` for a button), the failed execution also offers **Choose a replacement element** from uniquely verified live DOM candidates. The tester chooses the intended element; the application saves a corrected copy and reruns. The runner never guesses or changes assertions.
+
 ### Human-assisted locator choice (feature branch)
 
 If live DOM discovery finds several equally plausible elements, it **stops before acting** and records structured candidate details in the execution report. The Test Builder now displays radio-button choices with the element names, roles and nearby text. Selecting the correct one and clicking **Save corrected copy and rerun from start** saves a new reviewed JSON test, keeping the original unchanged, and starts a fresh deterministic Playwright run.
