@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 // The app runner owns traces for its test contexts; avoid harness tracing twice.
 test.use({ trace: "off" });
 import { createReviewServer } from "../src/review-server.js";
+import { GroqProviderError } from "../src/hosted-providers.js";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -163,6 +164,58 @@ test("cannot run an unsaved or arbitrary path, or access nonexistent report", as
   expect(await invalid.json()).toMatchObject({ error: expect.stringContaining("Invalid approved test") });
   const notFound = await fetch(url + "/api/runs/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/report.json");
   expect(notFound.status).toBe(404);
+});
+
+test("Test 1 Groq upstream 400 is identified correctly in the generator UI without a real model call", async ({ page, browser }) => {
+  const testOneInstructions = [
+    '1. Open the task list application.',
+    '2. Verify that the list initially contains zero tasks.',
+    '3. Add a task called "Buy groceries".',
+    '4. Verify that "Buy groceries" appears in the task list.',
+    '5. Verify that the status reads "1 task, 0 completed".',
+    '6. Mark "Buy groceries" as completed.',
+    '7. Verify that the status reads "1 task, 1 completed".',
+    '8. Delete "Buy groceries".',
+    '9. Verify that the status reads "0 tasks, 0 completed".',
+  ].join("\n");
+  const stubProvider = async () => {
+    throw new GroqProviderError(
+      400, "json-generation", "json_validate_failed", "invalid_request_error",
+      undefined, "Groq could not produce acceptable JSON.",
+    );
+  };
+  const tempServer = await createReviewServer(outputDir, browser, stubProvider);
+  await new Promise<void>((resolve) => tempServer.listen(0, "127.0.0.1", resolve));
+  const tempURL = "http://127.0.0.1:" + (tempServer.address() as AddressInfo).port;
+  try {
+    await page.goto(tempURL);
+    await page.getByLabel("Your test instructions").fill(testOneInstructions);
+    await page.getByRole("button", { name: "Generate draft" }).click();
+    await expect(page.locator("#generation-error")).toContainText("GroqCloud rejected the request (provider HTTP 400)", { timeout: 15_000 });
+    await expect(page.locator("#generation-error")).toContainText("json_validate_failed");
+    await expect(page.locator("#generation-error")).toContainText("json-generation");
+    await expect(page.locator("#generation-error")).toContainText(testOneInstructions.length + " characters");
+    const providerResponse = await fetch(tempURL + "/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseURL: "http://127.0.0.1:3000",
+        requirements: testOneInstructions,
+        provider: "groq",
+      }),
+    });
+    expect(providerResponse.status).toBe(502);
+    expect(await providerResponse.json()).toMatchObject({
+      source: "groqcloud",
+      providerStatus: 400,
+      category: "json-generation",
+      providerCode: "json_validate_failed",
+      requirementsCharacters: testOneInstructions.length,
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      tempServer.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test("review server rejects malformed instructions and off-origin writes", async () => {
