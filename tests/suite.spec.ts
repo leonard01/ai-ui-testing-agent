@@ -175,3 +175,42 @@ test("suite UI selects saved cases and drills into failure evidence", async ({ p
   await expect(page.getByRole("link", { name: "Download Playwright trace" })).toBeVisible();
   await expect(page.locator("#run-screenshot")).toBeVisible();
 });
+
+test("Run Tests panel contains both one-script tools and multi-script execution without a separate upper selector", async ({ page }) => {
+  await page.goto(url);
+  const panel = page.locator("#suite-panel");
+  await expect(panel.getByRole("heading", { name: "Run Tests", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Run a test suite" })).toHaveCount(0);
+  // Everything lives in one panel: website, script selection, shared timeout,
+  // edit/delete/export/traceability, single run and batch selection.
+  for (const id of ["suite-site", "approved-tests", "run-timeout", "run-test",
+    "edit-saved", "delete-script", "assign-legacy", "saved-traceability",
+    "export-playwright", "suite-test-list", "suite-run", "delete-site"]) {
+    await expect(panel.locator("#" + id)).toHaveCount(1);
+  }
+  await expect(page.locator("#execution-panel > #approved-tests")).toHaveCount(0);
+  await expect(panel.locator("#suite-test-list input[type=checkbox]")).toHaveCount(3);
+
+  await panel.getByLabel("Approved saved test").selectOption(fileIds[0]);
+  await expect(panel.getByRole("button", { name: "Run selected test" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Delete selected test script" })).toBeEnabled();
+  await expect(panel.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toHaveAttribute(
+    "href", /\/api\/tests\/reviewed-.*\/export\.ts\?/);
+  await expect(panel.getByRole("link", { name: "View requirement matrix (JSON)" })).toBeVisible();
+
+  await panel.getByRole("button", { name: "Run selected test" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+
+  const boxes = panel.locator("#suite-test-list input[type=checkbox]");
+  await boxes.nth(0).check();
+  await boxes.nth(1).check();
+  await expect(panel.getByRole("button", { name: "Run selected suite" })).toBeEnabled();
+  await panel.getByRole("button", { name: "Run selected suite" }).click();
+  await expect(page.locator("#suite-status")).toContainText("Suite complete", { timeout: 30000 });
+  await expect(page.locator("#suite-results .run-step")).toHaveCount(2);
+  // History must stay below both result sections.
+  await expect(page.locator("#history-controls")).toBeVisible();
+  await expect(page.locator("#history-panel")).toBeHidden();
+});
