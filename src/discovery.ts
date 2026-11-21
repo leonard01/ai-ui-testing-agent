@@ -38,7 +38,7 @@ export interface AmbiguousResolution {
 
 /** Original failed locator plus candidates discovered at the failure point. */
 export type ExplicitTarget =
-  | { by: "role"; role: NonNullable<IntentTarget["role"]>; name?: string }
+  | { by: "role"; role: NonNullable<IntentTarget["role"]>; name?: string; nth?: number }
   | { by: "label" | "placeholder" | "text"; value: string };
 export interface MissingLocatorChoices {
   attempted: ExplicitTarget;
@@ -201,6 +201,42 @@ export async function findLocatorAlternatives(
   attempted: ExplicitTarget,
   operation: "click" | "fill",
 ): Promise<MissingLocatorChoices> {
+  // A strict-mode violation can come from multiple *identically named*
+  // role matches (Google's two "Google Search" submit buttons, for example).
+  // A generic alternative search would discard both as non-unique. Instead,
+  // preserve their verified Playwright order for explicit human selection.
+  // Never automatically click the first match: positions are fragile.
+  if (operation === "click" && attempted.by === "role" &&
+      (attempted.role === "button" || attempted.role === "checkbox") &&
+      attempted.name?.trim() && attempted.nth === undefined) {
+    const exact = page.getByRole(attempted.role,
+      { name: attempted.name, exact: true });
+    const count = await exact.count();
+    if (count > 1) {
+      const options: AmbiguousCandidate[] = [];
+      if (count <= 12) {
+        for (let nth = 0; nth < count; nth++) {
+          const item = exact.nth(nth);
+          if (!await item.isVisible()) continue;
+          const context = await item.evaluate((element) => {
+            const clip = (text: string | null | undefined) =>
+              (text ?? "").replace(/\s+/g, " ").trim().slice(0, 180);
+            return {
+              tag: element.tagName.toLowerCase(),
+              nearby: clip(element.parentElement?.textContent),
+            };
+          });
+          options.push({
+            tag: context.tag, role: attempted.role, name: attempted.name,
+            nearby: context.nearby, nth, matchCount: count,
+          });
+        }
+      }
+      // An incomplete set cannot be used for positional repair, but it is
+      // still reported so the reviewer can manually edit the original step.
+      return { attempted, candidates: options, total: count };
+    }
+  }
   const requested = attempted.by === "role" ? attempted.name ?? "" : attempted.value;
   const terms = keywords(requested);
   const { candidates } = await inspectCandidates(page, operation);
