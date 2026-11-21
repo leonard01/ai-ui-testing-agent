@@ -170,6 +170,112 @@ test("failed UI run shows first assertion mismatch and screenshot/trace download
   expect(traceResponse.headers.get("content-type")).toContain("application/zip");
 });
 
+test("tester reviews dynamic final text assertion, explicitly approves correction and reruns", async ({ page }) => {
+  const testDefinition = {
+    schemaVersion: 1,
+    id: "two-task-final-status",
+    title: "Complete presentation, delete documentation and verify final count",
+    version: 1,
+    steps: [
+      { id: "open", description: "Open task list", action: { kind: "navigate", url: "/" } },
+      { id: "task1", description: "Enter presentation", action: {
+        kind: "fill", target: { by: "role", role: "textbox", name: "Task" },
+        value: "preparing a presentation",
+      } },
+      { id: "add1", description: "Add presentation", action: {
+        kind: "click", target: { by: "role", role: "button", name: "Add" },
+      } },
+      { id: "task2", description: "Enter documentation", action: {
+        kind: "fill", target: { by: "role", role: "textbox", name: "Task" },
+        value: "reviewing documentation",
+      } },
+      { id: "add2", description: "Add documentation", action: {
+        kind: "click", target: { by: "role", role: "button", name: "Add" },
+      } },
+      { id: "finish", description: "Complete presentation", action: {
+        kind: "click", target: {
+          by: "intent", value: "Complete preparing a presentation", role: "checkbox",
+        },
+      } },
+      { id: "verify-two", description: "Two tasks, one completed", action: {
+        kind: "assert-text", target: { by: "role", role: "status" },
+        expected: "2 tasks, 1 completed", provenance: "requirements",
+      } },
+      { id: "delete", description: "Delete unfinished documentation", action: {
+        kind: "click", target: {
+          by: "intent", value: "Delete reviewing documentation", role: "button",
+        },
+      } },
+      { id: "final", description: "Verify only completed presentation remains", action: {
+        kind: "assert-text", target: { by: "role", role: "status" },
+        expected: "1 tasks, 1 completed", provenance: "requirements",
+      } },
+    ],
+  };
+  const savedResponse = await page.request.post(url + "/api/save", {
+    data: { definition: testDefinition, baseURL: "http://127.0.0.1:3000" },
+  });
+  expect(savedResponse.status()).toBe(200);
+  const saved = await savedResponse.json();
+  await page.goto(url);
+  await page.getByLabel("Approved saved test").selectOption(saved.id);
+  await page.getByRole("button", { name: "Run selected test" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
+  await expect(page.locator("#run-summary")).toContainText("FAILED");
+  const panel = page.locator(".assertion-repair");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Original expected: 1 tasks, 1 completed");
+  await expect(panel).toContainText("Observed from run: 1 task, 1 completed");
+  const expectedField = panel.getByLabel("New expected text");
+  await expect(expectedField).toHaveValue("1 tasks, 1 completed");
+  const confirm = panel.getByRole("checkbox", { name: /I verified this new expected text/ });
+  const reviseButton = panel.getByRole("button", { name: "Save reviewed assertion and rerun from start" });
+  await expect(reviseButton).toBeDisabled();
+
+  const originalReportLink = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  if (!originalReportLink) throw new Error("Missing run report link");
+  const runId = originalReportLink.split("/")[3];
+  // No arbitrary changes to a run's expectations without human confirmation.
+  const unconfirmed = await page.request.post(url + "/api/repair-assertion", {
+    data: { runId, stepId: "final", expected: "1 task, 1 completed", confirmed: false },
+  });
+  expect(unconfirmed.status()).toBe(400);
+  expect(await unconfirmed.json()).toMatchObject({
+    error: expect.stringContaining("explicitly confirm"),
+  });
+  const notFailed = await page.request.post(url + "/api/repair-assertion", {
+    data: { runId, stepId: "verify-two", expected: "2 tasks, 0 completed", confirmed: true },
+  });
+  expect(notFailed.status()).toBe(400);
+
+  await panel.getByRole("button", { name: "Use observed text as draft" }).click();
+  await expect(expectedField).toHaveValue("1 task, 1 completed");
+  await expect(reviseButton).toBeDisabled();
+  await confirm.check();
+  await expect(reviseButton).toBeEnabled();
+  await reviseButton.click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  const revisedId = await page.getByLabel("Approved saved test").inputValue();
+  expect(revisedId).not.toBe(saved.id);
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
+  expect(original.steps[8].action).toMatchObject({
+    expected: "1 tasks, 1 completed", provenance: "requirements",
+  });
+  expect(revised.steps[8].action).toMatchObject({
+    expected: "1 task, 1 completed", provenance: "human-confirmed",
+  });
+  expect(revised.steps.slice(0, 8)).toEqual(original.steps.slice(0, 8));
+  const reportLink = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  const report = await (await fetch(url + reportLink)).json();
+  expect(report.status).toBe("passed");
+  expect(report.steps[8]).toMatchObject({
+    status: "passed", expected: "1 task, 1 completed",
+    observed: "1 task, 1 completed",
+  });
+});
+
 test("human chooses among live checkbox candidates; repaired copy reruns successfully", async ({ page }) => {
   const ambiguous = {
     schemaVersion: 1,
