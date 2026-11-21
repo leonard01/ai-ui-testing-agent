@@ -151,6 +151,9 @@
         </div>
         <button type="button" id="run-test" disabled>Run selected test</button>
       </div>
+      <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
+      <div style="display:none" aria-hidden="true">
+      </div>
       <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
       <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
@@ -382,6 +385,7 @@
     function updateRunButton() {
       selectedApprovedId = $("approved-tests").value;
       $("run-test").disabled = running || !selectedApprovedId;
+      $("edit-saved").disabled = running || !selectedApprovedId;
     }
     async function refreshApprovedTests(preferredId = $("approved-tests").value) {
       const payload = await requestJSON("/api/tests");
@@ -700,6 +704,35 @@
       }
     }
     $("run-test").addEventListener("click", () => { void executeApproved(selectedApprovedId); });
+    $("edit-saved").addEventListener("click", async () => {
+      const id = selectedApprovedId;
+      if (!id || running) return;
+      $("edit-saved").disabled = true;
+      $("run-error").textContent = "";
+      try {
+        const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
+        definition = payload.definition;
+        approvals = new Set();
+        selectedBaseURL = $("base-url").value;
+        $("saved").replaceChildren();
+        $("save-error").textContent = "";
+        $("approved-tests").value = "";
+        updateRunButton();
+        $("placeholder").hidden = true;
+        $("draft").hidden = false;
+        $("draft-title").textContent = "Editing " + definition.title + " · " +
+          definition.steps.length + " steps";
+        $("draft-hint").textContent = "Loaded an approved test for editing. " +
+          "Review and confirm every step, then save a NEW copy. " +
+          "The original saved test is unchanged.";
+        renderSteps();
+        $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch(error) {
+        $("run-error").textContent = error.message || String(error);
+        updateRunButton();
+      }
+    });
+
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
