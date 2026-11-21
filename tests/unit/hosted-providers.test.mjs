@@ -67,7 +67,7 @@ test("GroqCloud gives actionable errors without leaking API credentials", async 
     for (const [status, expected] of [
       [401, /Check GROQ_API_KEY/],
       [429, /rate\/token limit/],
-      [400, /selected model/],
+      [400, /GroqCloud HTTP 400 \(bad-request\)/],
     ]) {
       await assert.rejects(
         requestGroq(request, async () => new Response("error", { status })),
