@@ -69,10 +69,14 @@ async function main() {
     baseURL: values["base-url"]!,
     requirements: await readRequirements(values.requirements),
     model,
+    retryMalformedOutput: kind === "groq",
   }, provider);
   const file = resolve(values.output!);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify(result.definition, null, 2) + "\n");
+  if (result.generationAttempts > 1) {
+    console.log("Groq returned invalid test JSON on the first attempt; one additional correction call succeeded.");
+  }
   console.log(`Draft (NOT EXECUTED): ${file}`);
   console.log(`Test: ${result.definition.title}; ${result.definition.steps.length} steps`);
   console.log("Review/edit the draft and expected outcomes before running it.");
