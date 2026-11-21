@@ -518,7 +518,7 @@
           const category = data.category ? " Category: " + data.category + "." : "";
           const inputLength = Number.isInteger(data.requirementsCharacters)
             ? " Your instructions: " + data.requirementsCharacters + " characters." : "";
-          throw new Error(origin + category + inputLength + "\\n" +
+          throw new Error(origin + category + inputLength + "\n" +
             (data.error || "Could not generate draft"));
         }
         definition = data.definition;
