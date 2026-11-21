@@ -10,7 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
-import { discoverTarget } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -174,6 +174,11 @@ export async function runTest(
         result.status = checkingAssertion
           ? "assertion-failed"
           : "execution-error";
+        if (error instanceof AmbiguousIntentError) {
+          // Evidence comes from the live DOM, not an AI guess or error parsing.
+          // Execution deliberately stops without acting on any candidate.
+          result.ambiguity = error.ambiguity;
+        }
         result.error = message(error);
         report.status = result.status;
       } finally {
