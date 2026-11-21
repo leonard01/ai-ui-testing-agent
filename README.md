@@ -169,7 +169,7 @@ For example, a valid test can contain:
 {"id":"delivery","description":"Choose express delivery","action":{"kind":"select-option","target":{"by":"role","role":"combobox","name":"Shipping"},"value":"fast"}}
 ```
 
-Counts include hidden DOM matches. A count assertion intentionally **cannot** use an intent target, because live intent resolution requires one unique element. Check and select target resolution happens at execution time. All assertions keep provenance, and a wrong expected URL/count is a genuine assertion failure with expected/observed evidence. The actions do not automatically execute until the tester approves and runs the saved case.
+Counts use Playwright locator matching, without an extra visibility filter; role locators normally exclude accessibility-hidden elements. A count assertion intentionally **cannot** use an intent target, because live intent resolution requires one unique element. Check and select target resolution happens at execution time. All assertions keep provenance, and a wrong expected URL/count is a genuine assertion failure with expected/observed evidence. The actions do not automatically execute until the tester approves and runs the saved case.
 
 **Development status:** `feature/broader-browser-actions`, not yet merged; verify via its pull request CI.
 
