@@ -68,6 +68,16 @@ Every step becomes a named `test.step` and assertions preserve the approved expe
 
 **Important:** review generated files for test credentials or sensitive input values before committing them publicly. See [independent run setup and compatibility notes](playwright-export.md).
 
+## Website test suites and saved test scripts (prototype organization)
+
+A **test suite** now means the saved collection of test scripts for one website URL, rather than a historical execution batch. Each saved script records the application URL used when it was approved; scripts from the same website origin are stored together under `generated/sites/<website-name>/`.
+
+In **3. Execute and diagnose → Run a test suite**, choose a **Test suite (website URL)**. Only that website's saved test scripts appear, and you can select up to 10 to run in one sequential batch. Choosing an individual saved script also restores its saved source URL. Older scripts without URL metadata appear as **Older / unassigned scripts**; choose a script and use **Assign older script to website URL** to associate it explicitly with the selected URL.
+
+**Delete selected test script** removes one approved JSON test script; **Delete this website test suite** removes all approved scripts for the selected website. Both require confirmation. Neither removes historical execution evidence, and deletion is blocked during active browser operations.
+
+See [website test suite organization and storage](website-test-suites.md) for details.
+
 ## Run multiple approved tests as a suite (on main)
 
 After saving at least two test definitions, use **3. Execute and diagnose → Run a test suite**:
