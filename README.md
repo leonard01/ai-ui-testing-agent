@@ -4,23 +4,23 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 20 November 2026. This document describes functionality already merged into `main`, not work prepared in an unmerged patch.
+**Last repository review:** 21 November 2026. PR #3 is merged into `main`; the optional selector-preflight work described below is on a separate feature branch.
 
 
-**The structured runner is merged and CI-verified. This feature branch adds optional AI draft generation, a no-model fixture path, local Ollama, and hosted GroqCloud; real-model review remains pending.**
+**The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
 
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Review | [Pull request #1](https://github.com/leonard01/ai-ui-testing-agent/pull/1), merged |
-| Default branch | `main` includes the structured runner, demo and current instructions |
-| Verification | **13 checks passed:** 7 validation/CLI checks and 6 browser integration checks |
-| Evidence | [Successful runner CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44742359816) |
+| Most recent merged feature | [Pull request #3](https://github.com/leonard01/ai-ui-testing-agent/pull/3), merged |
+| Default branch | `main` includes the runner, AI generation, review UI and repair controls |
+| Verification | Automated unit and browser integration tests; see Actions for the latest results |
+| Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
 | Stack | TypeScript, Playwright/Chromium, Node.js and GitHub Actions |
 
 ### What you can use now
 
-**Current workflow:** write or edit a JSON case → validate it → execute it with Playwright/Chromium → inspect a step-by-step report and any failure evidence. The current CLI is deterministic; the `agent` script name does **not** indicate that a language model is running.
+**Current workflow:** describe a test in plain English → optionally generate an AI draft → review and approve structured steps → run Playwright deterministically → diagnose, repair and rerun. You can also edit and execute JSON directly without AI.
 
 
 | Capability | Implemented behaviour |
@@ -40,9 +40,9 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 The example case has nine steps covering an empty list, adding a task, checking visibility, marking it complete, checking the count, deleting it and checking the empty state again.
 
-### Requirements-to-test generation (in development)
+### Requirements-to-test generation (on main)
 
-This feature branch adds a **review-first** test generator. A bounded browser snapshot plus optional Markdown/plain-text requirements yields a schema-validated JSON draft; **no draft is executed automatically**.
+The application includes a **review-first** test generator. A bounded browser snapshot plus optional Markdown/plain-text requirements yields a schema-validated JSON draft; **no draft is executed automatically**.
 
 Choose where its output comes from:
 
@@ -73,7 +73,7 @@ npm run generate -- generate --provider groq --model openai/gpt-oss-20b --requir
 
 The OpenAI option remains available via `--provider openai`, but AI inference is never required to run an approved test. CI mocks all model providers and makes no real hosted-model request; it verifies tooling, not live-model quality. See [all four setup paths and limitations](docs/requirements-generation.md).
 
-### Live DOM discovery for intent-based test steps (feature branch)
+### Live DOM discovery for intent-based test steps (on main)
 
 The runner now supports a selector-free **intent target**, resolved against the DOM **when that step executes**:
 
@@ -91,7 +91,7 @@ npm run agent -- run examples/task-intent.json
 
 [Architecture, example, limits and evidence format](docs/targeted-dom-discovery.md).
 
-### Human-reviewed text assertions (feature branch)
+### Human-reviewed text assertions (on main)
 
 When a text assertion fails, the Test Builder shows **expected vs observed** and lets the tester edit the expected text. A **Use observed text as draft** shortcut is provided, but the change requires explicit confirmation that the new expectation matches the requirements. **Save reviewed assertion and rerun from start** creates a *new* saved test, marks only the revised assertion as `human-confirmed`, removes the superseded saved version and reruns from step 1. No model call is required, and the application output is **never accepted automatically**.
 
@@ -107,15 +107,15 @@ A failed assertion now offers a **Search visible DOM text** field alongside disc
 
 An exact text assertion may find an element but find the **wrong one** (e.g. expected `Sauce Labs Backpack` while a button displays `Add to cart`). At failure time, the agent searches visible page text across regular elements such as product-name `div` blocks, verifies any suggested selector is unique and visible, and offers **Find assertion target in live DOM**. The tester can choose the correct text element through the UI; the expected result never changes automatically. Exact DOM text is required; when absent, the assertion remains failed.
 
-### Failed assertion DOM search (feature branch)
+### Failed assertion DOM search (on main)
 
 If a visibility/text assertion uses the wrong role or locator, the failed-step UI searches the **live DOM** for the requested text. For example, `getByRole("heading", {name:"Products"})` can be repaired by selecting a verified visible `<span>Products</span>` through **Find assertion target in live DOM**. The choice updates only the selector (never the expected assertion), supersedes the failed saved version and reruns the scenario. It does not auto-pass the test and does not use a model call.
 
-### UI-only test editing and repair (feature branch)
+### UI-only test editing and repair (on main)
 
 **No manual JSON changes required.** A saved test can be reopened from **Execute and diagnose → Edit selected saved test in review form**, corrected with human-readable fields, reconfirmed and saved as a replacement. The old entry is removed only after successful saving. When an explicit locator finds no element (e.g. `getByLabel("Add")` for a button), the failed execution also offers **Choose a replacement element** from uniquely verified live DOM candidates. The tester chooses the intended element; the application saves a corrected copy and reruns. The runner never guesses or changes assertions.
 
-### Human-assisted locator choice (feature branch)
+### Human-assisted locator choice (on main)
 
 If live DOM discovery finds several equally plausible elements, it **stops before acting** and records structured candidate details in the execution report. The Test Builder now displays radio-button choices with the element names, roles and nearby text. Selecting the correct one and clicking **Save corrected copy and rerun from start** saves a corrected test, removes the superseded saved version, and starts a fresh deterministic Playwright run.
 
@@ -123,9 +123,9 @@ This preserves expected results and requires human selection; no AI model call i
 
 [Human-assisted locator workflow and limits](docs/test-review-ui.md).
 
-### Plain-English test review UI (early MVP, feature branch only)
+### Plain-English test review UI (early MVP, on main)
 
-For testers who don't want to write Markdown files and edit raw JSON, this feature branch includes a **local web interface** for natural-language test drafting and review.
+For testers who don't want to write Markdown files and edit raw JSON, the project includes a **local web interface** for natural-language test drafting and review.
 
 ```bash
 # Terminal 1: demo application
@@ -142,6 +142,14 @@ Open **http://127.0.0.1:3100/**. Enter an instruction such as **"Add a task call
 Runs are intentionally **explicit, headless and serialized** so the older laptop does not have several Chromium instances competing for memory. The UI lists existing approved `generated/reviewed-*.json` tests after restarting. Real Groq model accuracy and workflows on arbitrary sites still need evaluation.
 
 [Full interface instructions, limitations, and security notes](docs/test-review-ui.md).
+
+### Pre-execution selector validation (new feature branch)
+
+In the draft review UI, **Check selectors (read-only)** inspects the starting page in an isolated browser context. It checks explicit role/name, label, and text locators for uniqueness and visibility. For example, a missing `getByLabel("Add")` can produce a grounded suggestion to inspect an existing **button named Add**.
+
+This optional check does **not** click, fill, replay steps, modify expectations or targets, call a model, or approve any test. Locators for dynamic elements after clicks/fills or further navigation may be **deferred**. Results are warnings, not proof of test success, and they are invalidated when fields are edited.
+
+This feature remains on `feature/selector-preflight` until merged.
 
 ### Not implemented yet
 
@@ -240,7 +248,7 @@ Tests are defined in plain JSON. Open [`examples/add-task.json`](examples/add-ta
 
 Change the expected status to an incorrect value such as `"99 tasks, 0 completed"`, save the JSON and run the example again. The runner should report `assertion-failed`, include expected/observed text, stop before later actions, and attempt to save a screenshot and trace.
 
-**Do not commit deliberate failures to `main`.** Undo experimental edits after testing. Currently, JSON cases are modified manually; editing scripts by demonstrating a browser interaction is planned but not implemented.
+**Do not commit deliberate failures to `main`.** Undo experimental edits after testing. JSON tests can also be edited in the review UI; editing by demonstrating browser interactions is planned but not implemented.
 
 ## Run the automated checks
 
@@ -324,7 +332,7 @@ npx playwright show-report
 | Test exits with code 1 | Check the assertion's `expected` and `observed` values in its `report.json` |
 | Test exits with code 2 | Check for invalid JSON, an unsupported action, missing/ambiguous target, navigation boundary or browser error |
 | `trace.zip` missing on a passing test | Expected: the structured runner saves failure traces, not traces for passing runs |
-| Generated JSON from AI not available | AI generation isn't on `main` yet; the current case is manually authored |
+| Generated JSON from AI not available | Check the review UI and your GroqCloud key; Fixture mode replays a prewritten test rather than generating a new one |
 
 ## Case format and current limits
 
@@ -345,19 +353,20 @@ A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. E
 | --- | --- |
 | Project setup, TypeScript, Playwright and GitHub Actions | Implemented |
 | Structured JSON runner, validation, browser evidence and demo | Implemented and CI-verified |
-| Generate a reviewable test from requirements or a page snapshot | **In development; not merged** |
+| Generate a reviewable test from requirements or a page snapshot | Implemented on `main` (quality still being evaluated) |
+| Read-only starting-page selector preflight | Feature branch, not merged |
 | Record test steps from human browser use | Planned |
 | Edit an existing test by observing a user's corrections | Planned |
 | Live human ↔ AI browser handoff and playback controls | Planned |
 | Export independent TypeScript test scripts | Planned |
 
-The requirements-to-test feature has been drafted separately, but should only be documented as available here after its branch passes review and merges.
+Requirements-to-test generation and reviewed failure repair are now on `main`. The preflight feature remains separate until verified.
 
 ## Direction and next milestones
 
 The long-term goal is to let a QA engineer design, demonstrate, execute and maintain tests through an AI-assisted interface while retaining editable definitions, reviewable changes and portable code exports.
 
-The next steps are to build AI generation and target resolution on the structured runner, then add recording, interactive execution controls and TypeScript export. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
+Next priorities are selector preflight, broader browser actions, test-suite execution and TypeScript export; recording and interactive handoff remain future work. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
 
 Design principles:
 
