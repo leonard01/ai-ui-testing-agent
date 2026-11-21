@@ -169,6 +169,7 @@
       </div>
       <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
       <button type="button" id="delete-script" class="secondary" disabled style="margin-top:10px">Delete selected test script</button>
+      <button type="button" id="assign-legacy" class="secondary" disabled style="margin-top:10px">Assign older script to website URL</button>
       <a id="saved-traceability" hidden target="_blank" rel="noopener" style="margin-left:8px">View requirement matrix (JSON)</a>
       <a id="export-playwright" class="secondary" hidden style="margin-top:10px;margin-left:8px;padding:11px 16px;border-radius:8px;text-decoration:none;border:1px solid #205e86" download>Export Playwright (.spec.ts)</a>
       <p class="muted">Export the selected approved test as a standalone Playwright TypeScript spec. The download does not execute tests, use AI, or modify saved cases.</p>
@@ -631,6 +632,8 @@
       $("run-test").disabled = running || !selectedApprovedId;
       $("edit-saved").disabled = running || !selectedApprovedId;
       $("delete-script").disabled = running || !selectedApprovedId;
+      const approved = approvedCatalog.find((item) => item.id === selectedApprovedId);
+      $("assign-legacy").disabled = running || !approved || Boolean(approved.sourceUrl);
       $("suite-site").disabled = running;
       $("delete-site").disabled = running || !$("suite-site").value ||
         $("suite-site").value === "__legacy__";
@@ -1348,6 +1351,24 @@
       }
     }
     $("run-test").addEventListener("click", () => { void executeApproved(selectedApprovedId); });
+    $("assign-legacy").addEventListener("click", async () => {
+      const selected = approvedCatalog.find((item) => item.id === selectedApprovedId);
+      if (!selected || selected.sourceUrl || running) return;
+      const baseURL = $("base-url").value;
+      if (!window.confirm('Assign older test script "' + selected.title +
+          '" to website "' + baseURL + '"? The test steps will remain unchanged.')) return;
+      $("run-error").textContent = "";
+      try {
+        const result = await requestJSON("/api/assign-site", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, baseURL, confirmed: true }),
+        });
+        await refreshApprovedTests(selected.id);
+        $("run-status").textContent = result.message;
+      } catch (error) {
+        $("run-error").textContent = error.message || String(error);
+      }
+    });
     $("delete-script").addEventListener("click", async () => {
       const id = selectedApprovedId;
       const test = approvedCatalog.find((item) => item.id === id);
