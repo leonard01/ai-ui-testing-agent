@@ -106,15 +106,11 @@ export async function generateDraft(
       throw new GeneratedDraftValidationError(attempt, problems);
     }
     for (const step of definition.steps) {
-      if (step.action.kind === "navigate") {
-        ensureAllowedNavigation(step.action.url, base);
-      } else if (step.action.kind === "assert-url") {
-        ensureAllowedNavigation(step.action.expected, base);
-      } else if (
-        (step.action.kind === "assert-text" || step.action.kind === "assert-visible" ||
-          step.action.kind === "assert-url" || step.action.kind === "assert-count") &&
-        step.action.provenance === "human-confirmed"
-      ) {
+      if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
+      if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
+      if ((step.action.kind === "assert-text" || step.action.kind === "assert-visible" ||
+           step.action.kind === "assert-url" || step.action.kind === "assert-count") &&
+          step.action.provenance === "human-confirmed") {
         throw new Error("Model cannot claim human-confirmed assertion provenance");
       }
     }
