@@ -10,6 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { ensureAllowedNavigation } from "./inspect.js";
 import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
@@ -39,18 +40,8 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 function navigationURL(url: string, base: URL): string {
-  const destination = new URL(url, base);
-  if (
-    !["http:", "https:"].includes(destination.protocol) ||
-    destination.origin !== base.origin ||
-    destination.username ||
-    destination.password
-  ) {
-    throw new Error(
-      "Navigation must stay on the configured HTTP(S) application origin",
-    );
-  }
-  return destination.href;
+  // Use the same application-aware resolver as the preflight and exporter.
+  return ensureAllowedNavigation(url, base).href;
 }
 
 /** Validate first. Each run owns a fresh context; an injected browser remains caller-owned. */
