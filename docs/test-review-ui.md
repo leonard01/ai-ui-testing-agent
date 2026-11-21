@@ -114,6 +114,14 @@ In **3. Execute and diagnose → Run Tests**, choose a **Test suite (website URL
 
 See [website test suite organization and storage](website-test-suites.md) for details.
 
+## Google search click intercepted by autocomplete popup
+
+A Playwright error such as `locator.click: Timeout ... subtree intercepts pointer events` is different from a **strict mode violation**. The locator found one button, but an overlapping element prevented the mouse click. Selecting the first matching button or blindly retrying will not clear that obstruction.
+
+The runner now records **Click blocked by another page element** for this failure, not a misleading missing-selector suggestion. For explicitly named search submit buttons, the tool checks the live page for an earlier, successfully filled, uniquely identifiable text/search input. It only offers **Use Enter to submit and rerun** when both elements are verified as members of **the same HTML form**. The user must confirm replacing the blocked `click` with `press Enter`; the rest of the saved script, all assertions and requirements are unchanged. The corrected copy is saved and executed from step one.
+
+When a same-form text field cannot be verified, the UI explains this limitation and displays **Edit failing action locator**. It never automatically clicks an obscured element, forces pointer input, guesses a submit target or silently rewrites requirements.
+
 ## Duplicate explicit button selectors (Google Search)
 
 A strict mode violation such as `getByRole('button', { name: 'Google Search', exact: true }) resolved to 2 elements` means Playwright found **multiple** matching elements; it does not mean the button is missing or that the network is slow. Retrying the same locator will not fix this ambiguity.
