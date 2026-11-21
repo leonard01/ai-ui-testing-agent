@@ -12,6 +12,7 @@ import { parseTestDefinition } from "./schema.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
+import { preflightSelectors } from "./preflight.js";
 import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
 
@@ -153,6 +154,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
   const jobs = new Map<string, RunJob>();
   let activeRun: string | null = null;
+  let activePreflight = false;
 
   async function readSaved(id: string): Promise<TestDefinition> {
     if (!SAVED_NAME.test(id)) throw new Error("Invalid approved test filename");
@@ -305,7 +307,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/preflight", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -318,6 +320,33 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         body = await readJSON(req);
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/preflight") {
+        if (activeRun || activePreflight) {
+          json(res, 409, { error: "Browser busy. Finish the current test or selector check first." });
+          return;
+        }
+        let definition: TestDefinition;
+        let base: URL;
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected a request object");
+          const input = body as Record<string, unknown>;
+          base = validatedBaseURL(input.baseURL);
+          definition = parseTestDefinition(input.definition);
+          verifyNavigations(definition, base);
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid preflight request" });
+          return;
+        }
+        activePreflight = true;
+        try {
+          json(res, 200, await preflightSelectors(definition, base.href, suppliedBrowser));
+        } catch (error) {
+          json(res, 422, { error: error instanceof Error ? error.message : "Selector check failed" });
+        } finally {
+          activePreflight = false;
+        }
         return;
       }
       if (path === "/api/repair") {
@@ -663,8 +692,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid test request" });
           return;
         }
-        if (activeRun) {
-          json(res, 409, { error: "A test is already running. Finish it before starting another." });
+        if (activeRun || activePreflight) {
+          json(res, 409, { error: "A test or selector preflight is already running. Finish it before starting another." });
           return;
         }
         const id = randomUUID();

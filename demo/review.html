@@ -128,6 +128,12 @@
         <p id="draft-hint" class="muted"></p>
         <div id="step-list"></div>
         <p id="review-progress" class="muted"></p>
+        <div style="padding:12px 0">
+          <button type="button" id="selector-preflight" class="secondary">Check selectors (read-only)</button>
+          <p class="muted">Optional: inspect the starting page before approval. Later dynamic targets may be deferred; no test actions or AI calls are made.</p>
+          <p id="selector-preflight-status" class="status" role="status"></p>
+          <div id="selector-preflight-results"></div>
+        </div>
         <button id="save" disabled style="width:100%">Approve and save JSON test</button>
         <div id="saved" class="success" style="margin-top:12px"></div>
         <div id="save-error" class="error" style="margin-top:12px"></div>
@@ -178,6 +184,7 @@
     let running = false;
     let selectedApprovedId = "";
     let editingSavedId = null;
+    let preflightRevision = 0;
 
     function make(tag, text, cls) {
       const node = document.createElement(tag);
@@ -309,6 +316,7 @@
       apply.onclick = () => {
         definition.steps[index] = clone;
         approvals.delete(index);
+        clearPreflight();
         $("approved-tests").value = "";
         updateRunButton();
         renderSteps();
@@ -370,6 +378,46 @@
       }
       updateApproval();
     }
+    function clearPreflight() {
+      preflightRevision++;
+      $("selector-preflight-status").textContent = "";
+      $("selector-preflight-results").replaceChildren();
+      $("selector-preflight").disabled = false;
+    }
+    $("selector-preflight").addEventListener("click", async () => {
+      if (!definition) return;
+      const revision = preflightRevision;
+      $("selector-preflight").disabled = true;
+      $("selector-preflight-results").replaceChildren();
+      $("selector-preflight-status").textContent = "Inspecting starting page without running test actions...";
+      try {
+        const result = await requestJSON("/api/preflight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ definition, baseURL: selectedBaseURL }),
+        });
+        if (revision !== preflightRevision) return;
+        $("selector-preflight-status").textContent =
+          "Selector check complete: " + result.summary.matched + " initial matches, " +
+          result.summary.warnings + " warnings, " + result.summary.deferred +
+          " deferred. No test actions were executed.";
+        $("selector-preflight-results").append(make("p",
+          "Starting page: " + result.inspectedURL + ". Suggestions do not change your test.", "muted"));
+        for (const finding of result.findings) {
+          const note = make("div", "Step " + finding.stepNumber + " (" + finding.status +
+            "): " + finding.message, finding.status === "warning" ? "note" : "muted");
+          note.style.marginTop = "8px";
+          $("selector-preflight-results").append(note);
+        }
+      } catch (error) {
+        if (revision === preflightRevision) {
+          $("selector-preflight-status").textContent =
+            "Selector check unavailable: " + (error.message || String(error));
+        }
+      } finally {
+        if (revision === preflightRevision) $("selector-preflight").disabled = false;
+      }
+    });
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
@@ -855,6 +903,7 @@
         definition = payload.definition;
         editingSavedId = id;
         approvals = new Set();
+        clearPreflight();
         selectedBaseURL = $("base-url").value;
         $("saved").replaceChildren();
         $("save-error").textContent = "";
@@ -939,6 +988,7 @@
         definition = data.definition;
         editingSavedId = null;
         approvals = new Set();
+        clearPreflight();
         selectedBaseURL = baseURL;
         $("approved-tests").value = "";
         updateRunButton();

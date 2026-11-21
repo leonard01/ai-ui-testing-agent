@@ -48,6 +48,16 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
+## Read-only selector preflight (feature branch)
+
+Before confirming and saving a generated or edited draft, click **Check selectors (read-only)** below the step list. The local server opens just the first navigation URL in a fresh, isolated Chromium context and checks explicit role/name, label and visible-text locators. No test click, fill or assertion is executed, no AI model is contacted, and no test fields are modified.
+
+- **Matched** means one visible element was found on the starting page. **Initial-match** means one was found there but earlier steps may change it before execution.
+- **Warning** means a selector did not match, was ambiguous, was hidden, or referred to a non-fillable field on the starting page. Where a different selector uniquely resolves (e.g. a button named Add rather than a form label Add), it is displayed as a *suggestion*, never automatically applied.
+- **Deferred** means preflight cannot safely determine the runtime target: for example, intent-based targets, missing elements after state changes, or steps after a subsequent navigation.
+
+These are advisory results: a successful preflight cannot prove later execution will pass, and an initial-page warning after a click/fill may reflect legitimate dynamic state. The test still needs human review, and changes to fields clear the previous findings. No browser trace or screenshots are captured during preflight. It shares the same HTTP(S) same-origin navigation and request restrictions as the runner, and an active preflight cannot run simultaneously with a test execution.
+
 ## Saving revisions without duplicates
 
 The saved-test dropdown shows **only the active revised script** after an edit or human-assisted repair. Each amendment is validated and written first; only then is the superseded saved test deleted. If the save fails, the original file stays available. Completed run reports associated with the replaced test are cleared from the current server session, along with their failure screenshots and traces. Previously archived artifacts from an older server session are not displayed in the dropdown and are not automatically scanned or deleted. A new test generated from scratch remains a separate test.
