@@ -62,6 +62,18 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
   await thirdStep.getByRole("button", { name: "Apply changes" }).click();
   await expect(thirdStep).toContainText('Enter "Prepare release"');
   await expect(thirdStep.locator('input[type=checkbox]')).not.toBeChecked();
+
+  // Users must be able to fix AI-suggested locator strategies without editing JSON:
+  // a wrongly generated getByLabel("Add") can become getByRole("button", {name:"Add"}).
+  const addStep = page.locator(".step").nth(3);
+  await addStep.getByRole("button", { name: "Edit fields" }).click();
+  await addStep.getByLabel("Locator strategy").selectOption("label");
+  await expect(addStep.getByLabel("Form label text")).toHaveValue("Add");
+  await addStep.getByLabel("Locator strategy").selectOption("role");
+  await expect(addStep.getByLabel("Element role")).toHaveValue("button");
+  await expect(addStep.getByLabel("Accessible name (may be blank)")).toHaveValue("Add");
+  await addStep.getByRole("button", { name: "Apply changes" }).click();
+
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved!");
@@ -70,6 +82,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
     await readFile(join(outputDir, file), "utf8"),
   )));
   expect(drafts.some((draft) => draft.steps[2].action.value === "Prepare release")).toBe(true);
+  expect(drafts.some((draft) => draft.steps[3].action.target.by === "role" && draft.steps[3].action.target.role === "button" && draft.steps[3].action.target.name === "Add")).toBe(true);
 });
 
 test("review server rejects malformed instructions and off-origin writes", async () => {
