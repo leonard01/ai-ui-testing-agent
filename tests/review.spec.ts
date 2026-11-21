@@ -324,6 +324,103 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await expect(page.locator("#run-summary")).toContainText("PASSED");
 });
 
+test("wrong existing button text assertion searches product div and repairs selector via UI", async ({ page }) => {
+  const site = createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end('<!doctype html><html><title>Shop</title><main>' +
+      '<div class="inventory_details_name large_size">Sauce Labs Backpack</div>' +
+      '<button type="button">Add to cart</button>' +
+      '<div class="inventory_details_price">$29.99</div></main></html>');
+  });
+  await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
+  const baseURL = "http://127.0.0.1:" + (site.address() as AddressInfo).port;
+  try {
+    const definition = {
+      schemaVersion: 1, id: "saucedemo-wrong-selector", title: "Backpack detail",
+      version: 1, steps: [
+        { id: "open", description: "Open product page", action: { kind: "navigate", url: "/" } },
+        { id: "backpack", description: "Confirm backpack product name", action: {
+          kind: "assert-text",
+          target: { by: "role", role: "button", name: "Add to cart" },
+          expected: "Sauce Labs Backpack", provenance: "requirements",
+        } },
+      ],
+    };
+    const resp = await page.request.post(url + "/api/save", {
+      data: { definition, baseURL },
+    });
+    expect(resp.status(), await resp.text()).toBe(200);
+    const saved = await resp.json();
+    const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+    await page.goto(url);
+    await page.getByLabel("Application URL").fill(baseURL);
+    await page.getByLabel("Approved saved test").selectOption(saved.id);
+    await page.getByRole("button", { name: "Run selected test" }).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const failed = page.locator(".run-step").nth(1);
+    await expect(failed).toContainText('expected "Sauce Labs Backpack"');
+    await expect(failed).toContainText('observed "Add to cart"');
+    const picker = failed.locator(".assertion-dom-repair");
+    await expect(picker).toBeVisible();
+    await expect(picker).toContainText('Sauce Labs Backpack');
+    await expect(picker).toContainText('<div>');
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
+    await expect(picker).toContainText('Visible text "Sauce Labs Backpack"');
+    const button = picker.getByRole("button", { name: "Save corrected assertion target and rerun" });
+    await expect(button).toBeDisabled();
+    const link = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+    if (!link) throw new Error("Missing failed report");
+    const report = await (await fetch(url + link)).json();
+    expect(report.steps[1]).toMatchObject({
+      status: "assertion-failed",
+      expected: "Sauce Labs Backpack",
+      observed: "Add to cart",
+      assertionAlternatives: {
+        query: "Sauce Labs Backpack",
+        attempted: { by: "role", role: "button", name: "Add to cart" },
+        total: 1,
+        candidates: [{ tag: "div", target: { by: "text", value: "Sauce Labs Backpack" } }],
+      },
+    });
+    const runId = link.split("/")[3];
+    const wrongStep = await page.request.post(url + "/api/repair-assertion-target", {
+      data: { runId, stepId: "open", candidateIndex: 0 },
+    });
+    expect(wrongStep.status()).toBe(400);
+    const invalidIndex = await page.request.post(url + "/api/repair-assertion-target", {
+      data: { runId, stepId: "backpack", candidateIndex: 17 },
+    });
+    expect(invalidIndex.status()).toBe(400);
+    await picker.locator('input[type="radio"]').check();
+    await expect(button).toBeEnabled();
+    await button.click();
+    await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    const revisedId = await page.getByLabel("Approved saved test").inputValue();
+    expect(revisedId).not.toBe(saved.id);
+    expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+    const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
+    expect(revised.steps[0]).toEqual(original.steps[0]);
+    expect(revised.steps[1].action).toEqual({
+      kind: "assert-text",
+      target: { by: "text", value: "Sauce Labs Backpack" },
+      expected: "Sauce Labs Backpack",
+      provenance: "requirements",
+    });
+    expect((await page.request.get(url + link)).status()).toBe(404);
+    const reportLink = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+    const finalReport = await (await fetch(url + reportLink)).json();
+    expect(finalReport.status).toBe("passed");
+    expect(finalReport.steps[1]).toMatchObject({
+      status: "passed", expected: "Sauce Labs Backpack", observed: "Sauce Labs Backpack",
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      site.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("live DOM Products text repairs missing heading assertion through UI, then reruns", async ({ page }) => {
   // Mirrors real-world inventory markup: "Products" is a visible span,
   // not an accessible heading. No SauceDemo network access is needed in CI.
