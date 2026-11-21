@@ -149,6 +149,10 @@
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
         <p id="draft-hint" class="muted"></p>
+        <div class="actions" style="margin:12px 0">
+          <button type="button" id="review-add-all" class="secondary">Add All</button>
+          <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
+        </div>
         <div id="step-list"></div>
         <p id="review-progress" class="muted"></p>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
@@ -679,7 +683,15 @@
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
       $("save").disabled = total === 0 || approvals.size !== total;
+      $("review-add-all").disabled = total === 0 || approvals.size === total;
     }
+    $("review-add-all").addEventListener("click", () => {
+      if (!definition?.steps.length) return;
+      // Explicit bulk confirmation of the displayed draft only.
+      // This does not save, execute, change assertions or map requirements.
+      approvals = new Set(definition.steps.map((_, index) => index));
+      renderSteps();
+    });
     async function requestJSON(url, options) {
       const response = await fetch(url, options);
       const payload = await response.json();
@@ -731,12 +743,26 @@
       }
       updateSuiteSelection();
     }
-    function renderWebsiteSuite(preservedSelection = new Set()) {
+    function renderWebsiteSuite(preservedSelection = new Set(),
+      preferredId = $("approved-tests").value) {
       const current = $("suite-site").value;
-      const list = $("suite-test-list");
-      list.replaceChildren();
+      // The one-script dropdown must never expose cases from other websites.
+      const single = $("approved-tests");
+      single.replaceChildren();
+      const blank = make("option", "Select a saved test script");
+      blank.value = "";
+      single.append(blank);
       const matching = approvedCatalog.filter((test) =>
         (test.siteUrl || "__legacy__") === current);
+      for (const test of matching) {
+        const option = make("option", test.title + " (" + test.steps + " steps)");
+        option.value = test.id;
+        single.append(option);
+      }
+      if (matching.some((test) => test.id === preferredId)) single.value = preferredId;
+
+      const list = $("suite-test-list");
+      list.replaceChildren();
       if (current === "__legacy__") {
         $("suite-site-note").textContent =
           "Older saved scripts have no recorded URL. They remain available here; a new approved script records its website automatically.";
@@ -767,18 +793,6 @@
       const previousSite = $("suite-site").value;
       const payload = await requestJSON("/api/tests");
       approvedCatalog = payload.tests;
-      const select = $("approved-tests");
-      select.replaceChildren();
-      const blank = make("option", "Select a saved test script");
-      blank.value = "";
-      select.append(blank);
-      for (const test of approvedCatalog) {
-        const site = test.siteUrl || "Unassigned";
-        const option = make("option", test.title + " (" + test.steps + " steps) · " + site);
-        option.value = test.id;
-        select.append(option);
-      }
-      if (approvedCatalog.some((item) => item.id === preferredId)) select.value = preferredId;
       const website = $("suite-site");
       website.replaceChildren();
       const option = make("option", "Select website suite");
@@ -790,7 +804,7 @@
         row.value = site.siteUrl || "__legacy__";
         website.append(row);
       }
-      const selectedTest = approvedCatalog.find((test) => test.id === select.value);
+      const selectedTest = approvedCatalog.find((test) => test.id === preferredId);
       const chosen = selectedTest?.siteUrl || (selectedTest ? "__legacy__" : previousSite);
       if (chosen && [...website.options].some((item) => item.value === chosen)) {
         website.value = chosen;
@@ -804,7 +818,7 @@
       } else if (!selectedTest && website.value && website.value !== "__legacy__") {
         $("base-url").value = website.value + "/";
       }
-      renderWebsiteSuite(preservedSuiteSelection);
+      renderWebsiteSuite(preservedSuiteSelection, preferredId);
     }
     function diagnosticText(result) {
       const diagnosis = result.diagnosis;
@@ -1614,14 +1628,8 @@
     });
     $("approved-tests").addEventListener("change", () => {
       const selected = approvedCatalog.find((test) => test.id === $("approved-tests").value);
+      // This dropdown is scoped to the selected suite; it cannot change suites.
       if (selected?.sourceUrl) $("base-url").value = selected.sourceUrl;
-      if (selected) {
-        const site = selected.siteUrl || "__legacy__";
-        if ([...$("suite-site").options].some((option) => option.value === site)) {
-          $("suite-site").value = site;
-          renderWebsiteSuite();
-        }
-      }
       updateRunButton();
     });
     $("base-url").addEventListener("input", updateRunButton);
