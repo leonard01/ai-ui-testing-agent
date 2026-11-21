@@ -76,6 +76,21 @@
     .locator-option span { display:block; font-size:13px; overflow-wrap:anywhere; }
     .locator-option small { display:block; margin-top:4px; color:#52677b; }
 
+    .run-tests-panel { margin-top:14px; padding:16px; border:1px solid #d5dce3; border-radius:12px; }
+    .run-tests-group { margin-top:18px; padding-top:15px; border-top:1px solid #dce3ed; }
+    .run-tests-group h4 { margin:0 0 8px; font-size:14px; }
+    .run-test-controls { display:grid; grid-template-columns:minmax(190px,2fr) minmax(130px,1fr) auto; gap:12px; align-items:end; }
+    .run-test-controls label { margin-top:4px; }
+    .run-test-controls button { white-space:nowrap; }
+    .run-script-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
+    .run-script-actions button, .run-script-actions a { margin:0; max-width:100%; }
+    .run-script-actions a.secondary { display:inline-block; padding:11px 16px; border:1px solid #a3bace; border-radius:8px; text-decoration:none; font-size:14px; }
+    .run-script-actions a[hidden] { display:none; }
+    .run-suite-management { margin-top:18px; padding-top:16px; border-top:1px solid #dce3ed; }
+    @media (max-width:760px) {
+      .run-test-controls { grid-template-columns:1fr; }
+      .run-test-controls button { width:100%; }
+    }
     .history-toolbar, .history-pagination { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:14px 0; }
     .history-entry { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; border-bottom:1px solid #d5dce3; padding:13px 0; }
     .history-entry-content { flex:1 1 300px; min-width:0; overflow-wrap:anywhere; }
@@ -160,41 +175,53 @@
     <section id="execution-panel" style="grid-column:1/-1" aria-labelledby="execution-heading">
       <h2 id="execution-heading">3. Execute and diagnose</h2>
       <p class="sub">Select an approved, saved test and run it in headless Playwright. Review every step and failure artifact here, without opening a terminal.</p>
-      <div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));align-items:end">
-        <div>
-          <label for="approved-tests">Approved saved test</label>
-          <select id="approved-tests"><option value="">Select a saved test</option></select>
-        </div>
-        <div>
-          <label for="run-timeout">Step timeout</label>
-          <select id="run-timeout">
-            <option value="5000">5 seconds</option>
-            <option value="10000">10 seconds</option>
-            <option value="15000">15 seconds</option>
-          </select>
-        </div>
-        <button type="button" id="run-test" disabled>Run selected test</button>
-      </div>
-      <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
-      <button type="button" id="delete-script" class="secondary" disabled style="margin-top:10px">Delete selected test script</button>
-      <button type="button" id="assign-legacy" class="secondary" disabled style="margin-top:10px">Assign older script to website URL</button>
-      <a id="saved-traceability" hidden target="_blank" rel="noopener" style="margin-left:8px">View requirement matrix (JSON)</a>
-      <a id="export-playwright" class="secondary" hidden style="margin-top:10px;margin-left:8px;padding:11px 16px;border-radius:8px;text-decoration:none;border:1px solid #205e86" download>Export Playwright (.spec.ts)</a>
-      <p class="muted">Export the selected approved test as a standalone Playwright TypeScript spec. The download does not execute tests, use AI, or modify saved cases.</p>
-      <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
-      <div id="suite-panel" style="margin-top:22px;padding:16px;border:1px solid #d5dce3;border-radius:12px">
-        <h3 style="margin:0 0 8px">Run a test suite</h3>
-        <p class="muted">A test suite is the collection of approved test scripts for one website. Choose its URL to display its scripts, then select up to 10 to run sequentially.</p>
+      <div id="suite-panel" class="run-tests-panel">
+        <h3 style="margin:0 0 8px">Run Tests</h3>
+        <p class="muted">Choose a website test suite, then run one saved script or a selection of scripts. All scripts run from their approved, saved JSON.</p>
         <label for="suite-site">Test suite (website URL)</label>
         <select id="suite-site"><option value="">Choose a website suite</option></select>
         <p id="suite-site-note" class="muted"></p>
-        <button type="button" id="delete-site" class="secondary" disabled>Delete this website test suite</button>
-        <p class="muted">Deletion permanently removes the saved test scripts for the selected website. Historical run reports, screenshots and traces are kept.</p>
-        <div id="suite-test-list" role="group" aria-label="Tests to include in suite"></div>
-        <p id="suite-selection-status" class="muted">0 tests selected</p>
-        <div class="actions">
-          <button type="button" id="suite-select-all" class="secondary">Select first 10</button>
-          <button type="button" id="suite-run" disabled>Run selected suite</button>
+
+        <div class="run-tests-group">
+          <h4>Run one test script</h4>
+          <div class="run-test-controls">
+            <div>
+              <label for="approved-tests">Approved saved test</label>
+              <select id="approved-tests"><option value="">Select a saved test</option></select>
+            </div>
+            <div>
+              <label for="run-timeout">Step timeout (both run modes)</label>
+              <select id="run-timeout">
+                <option value="5000">5 seconds</option>
+                <option value="10000">10 seconds</option>
+                <option value="15000">15 seconds</option>
+              </select>
+            </div>
+            <button type="button" id="run-test" disabled>Run selected test</button>
+          </div>
+          <div class="run-script-actions">
+            <button type="button" id="edit-saved" class="secondary" disabled>Edit selected saved test in review form</button>
+            <button type="button" id="delete-script" class="secondary" disabled>Delete selected test script</button>
+            <button type="button" id="assign-legacy" class="secondary" disabled>Assign older script to website URL</button>
+            <a id="saved-traceability" hidden target="_blank" rel="noopener">View requirement matrix (JSON)</a>
+            <a id="export-playwright" class="secondary" hidden download>Export Playwright (.spec.ts)</a>
+          </div>
+          <p class="muted">Editing and exporting apply to the script selected above. Exports do not execute tests or use AI.</p>
+        </div>
+
+        <div class="run-tests-group">
+          <h4>Run multiple test scripts</h4>
+          <p class="muted">Select up to 10 scripts from this website. They run sequentially in separate browser contexts. A failed script does not stop the others.</p>
+          <div id="suite-test-list" role="group" aria-label="Tests to include in suite"></div>
+          <p id="suite-selection-status" class="muted">0 tests selected</p>
+          <div class="actions">
+            <button type="button" id="suite-select-all" class="secondary">Select first 10</button>
+            <button type="button" id="suite-run" disabled>Run selected suite</button>
+          </div>
+        </div>
+        <div class="run-suite-management">
+          <button type="button" id="delete-site" class="secondary" disabled>Delete this website test suite</button>
+          <p class="muted">Deleting a website suite permanently removes its approved test scripts. Historical run reports are retained.</p>
         </div>
         <p id="suite-status" role="status" class="status"></p>
         <div id="suite-error" role="alert" class="error"></div>
