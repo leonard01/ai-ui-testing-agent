@@ -18,3 +18,6 @@ export type { DraftOptions, GeneratedDraft, ModelProvider } from "./generation.j
 
 export { generatePlaywrightSpec } from "./export.js";
 export type { PlaywrightExportOptions } from "./export.js";
+
+export { buildTraceabilityReport } from "./traceability.js";
+export type { TraceabilityReport, TraceabilityRequirement, TraceabilityStatus } from "./traceability.js";

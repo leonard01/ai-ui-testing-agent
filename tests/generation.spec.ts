@@ -61,6 +61,17 @@ test("rejects a model falsely claiming human confirmation", async ({ browser }) 
     baseURL, model: "test-stub", requirements: "Check task count",
   }, stub(definition), browser)).rejects.toThrow(/human-confirmed/);
 });
+test("rejects AI-supplied traceability even when its requirement IDs and links are schema-valid", async ({ browser }) => {
+  const definition = await fixture();
+  markRequirements(definition);
+  definition.requirements = [
+    { id: "R1", text: "Task is visible after adding it", stepIds: ["visible"] },
+  ];
+  await expect(generateDraft({
+    baseURL, model: "test-stub", requirements: "Show that a task was added",
+  }, stub(definition), browser)).rejects.toThrow(/human-confirmed requirement links/);
+});
+
 test("rejects generated cross-origin navigation", async ({ browser }) => {
   const definition = await fixture();
   markRequirements(definition);

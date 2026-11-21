@@ -37,6 +37,13 @@ const key = z.enum(["Enter", "Tab", "Escape", "Backspace", "Delete",
   "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space",
   "Home", "End", "PageUp", "PageDown"]);
 const provenance = z.enum(["requirements", "human-confirmed", "inferred"]);
+// Traceability references are supplied explicitly by a human reviewer, never
+// inferred from an AI-generated description or automatically treated as proof.
+const requirement = z.object({
+  id: z.string().trim().min(1).max(80),
+  text: text,
+  stepIds: z.array(z.string().trim().min(1).max(2000)).max(100),
+}).strict();
 const action = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: text }).strict(),
   z.object({ kind: z.literal("click"), target }).strict(),
@@ -67,6 +74,7 @@ export const testDefinitionSchema = z
     id: text,
     title: text,
     version: z.number().int().positive(),
+    requirements: z.array(requirement).max(40).optional(),
     steps: z
       .array(z.object({ id: text, description: text, action }).strict())
       .min(1)
@@ -84,6 +92,28 @@ export const testDefinitionSchema = z
         });
       seen.add(step.id);
     });
+    const seenRequirements = new Set<string>();
+    for (const [index, entry] of (definition.requirements ?? []).entries()) {
+      if (seenRequirements.has(entry.id)) {
+        ctx.addIssue({
+          code: "custom", path: ["requirements", index, "id"],
+          message: "Requirement IDs must be unique",
+        });
+      }
+      seenRequirements.add(entry.id);
+      const linked = new Set<string>();
+      for (const [linkIndex, stepId] of entry.stepIds.entries()) {
+        if (linked.has(stepId) || !seen.has(stepId)) {
+          ctx.addIssue({
+            code: "custom", path: ["requirements", index, "stepIds", linkIndex],
+            message: linked.has(stepId)
+              ? "Requirement step links must be unique"
+              : "Requirement links must reference an existing test step",
+          });
+        }
+        linked.add(stepId);
+      }
+    }
     if (definition.steps[0]?.action.kind !== "navigate")
       ctx.addIssue({
         code: "custom",
