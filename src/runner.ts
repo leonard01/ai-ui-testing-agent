@@ -189,6 +189,20 @@ export async function runTest(
           // Evidence comes from the live DOM, not an AI guess or error parsing.
           // Execution deliberately stops without acting on any candidate.
           result.ambiguity = error.ambiguity;
+        } else if (page && step.action.kind === "assert-text" &&
+          result.status === "assertion-failed") {
+          try {
+            // A selector may resolve successfully but point to the wrong
+            // element (e.g. "Add to cart" instead of "Sauce Labs Backpack").
+            // Search for the unchanged EXPECTED text, not the locator name,
+            // and offer the tester exact DOM-backed alternatives.
+            const alternatives = await findAssertionAlternatives(
+              page, step.action.target, "assert-text", step.action.expected, true,
+            );
+            if (alternatives.candidates.length) result.assertionAlternatives = alternatives;
+          } catch {
+            // Keep the failed assertion even if diagnostic search fails.
+          }
         } else if (page && (step.action.kind === "click" || step.action.kind === "fill") &&
           step.action.target.by !== "intent" && result.status === "execution-error" &&
           /Timeout.*exceeded|strict mode violation|waiting for getBy/i.test(message(error))) {
