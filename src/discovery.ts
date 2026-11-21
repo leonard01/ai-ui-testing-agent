@@ -53,6 +53,14 @@ export interface MissingAssertionChoices {
   query: string;
   candidates: AssertionCandidate[];
   total: number;
+  /** Present when the tester changed the DOM search term in the UI. */
+  searched?: boolean;
+  searchToken?: string;
+}
+
+/** Transient, pre-verified DOM evidence retained only in local run memory. */
+export interface AssertionSearchEntry extends AssertionCandidate {
+  text: string;
 }
 
 /** Deliberately stop before any click or fill if the live DOM is ambiguous. */
@@ -301,6 +309,95 @@ export async function findAssertionAlternatives(
     attempted, query: request,
     candidates: proposed.slice(0, 12),
     total: proposed.length + (domMatches.length > 60 ? 1 : 0),
+  };
+}
+
+/**
+ * Capture only short, visible, leaf-level rendered text at the instant an
+ * assertion fails. The runner closes the browser afterwards, so the UI
+ * searches this bounded in-memory snapshot rather than replaying actions.
+ * Candidate selectors are checked for uniqueness while the page still lives.
+ * Never capture form values, hidden content, scripts, or editable controls.
+ */
+export async function captureAssertionSearchIndex(page: Page): Promise<AssertionSearchEntry[]> {
+  const possible = await page.evaluate(() => {
+    const norm = (v: string) => v.replace(/\s+/g, " ").trim();
+    const result: Array<{tag: string; role: string; name: string; text: string; nearby: string}> = [];
+    const nodes = document.querySelectorAll<HTMLElement>("body *");
+    for (const el of Array.from(nodes).slice(0, 12000)) {
+      if (result.length >= 350) break;
+      if (el.closest('[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,input,textarea,select,option,[contenteditable],[role="textbox"]')) continue;
+      if (!el.getClientRects().length) continue;
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility !== "visible") continue;
+      const text = norm(el.innerText || "");
+      if (!text || text.length > 180) continue;
+      if (Array.from(el.children).some((child) =>
+        norm((child as HTMLElement).innerText || "") === text &&
+        !!(child as HTMLElement).getClientRects().length)) continue;
+      const tag = el.tagName.toLowerCase();
+      const role = el.getAttribute("role") ||
+        (/^h[1-6]$/.test(tag) ? "heading" :
+         tag === "li" ? "listitem" :
+         tag === "button" ? "button" : "");
+      result.push({
+        tag, role, name: (el.getAttribute("aria-label") || text).slice(0, 180),
+        text, nearby: norm((el.parentElement as HTMLElement | null)?.innerText || "").slice(0, 180),
+      });
+    }
+    return result;
+  });
+  const entries: AssertionSearchEntry[] = [];
+  const seen = new Set<string>();
+  for (const candidate of possible) {
+    let target: ExplicitTarget | undefined;
+    if (candidate.role === "button" || candidate.role === "textbox" ||
+        candidate.role === "checkbox" || candidate.role === "heading" ||
+        candidate.role === "status" || candidate.role === "listitem") {
+      const locator = page.getByRole(candidate.role, { name: candidate.name, exact: true });
+      if (await locator.count() === 1 && await locator.isVisible() &&
+          (await locator.innerText()).replace(/\s+/g, " ").trim() === candidate.text) {
+        target = { by: "role", role: candidate.role, name: candidate.name };
+      }
+    }
+    if (!target) {
+      const locator = page.getByText(candidate.text, { exact: true });
+      if (await locator.count() === 1 && await locator.isVisible() &&
+          (await locator.innerText()).replace(/\s+/g, " ").trim() === candidate.text) {
+        target = { by: "text", value: candidate.text };
+      }
+    }
+    if (!target) continue;
+    const key = JSON.stringify(target);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ ...candidate, target });
+  }
+  return entries;
+}
+
+/** Search already-verified page evidence by editable text, not model guesses. */
+export function searchCapturedAssertionText(
+  entries: AssertionSearchEntry[],
+  attempted: ExplicitTarget | IntentTarget,
+  rawQuery: string,
+): MissingAssertionChoices {
+  const query = rawQuery.replace(/\s+/g, " ").trim();
+  const requested = query.toLocaleLowerCase();
+  const matches = entries.filter((entry) =>
+    entry.text.toLocaleLowerCase().includes(requested) ||
+    entry.name.toLocaleLowerCase().includes(requested),
+  ).sort((a, b) => {
+    const score = (entry: AssertionSearchEntry) =>
+      entry.text.toLocaleLowerCase() === requested ? 3 :
+      entry.text.toLocaleLowerCase().startsWith(requested) ? 2 : 1;
+    return score(b) - score(a);
+  });
+  return {
+    attempted, query, searched: true,
+    candidates: matches.slice(0, 12).map(({tag, role, name, nearby, target}) =>
+      ({tag, role, name, nearby, target})),
+    total: matches.length,
   };
 }
 
