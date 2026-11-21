@@ -126,13 +126,16 @@ export async function runTest(
             waitUntil: "domcontentloaded",
           });
         else {
-          const target = action.target.by === "intent"
-            ? await (async () => {
-              const { locator, evidence } = await discoverTarget(page, action.target, action.kind, timeout);
-              result.resolution = evidence;
-              return locator;
-            })()
-            : locate(page, action.target);
+          let target: Locator;
+          if (action.target.by === "intent") {
+            const { locator, evidence } = await discoverTarget(
+              page, action.target, action.kind, timeout,
+            );
+            result.resolution = evidence;
+            target = locator;
+          } else {
+            target = locate(page, action.target);
+          }
           if (action.kind === "click") await target.click();
           else if (action.kind === "fill") await target.fill(action.value);
           else {
