@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Draft Builder · AI UI Testing Agent</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; background:#eef2f7; color:#1c304b; }
+    * { box-sizing: border-box; }
+    body { margin:0; }
+    header { background:#153655; color:#fff; padding:22px max(calc((100% - 1060px)/2),24px); }
+    header h1 { margin:0 0 5px; font-size:22px; letter-spacing:-.02em; }
+    header p { margin:0; color:#d6e2ed; font-size:14px; }
+    main { max-width:1060px; margin:24px auto 50px; padding:0 20px; display:grid; gap:20px; grid-template-columns:minmax(290px, 390px) minmax(420px,1fr); align-items:start; }
+    section { background:white; border:1px solid #dce3ed; border-radius:13px; padding:23px; box-shadow:0 4px 18px #16304e08; }
+    h2 { font-size:17px; margin:0 0 6px; }
+    .sub { margin:0 0 22px; font-size:13px; color:#596d83; line-height:1.55; }
+    label { display:block; font-size:13px; font-weight:650; margin:14px 0 6px; }
+    input[type=url],textarea,select,input[type=text] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
+    textarea { min-height:137px; resize:vertical; line-height:1.5; }
+    input:focus, textarea:focus, select:focus { outline:2px solid #83c5d2; outline-offset:1px; }
+    input[type=file] { max-width:100%; font-size:13px; }
+    button { cursor:pointer; border:0; font-size:14px; font-weight:650; border-radius:8px; padding:11px 16px; background:#205e86; color:white; }
+    button:disabled { cursor:not-allowed; opacity:.42; }
+    .secondary { color:#205e86; border:1px solid #a3bace; background:#f7fafc; }
+    .textbtn { border:0; padding:5px 8px; background:transparent; color:#1b668e; font-size:12px; }
+    .muted { font-size:12px; color:#64748b; line-height:1.5; }
+    .tip { padding:12px; border-radius:8px; background:#eff7f8; color:#2c5762; font-size:12px; margin-top:17px; }
+    .note { padding:12px; border-radius:8px; background:#f8f4e8; color:#705c2f; font-size:12px; line-height:1.5; margin:10px 0; }
+    .error { background:#fff1f2; color:#9c2335; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
+    .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
+    .error:empty, .success:empty { display:none; }
+    .step { border:1px solid #d7e0ea; border-radius:10px; padding:15px; margin:12px 0; }
+    .step header { background:none; padding:0; color:#20364f; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .pill { border-radius:100px; background:#ebf2f8; color:#345773; font-size:11px; padding:3px 8px; display:inline-block; margin-left:6px; }
+    .pill.warn { background:#fff0d6; color:#916010; }
+    .step strong { font-size:14px; }
+    .step p { margin:10px 0 6px; color:#32485f; font-size:13px; line-height:1.45; }
+    .step .action { background:#f6f8fb; padding:9px 11px; border-radius:6px; font-size:13px; color:#28405b; overflow-wrap:anywhere; }
+    .step label { display:flex; align-items:center; gap:8px; margin:11px 0 0; font-weight:500; }
+    .step input[type=checkbox] { width:17px; height:17px; accent-color:#0d7b85; }
+    .edits { margin-top:10px; background:#f8fafc; border:1px solid #dce3ed; border-radius:8px; padding:12px; }
+    .edits label { display:block; font-weight:650; margin:10px 0 5px; }
+    .edits input { margin:0; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .actions button { padding:8px 12px; font-size:12px; }
+    .status { margin-top:14px; font-size:13px; color:#52667c; }
+    #saved pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#1f3f5a; font-size:12px; background:#eef5f7; padding:10px; border-radius:6px; }
+    @media(max-width:820px) { main { display:block; } section { margin-bottom:15px; } header { padding:20px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI UI Testing Agent · Test Draft Builder</h1>
+    <p>Describe a workflow in plain English, review proposed steps, then save a runnable test.</p>
+  </header>
+  <main>
+    <section aria-labelledby="instructions-heading">
+      <h2 id="instructions-heading">1. Describe the test</h2>
+      <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
+      <form id="generate-form">
+        <label for="base-url">Application URL</label>
+        <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
+        <label for="requirements">Your test instructions</label>
+        <textarea id="requirements" placeholder="Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
+        <div id="instruction-help" class="muted">Plain English is fine. If the app has no user form, the AI may propose unsupported steps; review its output carefully.</div>
+        <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
+        <input id="requirements-file" type="file" accept=".txt,.md,text/plain,text/markdown">
+        <p id="import-note" class="muted">File contents will be added to the instructions above. Max 12,000 characters total.</p>
+        <label for="provider">Generate with</label>
+        <select id="provider">
+          <option value="groq">GroqCloud · hosted AI (free tier)</option>
+          <option value="fixture">Prewritten demonstration · no AI</option>
+        </select>
+        <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. The API key stays on your computer's local server.</div>
+        <button type="submit" id="generate" style="margin-top:20px;width:100%">Generate draft</button>
+      </form>
+      <p class="status" id="generation-status" role="status"></p>
+      <div class="error" id="generation-error" role="alert"></div>
+    </section>
+    <section aria-labelledby="review-heading">
+      <h2 id="review-heading">2. Review proposed steps</h2>
+      <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
+      <div id="placeholder" class="muted">No draft yet. Enter instructions on the left and click Generate draft.</div>
+      <div id="draft" hidden>
+        <p id="draft-title" style="font-weight:700"></p>
+        <p id="draft-hint" class="muted"></p>
+        <div id="step-list"></div>
+        <p id="review-progress" class="muted"></p>
+        <button id="save" disabled style="width:100%">Approve and save JSON test</button>
+        <div id="saved" class="success" style="margin-top:12px"></div>
+        <div id="save-error" class="error" style="margin-top:12px"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    let definition = null;
+    let approvals = new Set();
+    let selectedBaseURL = "";
+    function make(tag, text, cls) {
+      const node = document.createElement(tag);
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      if (cls) node.className = cls;
+      return node;
+    }
+    function describeTarget(target) {
+      if (!target) return "unknown element";
+      if (target.by === "role") return target.role + (target.name ? ' named "' + target.name + '"' : "");
+      if (target.by === "label") return 'field labelled "' + target.value + '"';
+      if (target.by === "text") return 'visible text "' + target.value + '"';
+      return "unrecognised target";
+    }
+    function describeAction(action) {
+      if (action.kind === "navigate") return 'Open "' + action.url + '"';
+      if (action.kind === "fill") return 'Enter "' + action.value + '" into ' + describeTarget(action.target);
+      if (action.kind === "click") return "Click " + describeTarget(action.target);
+      if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + ' equals "' + action.expected + '"';
+      if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
+      return "Unsupported action";
+    }
+    function labeledInput(parent, name, value, onChange) {
+      const label = make("label", name);
+      const input = make("input");
+      input.type = "text";
+      input.value = value ?? "";
+      input.addEventListener("input", () => onChange(input.value));
+      parent.append(label, input);
+    }
+    function beginEdit(card, step, index) {
+      const edits = make("div", null, "edits");
+      const clone = JSON.parse(JSON.stringify(step));
+      labeledInput(edits, "Description", clone.description, (v) => { clone.description = v; });
+      if (clone.action.kind === "navigate") {
+        labeledInput(edits, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
+      } else {
+        const t = clone.action.target;
+        if (t.by === "role") {
+          labeledInput(edits, "Role (button, textbox, checkbox, heading, status, listitem)", t.role, (v) => { t.role = v; });
+          labeledInput(edits, "Accessible name (may be blank)", t.name, (v) => {
+            if (v.trim()) t.name = v; else delete t.name;
+          });
+        } else {
+          labeledInput(edits, "Locator " + t.by, t.value, (v) => { t.value = v; });
+        }
+        if (clone.action.kind === "fill") {
+          labeledInput(edits, "Value to enter", clone.action.value, (v) => { clone.action.value = v; });
+        }
+        if (clone.action.kind === "assert-text") {
+          labeledInput(edits, "Expected exact text", clone.action.expected, (v) => { clone.action.expected = v; });
+        }
+      }
+      const buttons = make("div", null, "actions");
+      const apply = make("button", "Apply changes");
+      apply.type = "button";
+      apply.onclick = () => {
+        definition.steps[index] = clone;
+        approvals.delete(index);
+        renderSteps();
+      };
+      const cancel = make("button", "Cancel", "secondary");
+      cancel.type = "button";
+      cancel.onclick = () => edits.remove();
+      buttons.append(apply, cancel);
+      edits.append(buttons);
+      card.append(edits);
+    }
+    function renderSteps() {
+      const list = $("step-list");
+      list.replaceChildren();
+      for (const [index, step] of definition.steps.entries()) {
+        const card = make("article", null, "step");
+        const top = make("header");
+        top.append(make("strong", "Step " + (index + 1)));
+        const tag = make("span", step.action.kind, "pill");
+        top.append(tag);
+        card.append(top);
+        card.append(make("p", step.description));
+        card.append(make("div", describeAction(step.action), "action"));
+        if ("provenance" in step.action) {
+          const status = make("div", "Expected result source: " + step.action.provenance, "muted");
+          status.style.marginTop = "8px";
+          card.append(status);
+          if (step.action.provenance === "inferred") {
+            card.append(make("div", "AI assumption — confirm this is the expected behaviour, not just what the application currently does.", "note"));
+          }
+        }
+        if (step.action.target && step.action.target.by === "role" &&
+            step.action.target.role === "listitem" && step.action.target.name) {
+          card.append(make("div", "Check this locator: list items do not always have accessible names.", "note"));
+        }
+        const edit = make("button", "Edit fields", "textbtn");
+        edit.type = "button";
+        edit.onclick = () => { edit.disabled = true; beginEdit(card, step, index); };
+        card.append(edit);
+        const label = make("label");
+        const check = make("input");
+        check.type = "checkbox";
+        check.checked = approvals.has(index);
+        check.addEventListener("change", () => {
+          if (check.checked) approvals.add(index); else approvals.delete(index);
+          updateApproval();
+        });
+        label.append(check, make("span", "This step matches my intent"));
+        card.append(label);
+        list.append(card);
+      }
+      updateApproval();
+    }
+    function updateApproval() {
+      const total = definition?.steps.length ?? 0;
+      $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
+      $("save").disabled = total === 0 || approvals.size !== total;
+    }
+    $("requirements-file").addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (!/\.(txt|md)$/i.test(file.name)) {
+        $("generation-error").textContent = "Please use a .txt or .md requirements file";
+        return;
+      }
+      if (file.size > 30_000) {
+        $("generation-error").textContent = "File too large. Use up to 12,000 characters of instructions.";
+        return;
+      }
+      const text = await file.text();
+      const previous = $("requirements").value.trim();
+      const combined = [previous, text.trim()].filter(Boolean).join("\n\n");
+      if (combined.length > 12_000) {
+        $("generation-error").textContent = "Combined requirements exceed 12,000 characters.";
+        return;
+      }
+      $("requirements").value = combined;
+      $("import-note").textContent = "Added " + file.name + " to instructions. You can edit them before generating.";
+      $("generation-error").textContent = "";
+      event.target.value = "";
+    });
+    $("generate-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      $("generation-error").textContent = "";
+      $("saved").replaceChildren();
+      $("save-error").textContent = "";
+      const requirements = $("requirements").value.trim();
+      if (!requirements || requirements.length > 12_000) {
+        $("generation-error").textContent = "Enter 1–12,000 characters of test instructions.";
+        return;
+      }
+      const baseURL = $("base-url").value;
+      const provider = $("provider").value;
+      $("generate").disabled = true;
+      $("generation-status").textContent = "Inspecting page and generating draft...";
+      try {
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ baseURL, requirements, provider }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not generate draft");
+        definition = data.definition;
+        approvals = new Set();
+        selectedBaseURL = baseURL;
+        $("placeholder").hidden = true;
+        $("draft").hidden = false;
+        $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
+        $("draft-hint").textContent = data.message;
+        renderSteps();
+        $("generation-status").textContent = "Draft ready for review; nothing has been executed.";
+      } catch(error) {
+        $("generation-error").textContent = error.message || String(error);
+        $("generation-status").textContent = "";
+      } finally {
+        $("generate").disabled = false;
+      }
+    });
+    $("save").addEventListener("click", async () => {
+      if (!definition || approvals.size !== definition.steps.length) return;
+      $("save").disabled = true;
+      $("save-error").textContent = "";
+      $("saved").replaceChildren();
+      try {
+        const response = await fetch("/api/save", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ definition, baseURL: selectedBaseURL }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not save test");
+        $("saved").append(make("strong", "Saved! The test has NOT been executed."));
+        $("saved").append(make("p", "JSON file: " + data.file));
+        const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
+        const pre = make("pre", command);
+        $("saved").append(make("p", "After review, run this command in a separate terminal:"));
+        $("saved").append(pre);
+        const copy = make("button", "Copy run command", "secondary");
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(command); copy.textContent = "Copied"; }
+          catch { copy.textContent = "Select the command above to copy"; }
+        };
+        $("saved").append(copy);
+      } catch(error) {
+        $("save-error").textContent = error.message || String(error);
+      } finally {
+        updateApproval();
+      }
+    });
+  </script>
+</body>
+</html>
