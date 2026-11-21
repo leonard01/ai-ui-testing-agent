@@ -7,7 +7,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 **Last repository review:** 20 November 2026. This document describes functionality already merged into `main`, not work prepared in an unmerged patch.
 
 
-**The structured runner is merged and CI-verified. This feature branch adds optional AI draft generation and a zero-credit fixture path; review and live-model evaluation are pending.**
+**The structured runner is merged and CI-verified. This feature branch adds optional AI draft generation, a no-model fixture path, local Ollama, and hosted GroqCloud; real-model review remains pending.**
 
 | Item | Current position |
 | --- | --- |
@@ -50,6 +50,7 @@ Choose where its output comes from:
 | --- | --- | --- |
 | `fixture` | The full integration pipeline with a **prewritten** test, no AI | **None** |
 | `ollama` | Actual AI-generated JSON using a locally running model | **None** (hardware costs apply) |
+| `groq` | Actual AI-generated JSON using GroqCloud's hosted free-tier model | **Groq free tier** (account limits apply) |
 | `openai` | Actual AI-generated JSON using an optional cloud model | **Paid usage** |
 
 ```bash
@@ -64,13 +65,17 @@ npm run agent -- run generated/fixture-draft.json --headed
 
 # Optional REAL local AI after installing Ollama and pulling qwen2.5-coder:3b:
 npm run generate -- generate --provider ollama --model qwen2.5-coder:3b --requirements examples/requirements-task-list.md --output generated/ollama-draft.json
+
+# Recommended for older laptops: put GROQ_API_KEY="gsk_..." in .env (never commit it).
+# The generator loads .env automatically; no Ollama or extra npm package is needed:
+npm run generate -- generate --provider groq --model openai/gpt-oss-20b --requirements examples/requirements-task-list.md --output generated/groq-draft.json
 ```
 
-The OpenAI option is still available via `--provider openai`, but cloud inference isn't required to run the project. CI never makes a paid model request; it verifies tooling, not live-model quality. See [all three setup paths and limitations](docs/requirements-generation.md).
+The OpenAI option remains available via `--provider openai`, but AI inference is never required to run an approved test. CI mocks all model providers and makes no real hosted-model request; it verifies tooling, not live-model quality. See [all four setup paths and limitations](docs/requirements-generation.md).
 
 ### Not implemented yet
 
-- Fully evaluated AI generation quality, automatic approval or autonomous multi-page exploration (first generator is a review-only draft).
+- Fully evaluated AI generation quality (including live GroqCloud model output), automatic approval or autonomous multi-page exploration (first generator is a review-only draft).
 - AI discovery of workflows or interpretation of browser targets.
 - Recording a user's interactions into a test case.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover.
