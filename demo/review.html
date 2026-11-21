@@ -108,6 +108,7 @@
     function describeTarget(target) {
       if (!target) return "unknown element";
       if (target.by === "role") return target.role + (target.name ? ' named "' + target.name + '"' : "");
+      if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + ")" : "");
       if (target.by === "label") return 'field labelled "' + target.value + '"';
       if (target.by === "text") return 'visible text "' + target.value + '"';
       return "unrecognised target";
@@ -142,6 +143,7 @@
           ["role", "Accessible role and name"],
           ["label", "Form label"],
           ["text", "Visible text"],
+          ["intent", "Live DOM intent (recommended for unknown elements)"],
         ]) {
           const option = make("option", title);
           option.value = value;
@@ -155,7 +157,25 @@
         const renderLocatorFields = () => {
           locatorFields.replaceChildren();
           const t = clone.action.target;
-          if (t.by === "role") {
+          if (t.by === "intent") {
+            labeledInput(locatorFields, "Target intention (not a CSS selector)", t.value, (v) => {
+              t.value = v;
+            });
+            const roleLabel = make("label", "Expected role (optional)");
+            const roleSelect = make("select");
+            for (const role of ["", "button", "textbox", "checkbox", "heading", "status", "listitem"]) {
+              const option = make("option", role || "Any");
+              option.value = role;
+              roleSelect.append(option);
+            }
+            roleSelect.value = t.role || "";
+            roleSelect.addEventListener("change", () => {
+              if (roleSelect.value) t.role = roleSelect.value;
+              else delete t.role;
+            });
+            roleLabel.append(roleSelect);
+            locatorFields.append(roleLabel);
+          } else if (t.by === "role") {
             const roleLabel = make("label", "Element role");
             const roleSelect = make("select");
             for (const role of ["button", "textbox", "checkbox", "heading", "status", "listitem"]) {
@@ -184,6 +204,11 @@
               by: "role",
               role: clone.action.kind === "fill" ? "textbox" : "button",
               ...(name ? { name } : {}),
+            };
+          } else if (strategySelect.value === "intent") {
+            clone.action.target = {
+              by: "intent", value: name || step.description,
+              ...(clone.action.kind === "fill" ? { role: "textbox" } : {}),
             };
           } else {
             clone.action.target = { by: strategySelect.value, value: name };
