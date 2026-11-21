@@ -27,8 +27,8 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | --- | --- |
 | JSON test cases | Edit steps and expected results without writing a Playwright test |
 | Validation | Reject malformed cases, unsupported actions, duplicate step IDs and missing assertions before opening the browser |
-| Browser actions | Navigate, click and fill |
-| Assertions | Check exact normalized text and element visibility |
+| Browser actions | Navigate, click, fill; on this feature branch also select dropdown options, check/uncheck and press keyboard keys |
+| Assertions | Check exact normalized text and element visibility; on this feature branch also exact URL and matched-element counts |
 | Target descriptions | Exact role/name, label or text matching |
 | Isolated runs | Start each case in a fresh browser context |
 | Visible execution | Use `--headed` to watch Chromium locally |
@@ -151,6 +151,28 @@ This optional check does **not** click, fill, replay steps, modify expectations 
 
 This feature remains on `feature/selector-preflight` until merged.
 
+### Broader browser actions and assertions (new feature branch)
+
+The structured runner, AI generator prompt and human review editor now recognise six additional action kinds:
+
+| Action | Behaviour and supported fields |
+| --- | --- |
+| `check` / `uncheck` | Set native checkbox state explicitly; `check` also works for radio inputs |
+| `select-option` | Choose a native dropdown option by **value** |
+| `press` | Press an allowed keyboard key on a focused target (e.g., `Enter`, `Tab`, `ArrowDown`) |
+| `assert-url` | Wait for the current URL to equal an expected same-origin URL or relative path, including query/hash |
+| `assert-count` | Wait for the exact number of elements matching an explicit role/label/text locator, including zero matches |
+
+For example, a valid test can contain:
+
+```json
+{"id":"delivery","description":"Choose express delivery","action":{"kind":"select-option","target":{"by":"role","role":"combobox","name":"Shipping"},"value":"fast"}}
+```
+
+Counts include hidden DOM matches. A count assertion intentionally **cannot** use an intent target, because live intent resolution requires one unique element. Check and select target resolution happens at execution time. All assertions keep provenance, and a wrong expected URL/count is a genuine assertion failure with expected/observed evidence. The actions do not automatically execute until the tester approves and runs the saved case.
+
+**Development status:** `feature/broader-browser-actions`, not yet merged; verify via its pull request CI.
+
 ### Not implemented yet
 
 - Fully evaluated AI generation quality (including live GroqCloud model output), automatic approval or autonomous multi-page exploration (first generator is a review-only draft).
@@ -159,7 +181,7 @@ This feature remains on `feature/selector-preflight` until merged.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover (the review UI provides limited per-step timeout selection).
 - Full test management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
 - Exporting cases as standalone TypeScript scripts.
-- API, mobile and load testing, or additional language exporters.
+- API, mobile and load testing, or additional language exporters.\n- Advanced keyboard chords, rich multiselect semantics, and visual assertions.
 
 The current runner executes explicitly authored cases. Its data contracts and browser actions provide the execution layer for these later capabilities.
 
@@ -338,7 +360,7 @@ npx playwright show-report
 
 A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. Each step has an ID, description and action. See the [complete example](examples/add-task.json).
 
-- Supported actions: `navigate`, `click`, `fill`, `assert-text` and `assert-visible`.
+- On `main`: `navigate`, `click`, `fill`, `assert-text` and `assert-visible`. This feature branch adds `check`, `uncheck`, `select-option`, `press`, `assert-url` and `assert-count`.
 - The first step must navigate; every case must contain an assertion and have unique step IDs.
 - Assertions specify expectation provenance: `requirements`, `human-confirmed` or `inferred`. The runner preserves the supplied case's meaning; it does not infer correctness.
 - Text assertions compare text content after collapsing whitespace.
