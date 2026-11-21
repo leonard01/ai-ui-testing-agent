@@ -180,6 +180,7 @@ test("review UI exports only approved saved tests and never creates an extra fil
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");
+    if (!href) throw new Error("Download link was not generated");
     expect(href).toMatch(/^\/api\/tests\/reviewed-\d{13}-[a-f0-9]{8}\.json\/export\.ts\?/);
     const response = await fetch(url + href);
     expect(response.status).toBe(200);
