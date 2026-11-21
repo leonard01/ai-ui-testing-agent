@@ -273,8 +273,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
             throw new Error("Valid completed run ID is required");
           }
-          if (!Number.isInteger(input.candidateIndex) ||
-              (input.candidateIndex as number) < 0) {
+          if (typeof input.candidateIndex !== "number" ||
+              !Number.isInteger(input.candidateIndex) || input.candidateIndex < 0) {
             throw new Error("Choose one of the displayed candidate elements");
           }
           const job = jobs.get(input.runId);
