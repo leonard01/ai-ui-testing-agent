@@ -46,6 +46,20 @@
     .actions button { padding:8px 12px; font-size:12px; }
     .status { margin-top:14px; font-size:13px; color:#52667c; }
     #saved pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#1f3f5a; font-size:12px; background:#eef5f7; padding:10px; border-radius:6px; }
+    .run-step { border:1px solid #d7e0ea; border-radius:8px; padding:13px 15px; margin:10px 0; background:white; }
+    .run-step strong { font-size:13px; }
+    .run-step p { margin:8px 0; font-size:13px; }
+    .run-step pre { font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; background:#f5f7fa; padding:11px; border-radius:7px; max-height:300px; overflow:auto; }
+    .verdict { font-size:11px; padding:4px 8px; border-radius:50px; font-weight:700; display:inline-block; margin-left:8px; }
+    .passed { color:#1e7749; background:#e7f8ee; }
+    .assertion-failed, .execution-error { color:#a22639; background:#feeaed; }
+    .skipped { color:#677689; background:#eef0f4; }
+    .result-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+    #run-screenshot { max-width:100%; display:block; border:1px solid #d2dbe6; border-radius:9px; }
+    #run-summary { font-weight:700; }
+    .artifact-links { display:flex; gap:16px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
+    #execution-panel [hidden] { display:none; }
+
     @media(max-width:820px) { main { display:block; } section { margin-bottom:15px; } header { padding:20px; } }
   </style>
 </head>
@@ -92,6 +106,40 @@
         <div id="save-error" class="error" style="margin-top:12px"></div>
       </div>
     </section>
+    <section id="execution-panel" style="grid-column:1/-1" aria-labelledby="execution-heading">
+      <h2 id="execution-heading">3. Execute and diagnose</h2>
+      <p class="sub">Select an approved, saved test and run it in headless Playwright. Review every step and failure artifact here, without opening a terminal.</p>
+      <div style="display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));align-items:end">
+        <div>
+          <label for="approved-tests">Approved saved test</label>
+          <select id="approved-tests"><option value="">Select a saved test</option></select>
+        </div>
+        <div>
+          <label for="run-timeout">Step timeout</label>
+          <select id="run-timeout">
+            <option value="5000">5 seconds</option>
+            <option value="10000">10 seconds</option>
+            <option value="15000">15 seconds</option>
+          </select>
+        </div>
+        <button type="button" id="run-test" disabled>Run selected test</button>
+      </div>
+      <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
+      <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
+      <div id="run-error" class="error" role="alert"></div>
+      <div id="run-results" hidden>
+        <h2 id="run-summary" style="margin-top:18px"></h2>
+        <p id="run-totals" class="muted"></p>
+        <div id="run-diagnosis" class="note"></div>
+        <div id="run-artifacts" class="artifact-links"></div>
+        <div id="run-screenshot-panel" hidden>
+          <p style="font-weight:650">Failure screenshot</p>
+          <img id="run-screenshot" alt="Screenshot captured when the test failed">
+        </div>
+        <h2 style="margin-top:20px">Step-by-step execution</h2>
+        <div id="run-steps"></div>
+      </div>
+    </section>
   </main>
   <script>
     "use strict";
@@ -99,6 +147,9 @@
     let definition = null;
     let approvals = new Set();
     let selectedBaseURL = "";
+    let running = false;
+    let selectedApprovedId = "";
+
     function make(tag, text, cls) {
       const node = document.createElement(tag);
       if (text !== undefined && text !== null) node.textContent = String(text);
@@ -229,6 +280,8 @@
       apply.onclick = () => {
         definition.steps[index] = clone;
         approvals.delete(index);
+        $("approved-tests").value = "";
+        updateRunButton();
         renderSteps();
       };
       const cancel = make("button", "Cancel", "secondary");
@@ -285,6 +338,133 @@
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
       $("save").disabled = total === 0 || approvals.size !== total;
     }
+    async function requestJSON(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Request failed (" + response.status + ")");
+      return payload;
+    }
+    function updateRunButton() {
+      selectedApprovedId = $("approved-tests").value;
+      $("run-test").disabled = running || !selectedApprovedId;
+    }
+    async function refreshApprovedTests(preferredId = $("approved-tests").value) {
+      const payload = await requestJSON("/api/tests");
+      const select = $("approved-tests");
+      select.replaceChildren();
+      const blank = make("option", "Select a saved test");
+      blank.value = "";
+      select.append(blank);
+      for (const test of payload.tests) {
+        const option = make("option", test.title + " (" + test.steps + " steps) — " + test.id);
+        option.value = test.id;
+        select.append(option);
+      }
+      if (payload.tests.some((item) => item.id === preferredId)) select.value = preferredId;
+      updateRunButton();
+    }
+    function diagnosticText(result) {
+      const diagnosis = result.diagnosis;
+      if (!diagnosis) return "";
+      return "Likely cause: " + diagnosis.explanation + "\nNext step: " + diagnosis.suggestion;
+    }
+    function renderResult(result) {
+      const report = result.report;
+      if (!report) return;
+      $("run-results").hidden = false;
+      const passed = report.steps.filter((s) => s.status === "passed").length;
+      const skipped = report.steps.filter((s) => s.status === "skipped").length;
+      $("run-summary").textContent = report.status === "passed"
+        ? "PASSED — " + report.title : "FAILED — " + report.title;
+      $("run-totals").textContent = passed + " passed, " + skipped + " skipped; " +
+        report.steps.length + " steps reported; " + (report.durationMs / 1000).toFixed(1) + " seconds";
+      $("run-diagnosis").textContent = diagnosticText(result);
+      const links = $("run-artifacts");
+      links.replaceChildren();
+      for (const [key, label] of [
+        ["report", "View full JSON report"],
+        ["trace", "Download Playwright trace"],
+        ["screenshot", "Open failure screenshot"],
+      ]) {
+        if (!result.artifacts[key]) continue;
+        const link = make("a", label);
+        link.href = result.artifacts[key];
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        if (key === "trace") link.download = "trace.zip";
+        links.append(link);
+      }
+      const screenshot = result.artifacts.screenshot;
+      $("run-screenshot-panel").hidden = !screenshot;
+      if (screenshot) $("run-screenshot").src = screenshot;
+      else $("run-screenshot").removeAttribute("src");
+      const container = $("run-steps");
+      container.replaceChildren();
+      if (report.error) container.append(make("pre", report.error, "error"));
+      for (const [index, step] of report.steps.entries()) {
+        const card = make("article", null, "run-step");
+        const head = make("div", null, "result-head");
+        const heading = make("div");
+        heading.append(make("strong", "Step " + (index + 1) + " · " + step.description));
+        heading.append(make("span", step.status, "verdict " + step.status));
+        head.append(heading, make("span", step.durationMs + " ms", "muted"));
+        card.append(head);
+        if (step.expected !== undefined) card.append(make("p", "Expected: " + step.expected));
+        if (step.observed !== undefined) card.append(make("p", "Observed: " + step.observed));
+        if (step.resolution) {
+          const e = step.resolution;
+          card.append(make("p", "Live DOM match: <" + e.tag + "> " + e.role +
+            " · name: " + JSON.stringify(e.name) + " · via " + e.locator, "muted"));
+          if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
+        }
+        if (step.error) card.append(make("pre", step.error));
+        container.append(card);
+      }
+    }
+    async function watchRun(id) {
+      while (true) {
+        await new Promise((done) => setTimeout(done, 600));
+        const result = await requestJSON("/api/runs/" + encodeURIComponent(id));
+        if (result.state === "running") continue;
+        if (result.state === "error") throw new Error(result.error || "Runner failed unexpectedly");
+        renderResult(result);
+        $("run-status").textContent = result.report.status === "passed"
+          ? "Run complete: all reported steps passed."
+          : "Run complete: " + result.report.status + ". Review the failed step below.";
+        break;
+      }
+    }
+    $("approved-tests").addEventListener("change", updateRunButton);
+    $("run-test").addEventListener("click", async () => {
+      if (running || !selectedApprovedId) return;
+      const id = selectedApprovedId;
+      running = true;
+      updateRunButton();
+      $("run-error").textContent = "";
+      $("run-results").hidden = true;
+      $("run-status").textContent = "Starting Playwright test...";
+      try {
+        const payload = await requestJSON("/api/run", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            id, baseURL: $("base-url").value, timeoutMs: Number($("run-timeout").value),
+          }),
+        });
+        $("run-status").textContent = "Running approved test in Chromium. Results will appear here...";
+        await watchRun(payload.id);
+      } catch(error) {
+        $("run-error").textContent = error.message || String(error);
+        $("run-status").textContent = "Run could not complete.";
+      } finally {
+        running = false;
+        updateRunButton();
+      }
+    });
+    void refreshApprovedTests().catch((error) => {
+      $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
+    });
+
     $("requirements-file").addEventListener("change", async (event) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -333,6 +513,8 @@
         definition = data.definition;
         approvals = new Set();
         selectedBaseURL = baseURL;
+        $("approved-tests").value = "";
+        updateRunButton();
         $("placeholder").hidden = true;
         $("draft").hidden = false;
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
@@ -358,11 +540,12 @@
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not save test");
-        $("saved").append(make("strong", "Saved! The test has NOT been executed."));
+        await refreshApprovedTests(data.id);
+        $("saved").append(make("strong", "Saved and ready to execute. The test has NOT been executed."));
         $("saved").append(make("p", "JSON file: " + data.file));
         const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
         const pre = make("pre", command);
-        $("saved").append(make("p", "After review, run this command in a separate terminal:"));
+        $("saved").append(make("p", "Use Run selected test in section 3, or run via the CLI:"));
         $("saved").append(pre);
         const copy = make("button", "Copy run command", "secondary");
         copy.onclick = async () => {
