@@ -48,6 +48,14 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
+## Human-assisted locator choice
+
+When a step such as `Complete` matches both `Complete preparing a presentation` and `Complete reviewing documentation`, the failure report now includes a structured `ambiguity` array with candidates from the **live DOM**. The UI renders them as selectable options. A tester can pick the intended control and explicitly save a repaired test definition **without editing JSON**.
+
+The original execution stops without taking the ambiguous action. Approval creates a **new** `generated/reviewed-*.json` file; the chosen correction is then tested by a **fresh Playwright run from step 1**, not a resume of the stopped browser. Follow-up failures are still possible, and their expected values are never rewritten to make them pass.
+
+The local API `POST /api/repair` takes a completed `runId` and a candidate index, validates them against the recorded run, and rejects unknown, missing, truncated or identically named candidate selections. It does not accept arbitrary new selectors. This does not provide full interactive debugging or approval while a session is paused: that is a future milestone.
+
 ## Debugging GroqCloud HTTP 400 during generation
 
 If the GroqCloud model rejects a request, the review interface now separates:
@@ -67,7 +75,9 @@ Diagnosis is **deterministic**, not a new AI request. Possible categories includ
 
 - **Assertion failure**: preserve the expected requirement; compare it with the observed value. Do not automatically change assertions to make tests pass.
 - **Locator or intent failure**: inspect the role, name, nearby DOM evidence and captured screenshot; edit the test definition and approve/save a revised copy.
-- **Ambiguous target**: improve the intent with distinct context; never silently click the first plausible element.
+- **Ambiguous target**: the runner stops **without clicking**. When live DOM discovery returns distinct candidate names, the failed step presents radio choices with role and nearby text. Select the intended element and click **Save corrected copy and rerun from start**. The server accepts only a candidate recorded in that failed run, saves a separate approved JSON file and reruns it from step 1. Only that step's target intent changes; **assertions and the original saved file stay unchanged**. No extra AI model call is made.
+- **Identically named targets**: if candidates cannot be distinguished by name (or the candidate list is truncated), the one-click repair is rejected; manually refine the locator. Avoid choosing blindly.
+- **Older reports**: runs created before this feature lack structured candidates. Restart the UI after pulling changes and **run the saved test again** to populate the choice list.
 - **Browser failure**: inspect the full error and Playwright installation.
 
 Artifacts are accessible through limited local UI routes for runs created in the current server session. No arbitrary filesystem paths can be read through the run-artifact endpoints.
