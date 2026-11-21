@@ -251,7 +251,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-assertion"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -330,6 +330,75 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid repair request" });
+        }
+        return;
+      }
+      if (path === "/api/repair-target") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a repair request object");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Failed step ID is required");
+          }
+          if (typeof input.candidateIndex !== "number" ||
+              !Number.isInteger(input.candidateIndex) || input.candidateIndex < 0) {
+            throw new Error("Choose one of the displayed elements");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || job.report?.status !== "execution-error") {
+            throw new Error("No completed locator failure exists for this run");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.status === "execution-error" &&
+            !!step.locatorAlternatives,
+          );
+          const evidence = failed?.locatorAlternatives;
+          if (!failed || !evidence || !evidence.candidates.length ||
+              evidence.total !== evidence.candidates.length) {
+            throw new Error("A complete set of live DOM alternatives is not available");
+          }
+          const chosen = evidence.candidates[input.candidateIndex];
+          if (!chosen || !chosen.name.trim()) {
+            throw new Error("Choose a named element from the failed run");
+          }
+          if (evidence.candidates.some((candidate, index) =>
+            index !== input.candidateIndex && candidate.name === chosen.name &&
+            candidate.role === chosen.role)) {
+            throw new Error("The candidate name is not unique; refine the target in the review UI");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || (step.action.kind !== "click" && step.action.kind !== "fill") ||
+              JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted)) {
+            throw new Error("The saved test no longer matches this run; rerun before repairing");
+          }
+          const role = chosen.role;
+          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" ||
+              step.action.kind === "fill" && role !== "textbox") {
+            throw new Error("The selected element cannot perform this action");
+          }
+          // A role/name locator corresponds to the user-selected, uniquely
+          // resolved visible candidate. Do not accept arbitrary selectors.
+          if (role !== "button" && role !== "checkbox" && role !== "textbox") {
+            throw new Error("Unsupported element role");
+          }
+          const previousTarget = step.action.target;
+          step.action.target = { by: "role", role, name: chosen.name };
+          const corrected = parseTestDefinition(definition);
+          const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
+          await mkdir(savedDir, { recursive: true });
+          await writeFile(join(savedDir, id), JSON.stringify(corrected, null, 2) + "\n", { flag: "wx" });
+          json(res, 201, {
+            id, repairedStepId: step.id, previousTarget, approvedTarget: step.action.target,
+            message: "New corrected test saved. The original and all assertions remain unchanged; execution has not started.",
+          });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid locator repair" });
         }
         return;
       }
