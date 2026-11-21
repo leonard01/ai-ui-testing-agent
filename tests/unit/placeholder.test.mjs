@@ -38,3 +38,13 @@ test("placeholder locators reject blank values and unrecognized keys", () => {
   };
   assert.throws(() => parseTestDefinition(definition));
 });
+
+test("placeholder count assertions remain multi-match, with no positional index", () => {
+  const definition = structuredClone(example);
+  definition.steps[1].action = {
+    kind: "assert-count",
+    target: { by: "placeholder", value: "What needs to be done?" },
+    expected: 1, provenance: "requirements",
+  };
+  assert.equal(parseTestDefinition(definition).steps[1].action.target.by, "placeholder");
+});
