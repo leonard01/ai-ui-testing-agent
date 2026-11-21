@@ -68,6 +68,18 @@ Every step becomes a named `test.step` and assertions preserve the approved expe
 
 **Important:** review generated files for test credentials or sensitive input values before committing them publicly. See [independent run setup and compatibility notes](playwright-export.md).
 
+## Correcting AI-generated assertion selectors
+
+A correctly executed action does **not** guarantee the AI generated the correct selector for its verification. For example, TodoMVC can display `Buy groceries` as visible text inside `<li><div><label>Buy groceries</label></div></li>`, while `getByRole("heading", {name:"Buy groceries"})` or `getByRole("listitem", {name:"Buy groceries"})` may not identify it.
+
+If an **assert-visible** or **assert-text** step fails, the run now *always* offers a locator correction section, even when the tool cannot capture matching DOM evidence. When the original selector has no matches, it looks for exact visible text in the live failure-state DOM, including for failed intent-based assertions. Verified candidate selectors are offered for **human selection**, and no expected result is changed automatically.
+
+- Choose the intended verified candidate under **Find assertion target in captured DOM** and save a corrected copy. The test reruns from its first step.
+- If no candidates are available, try **Search captured DOM** with a distinctive on-screen phrase.
+- If the browser snapshot cannot be searched, use **Edit failing assertion locator**. The original saved script opens with precisely that assertion's fields expanded; adjust the locator manually, review and save it.
+
+The correction preserves the assertion type, provenance, expected text and preceding actions. Errors remain visible as genuine failures unless the user explicitly approves a corrected locator. A historical run may lack its transient DOM search index after a server restart, but the manual edit option remains available while the saved script exists.
+
 ## Input placeholders versus form labels (TodoMVC Enter-key fix)
 
 TodoMVC's new-task textbox displays `What needs to be done?` as its **placeholder**, not as an associated HTML label. `getByLabel("What needs to be done?")` will not locate it, so a `press Enter` step using the form-label strategy can time out *even when the earlier fill step succeeded*.
