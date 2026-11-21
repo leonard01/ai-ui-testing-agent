@@ -40,13 +40,21 @@ Open **http://127.0.0.1:3100/** in a browser.
 4. Select **GroqCloud** (real hosted model, using free-tier limits) or **Fixture** (prewritten nine-step test for debugging; does *not* generate new steps from the entered request).
 5. Click **Generate draft**. The server inspects the specified page in a headless Chromium session, sends the selected instructions and bounded snapshot to the chosen model, and validates the returned JSON with the existing schema.
 6. Inspect the **human-readable plan**. Each card shows the real operation, target, value or expectation and assertion provenance. Inferred assertions and suspicious named listitem locators are flagged.
-7. Change fields via **Edit fields** if needed, including switching a locator between accessible role/name, form label and visible text. For example, replace an incorrect form-label locator for the **Add** button with role **button**, accessible name **Add**. Then individually confirm each step represents your intended behaviour.
+7. Change fields via **Edit fields** if needed, including switching a locator between accessible role/name, form label and visible text. For example, replace an incorrect form-label locator for the **Add** button with role **button**, accessible name **Add**. Then individually confirm each step represents your intended behaviour. Saved tests can be reopened into the editor using **Edit selected saved test in review form**; manually editing JSON files is not necessary.
 8. Click **Approve and save JSON test**. This saves an ordinary, framework-neutral file under `generated/`. It **does not execute** the test.
 9. In **3. Execute and diagnose**, choose your saved test (newly saved tests are selected automatically), choose a 5/10/15-second per-step timeout, and click **Run selected test**.
 10. The local server launches headless Playwright for that explicitly saved test, with **one browser execution at a time** to reduce pressure on slower laptops.
 11. The UI polls for completion, then shows per-step results, expected and observed text, locator-discovery evidence, and the first failure's likely category. When available, click **Open failure screenshot**, **Download Playwright trace** or **View full JSON report**.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
+
+## No manual JSON editing: repairing existing saved tests
+
+The Test Builder is the supported editing interface. **Never require someone to open or hand-edit a JSON test file.** Users can choose an approved saved test under **Execute and diagnose**, click **Edit selected saved test in review form**, change descriptions, targets, inputs or expected text using the existing field editors, explicitly reconfirm the steps, and save a new approved copy. The original is preserved. The local `GET /api/tests/<approved-id>` route only exposes a validated saved test (not arbitrary files).
+
+For a failed explicit locator such as `getByLabel("Add")`, the runner now inspects the **live page at the failure point**. When it finds visible, uniquely accessible candidates matching the requested action, the failed step displays **Choose a replacement element** with role, accessible name and nearby text. The tester can select **button named Add** and click **Save corrected locator and rerun from start**; the server accepts only the recorded candidate, saves a new copy with that step's role/name locator, preserves the other steps and all assertions, and reruns from step 1. **No JSON editing or extra AI call is needed.**
+
+The runner does not silently click or change targets. If the candidate list is incomplete or no unique candidate can be validated, use **Edit selected saved test in review form** instead. If a chosen locator fails on a later run, the error and evidence remain visible. The server rejects arbitrary candidate indexes and invalid run/step IDs.
 
 ## Human-assisted locator choice
 
