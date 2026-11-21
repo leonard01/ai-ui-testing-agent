@@ -10,6 +10,7 @@ import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
 import { ensureAllowedNavigation } from "./inspect.js";
+import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
 import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
@@ -28,6 +29,8 @@ type RunJob = {
   outputDir: string;
   report?: RunReport;
   error?: string;
+  /** Short-lived DOM evidence held in memory, never included in reports. */
+  assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
 };
 
 function json(res: ServerResponse, status: number, data: unknown): void {
@@ -302,7 +305,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -449,6 +452,55 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
+      if (path === "/api/search-assertion-dom") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a DOM search request");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId) ||
+              typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Valid run and failed step IDs are required");
+          }
+          if (typeof input.query !== "string" || !input.query.trim() ||
+              input.query.trim().length > 180) {
+            throw new Error("DOM search text must be 1–180 characters");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" ||
+              (job.report?.status !== "execution-error" &&
+               job.report?.status !== "assertion-failed")) {
+            throw new Error("Search requires a completed failing run");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.assertionSearchAvailable === true &&
+            (step.status === "execution-error" || step.status === "assertion-failed"),
+          );
+          const entries = job.assertionSearchIndex?.get(input.stepId);
+          if (!failed || !entries) {
+            throw new Error("No searchable DOM evidence exists for this failed assertion");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || (step.action.kind !== "assert-text" &&
+              step.action.kind !== "assert-visible") ||
+              (failed.status === "assertion-failed" &&
+               (step.action.kind !== "assert-text" ||
+                failed.expected !== step.action.expected))) {
+            throw new Error("The saved assertion no longer matches the failed run");
+          }
+          const alternatives = searchCapturedAssertionText(
+            entries, step.action.target, input.query,
+          );
+          alternatives.searchToken = randomUUID();
+          failed.assertionAlternatives = alternatives;
+          json(res, 200, { alternatives,
+            message: "Search uses visible DOM evidence captured at the failure, without replaying actions." });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid DOM search" });
+        }
+        return;
+      }
       if (path === "/api/repair-assertion-target") {
         try {
           if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -481,6 +533,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               evidence.total !== evidence.candidates.length) {
             throw new Error("A complete set of verified live DOM matches is required");
           }
+          if (evidence.searched &&
+              (typeof input.searchToken !== "string" ||
+               input.searchToken !== evidence.searchToken)) {
+            throw new Error("DOM search results have changed; search again before approving");
+          }
           const selected = evidence.candidates[input.candidateIndex];
           if (!selected || !selected.target) {
             throw new Error("Choose a verified element from the failed run");
@@ -498,7 +555,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 (step.action.kind !== "assert-text" ||
                  step.action.expected !== failed.expected ||
                  !failed.observed || failed.observed === failed.expected ||
-                 evidence.query !== failed.expected.replace(/\s+/g, " ").trim()))) {
+                 (!evidence.searched &&
+                  evidence.query !== failed.expected.replace(/\s+/g, " ").trim())))) {
             throw new Error("Saved assertion differs from the failing run; rerun before repairing");
           }
           const target = selected.target;
@@ -613,6 +671,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         const job: RunJob = {
           id, fileId, state: "running", startedAt: new Date().toISOString(),
           outputDir: join(resultsDir, id),
+          assertionSearchIndex: new Map(),
         };
         jobs.set(id, job);
         if (jobs.size > MAX_RUN_HISTORY) {
@@ -624,6 +683,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         // Runs are serialized to avoid opening several Chromiums on old laptops.
         void runTest(definition, {
           baseURL: base.href, outputDir: job.outputDir, timeoutMs,
+          onAssertionSearchIndex: (stepId, entries) => job.assertionSearchIndex?.set(stepId, entries),
         }, suppliedBrowser).then((report) => {
           job.report = report;
           job.state = "finished";
