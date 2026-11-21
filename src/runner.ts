@@ -10,7 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
-import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -204,6 +204,24 @@ export async function runTest(
             }
           } catch {
             // Preserve the original failure even if optional discovery fails.
+          }
+        } else if (page && (step.action.kind === "assert-text" ||
+            step.action.kind === "assert-visible") &&
+          step.action.target.by !== "intent" && result.status === "execution-error" &&
+          /Timeout.*exceeded|strict mode violation|waiting for getBy|exactly one element/i.test(message(error))) {
+          try {
+            const currentLocator = locate(page, step.action.target);
+            // Do not turn a genuine mismatch into a selector repair.
+            // Only search the DOM if the expected target itself is missing.
+            if (await currentLocator.count() === 0) {
+              const alternatives = await findAssertionAlternatives(
+                page, step.action.target, step.action.kind,
+                step.action.kind === "assert-text" ? step.action.expected : undefined,
+              );
+              if (alternatives.candidates.length) result.assertionAlternatives = alternatives;
+            }
+          } catch {
+            // Candidate discovery is best-effort; retain the original error.
           }
         }
         result.error = message(error);
