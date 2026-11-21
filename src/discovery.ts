@@ -4,9 +4,9 @@ import type { Locator, Page } from "playwright";
 export interface IntentTarget {
   by: "intent";
   value: string;
-  role?: "button" | "textbox" | "checkbox" | "heading" | "status" | "listitem";
+  role?: "button" | "textbox" | "checkbox" | "radio" | "combobox" | "heading" | "status" | "listitem";
 }
-export type TargetOperation = "click" | "fill" | "assert-text" | "assert-visible";
+export type TargetOperation = "click" | "fill" | "select-option" | "check" | "press" | "assert-text" | "assert-visible";
 
 interface DomCandidate {
   index: number;
@@ -138,8 +138,11 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
 }> {
   return page.evaluate((op) => {
     const selectorByOperation = {
-      click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], [role=button], [role=link], [role=checkbox]",
+      click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], input[type=radio], [role=button], [role=link], [role=checkbox], [role=radio]",
       fill: "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]), textarea, [contenteditable=true], [role=textbox]",
+      press: "input:not([type=hidden]), textarea, select, button, a[href], [contenteditable=true], [role=textbox]",
+      "select-option": "select, [role=combobox]",
+      check: "input[type=checkbox], input[type=radio], [role=checkbox], [role=radio]",
       "assert-text": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, [data-testid]",
       "assert-visible": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, a[href], input, [data-testid]",
     } as const;
@@ -157,6 +160,8 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
         el.tagName === "BUTTON" || (el.tagName === "INPUT" && ["submit", "button"].includes(input.type)) ? "button" :
         el.tagName === "A" ? "link" :
         el.tagName === "INPUT" && input.type === "checkbox" ? "checkbox" :
+        el.tagName === "INPUT" && input.type === "radio" ? "radio" :
+        el.tagName === "SELECT" ? "combobox" :
         el.tagName === "INPUT" || el.tagName === "TEXTAREA" ? "textbox" :
         /^H[1-6]$/.test(el.tagName) ? "heading" :
         el.tagName === "LI" ? "listitem" : ""
