@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, unlink, writeFile, rmdir } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
@@ -15,12 +15,12 @@ import { runTest } from "./runner.js";
 import { preflightSelectors } from "./preflight.js";
 import { generatePlaywrightSpec } from "./export.js";
 import { buildTraceabilityReport } from "./traceability.js";
+import { SAVED_NAME, websiteOrigin, websiteDirectory, listSavedFiles, findSavedFile } from "./site-storage.js";
 import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
 
 const MAX_BODY_BYTES = 110_000;
 const MAX_REQUIREMENTS_CHARS = 12_000;
-const SAVED_NAME = /^reviewed-\d{13}-[a-f0-9]{8}\.json$/;
 const RUN_ID = /^[a-f0-9-]{36}$/;
 const MAX_RUN_HISTORY = 100;
 const MAX_SUITE_HISTORY = 20;
@@ -37,6 +37,7 @@ type RunJob = {
   /** Short-lived DOM evidence held in memory, never included in reports. */
   assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
   suiteId?: string;
+  baseURL?: string;
 };
 
 type SuiteEntry = {
@@ -182,11 +183,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   let activeRun: string | null = null;
   let activePreflight = false;
 
-  function registerRun(fileId: string, suiteId?: string): RunJob {
+  function registerRun(fileId: string, suiteId?: string, baseURL?: string): RunJob {
     const id = randomUUID();
     const job: RunJob = {
       id, fileId, state: "running", startedAt: new Date().toISOString(),
-      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(), suiteId,
+      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(), suiteId, baseURL,
     };
     jobs.set(id, job);
     while (jobs.size > MAX_RUN_HISTORY) {
@@ -232,7 +233,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     await mkdir(job.outputDir, { recursive: true });
     await writeFile(join(job.outputDir, "run-metadata.json"), JSON.stringify({
       schemaVersion: 1, fileId: job.fileId, suiteId: job.suiteId,
-      startedAt: job.startedAt, state, error: job.error,
+      startedAt: job.startedAt, state, error: job.error, baseURL: job.baseURL,
     }, null, 2) + "\n");
   }
 
@@ -285,6 +286,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         fileId: typeof details.fileId === "string" && SAVED_NAME.test(details.fileId)
           ? details.fileId : "",
         state, startedAt, outputDir: folder,
+        ...(typeof details.baseURL === "string" ? { baseURL: details.baseURL } : {}),
         ...(report && state === "finished" ? { report } : {}),
         ...(state === "error" && typeof details.error === "string"
           ? { error: details.error } : {}),
@@ -358,6 +360,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       .slice(0, MAX_RUN_HISTORY)
       .map((job) => ({
         id: job.id, fileId: job.fileId || null, suiteId: job.suiteId ?? null,
+        baseURL: job.baseURL ?? null,
         title: job.report?.title ?? "Unknown test",
         startedAt: job.startedAt, state: job.state,
         verdict: job.report?.status ?? "runner-error",
@@ -379,9 +382,35 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   }
 
   async function readSaved(id: string): Promise<TestDefinition> {
-    if (!SAVED_NAME.test(id)) throw new Error("Invalid approved test filename");
-    const input = JSON.parse(await readFile(join(savedDir, id), "utf8")) as unknown;
+    const file = await findSavedFile(savedDir, id);
+    const input = JSON.parse(await readFile(file, "utf8")) as unknown;
     return parseTestDefinition(input);
+  }
+
+  function ensureNoExecutionForDeletion() {
+    if (activeRun || activePreflight || [...jobs.values()].some((job) => job.state === "running")) {
+      throw new Error("Cannot delete approved scripts or website suites during an active run or preflight");
+    }
+  }
+
+  async function listApproved() {
+    const paths = (await listSavedFiles(savedDir)).slice(0, 1000);
+    const tests: Array<{
+      id: string; title: string; steps: number;
+      sourceUrl: string | null; siteUrl: string | null;
+    }> = [];
+    for (const entry of paths) {
+      try {
+        const definition = parseTestDefinition(
+          JSON.parse(await readFile(entry.path, "utf8")) as unknown);
+        const sourceUrl = definition.sourceUrl ?? null;
+        tests.push({
+          id: entry.id, title: definition.title, steps: definition.steps.length,
+          sourceUrl, siteUrl: sourceUrl ? websiteOrigin(sourceUrl) : null,
+        });
+      } catch { /* Skip unreadable or invalid definitions */ }
+    }
+    return tests;
   }
 
   /**
@@ -392,7 +421,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   async function saveApproved(
     definition: TestDefinition,
     replacesId?: string,
+    base?: URL,
   ): Promise<{ id: string; file: string; replacedId?: string }> {
+    let replacedPath: string | undefined;
     if (replacesId) {
       if (!SAVED_NAME.test(replacesId)) throw new Error("Invalid test to replace");
       if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running") ||
@@ -400,14 +431,20 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         throw new Error("Cannot replace a test while it is running in a test suite");
       }
       await readSaved(replacesId);
+      replacedPath = await findSavedFile(savedDir, replacesId);
     }
+    const sourceUrl = base?.href ?? definition.sourceUrl;
+    const approved = parseTestDefinition(sourceUrl
+      ? { ...definition, sourceUrl } : definition);
     const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
-    const file = join(savedDir, id);
-    await mkdir(savedDir, { recursive: true });
-    await writeFile(file, JSON.stringify(definition, null, 2) + "\n", { flag: "wx" });
-    if (replacesId) {
+    const directory = sourceUrl ? websiteDirectory(savedDir, sourceUrl) : savedDir;
+    const file = join(directory, id);
+    await mkdir(directory, { recursive: true });
+    await writeFile(file, JSON.stringify(approved, null, 2) + "\n", { flag: "wx" });
+    if (replacesId && replacedPath) {
       try {
-        await unlink(join(savedDir, replacesId));
+        await unlink(replacedPath);
+        if (dirname(replacedPath) !== savedDir) await rmdir(dirname(replacedPath)).catch(() => {});
       } catch (error) {
         // Never leave a new duplicate if removing the superseded test failed.
         await unlink(file).catch(() => {});
@@ -967,6 +1004,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           for (const fileId of input.ids as string[]) {
             const definition = await readSaved(fileId);
             verifyNavigations(definition, base);
+            if (definition.sourceUrl && websiteOrigin(definition.sourceUrl) !== base.origin) {
+              throw new Error("All scripts in one website suite must match the selected URL origin");
+            }
             definitions.push({ fileId, definition });
           }
         } catch (error) {
@@ -998,7 +1038,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             for (const [index, { fileId, definition }] of definitions.entries()) {
               const entry = suite.entries[index];
               entry.state = "running";
-              const run = registerRun(fileId, id);
+              const run = registerRun(fileId, id, base.href);
               entry.runId = run.id;
               try {
                 const report = await runTest(definition, {
@@ -1069,7 +1109,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 409, { error: "A test or selector preflight is already running. Finish it before starting another." });
           return;
         }
-        const job = registerRun(fileId);
+        const job = registerRun(fileId, undefined, base.href);
         const id = job.id;
         activeRun = id;
         // Execute only when explicitly requested, using the *saved* approved test.
@@ -1155,7 +1195,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           throw new Error("Invalid saved test to replace");
         }
         const { id, file, replacedId } = await saveApproved(
-          definition, data?.replaceId as string | undefined,
+          definition, data?.replaceId as string | undefined, base,
         );
         json(res, 200, {
           id, file, replacedId,
