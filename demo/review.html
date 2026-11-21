@@ -509,7 +509,18 @@
           body: JSON.stringify({ baseURL, requirements, provider }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Could not generate draft");
+        if (!response.ok) {
+          const origin = data.source === "groqcloud"
+            ? "GroqCloud rejected the request (provider HTTP " + data.providerStatus + ")."
+            : data.source === "generator"
+              ? "Generation/validation failed in our application."
+              : "Test Builder request failed (HTTP " + response.status + ").";
+          const category = data.category ? " Category: " + data.category + "." : "";
+          const inputLength = Number.isInteger(data.requirementsCharacters)
+            ? " Your instructions: " + data.requirementsCharacters + " characters." : "";
+          throw new Error(origin + category + inputLength + "\\n" +
+            (data.error || "Could not generate draft"));
+        }
         definition = data.definition;
         approvals = new Set();
         selectedBaseURL = baseURL;
