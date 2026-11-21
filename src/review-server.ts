@@ -182,6 +182,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const suites = new Map<string, SuiteJob>();
   let activeRun: string | null = null;
   let activePreflight = false;
+  let activeDeletion = false;
 
   function registerRun(fileId: string, suiteId?: string, baseURL?: string): RunJob {
     const id = randomUUID();
@@ -424,6 +425,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     base?: URL,
   ): Promise<{ id: string; file: string; replacedId?: string }> {
     let replacedPath: string | undefined;
+    if (activeDeletion) throw new Error("Cannot save a test while deleting a website suite");
     if (replacesId) {
       if (!SAVED_NAME.test(replacesId)) throw new Error("Invalid test to replace");
       if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running") ||
@@ -518,19 +520,17 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/api/tests") {
         try {
-          const names = (await readdir(savedDir))
-            .filter((name) => SAVED_NAME.test(name)).sort().reverse().slice(0, 100);
-          const saved: Array<{ id: string; title: string; steps: number }> = [];
-          for (const id of names) {
-            try {
-              const definition = await readSaved(id);
-              saved.push({ id, title: definition.title, steps: definition.steps.length });
-            } catch { /* Skip invalid or unreadable files */ }
+          const tests = await listApproved();
+          const counts = new Map<string, number>();
+          for (const test of tests) {
+            const key = test.siteUrl ?? "";
+            counts.set(key, (counts.get(key) ?? 0) + 1);
           }
-          json(res, 200, { tests: saved });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") json(res, 200, { tests: [] });
-          else json(res, 500, { error: "Could not list approved tests" });
+          const sites = [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))
+            .map(([siteUrl, scripts]) => ({ siteUrl: siteUrl || null, scripts }));
+          json(res, 200, { tests, sites });
+        } catch {
+          json(res, 500, { error: "Could not list approved test scripts" });
         }
         return;
       }
@@ -615,7 +615,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -630,8 +630,64 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
+      if (path === "/api/delete-test" || path === "/api/delete-site") {
+        if (activeRun || activePreflight || activeDeletion) {
+          json(res, 409, { error: "Cannot delete saved scripts or suites while a browser operation or deletion is active" });
+          return;
+        }
+        activeDeletion = true;
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected deletion details");
+          const input = body as Record<string, unknown>;
+          if (input.confirmed !== true) {
+            throw new Error("Explicit deletion confirmation is required");
+          }
+          if (path === "/api/delete-test") {
+            if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
+              throw new Error("Invalid test script ID");
+            }
+            const file = await findSavedFile(savedDir, input.id);
+            await unlink(file);
+            if (dirname(file) !== savedDir) await rmdir(dirname(file)).catch(() => {});
+            json(res, 200, {
+              deletedId: input.id, scriptsDeleted: 1,
+              message: "Approved test script deleted. Historical run reports are retained.",
+            });
+          } else {
+            if (typeof input.siteUrl !== "string" ||
+                input.siteUrl !== websiteOrigin(input.siteUrl)) {
+              throw new Error("Select a valid website test suite URL");
+            }
+            const folder = websiteDirectory(savedDir, input.siteUrl);
+            const matching = (await listSavedFiles(savedDir))
+              .filter((entry) => dirname(entry.path) === folder);
+            if (!matching.length) throw new Error("Website suite is empty or does not exist");
+            // Never recursively remove arbitrary contents from a directory:
+            // only remove approved JSON filenames belonging to this website.
+            for (const entry of matching) {
+              const definition = parseTestDefinition(
+                JSON.parse(await readFile(entry.path, "utf8")) as unknown);
+              if (!definition.sourceUrl ||
+                  websiteOrigin(definition.sourceUrl) !== input.siteUrl) {
+                throw new Error("Website suite contains scripts with mismatched metadata");
+              }
+            }
+            for (const entry of matching) await unlink(entry.path);
+            await rmdir(folder).catch(() => {});
+            json(res, 200, {
+              deletedSiteUrl: input.siteUrl, scriptsDeleted: matching.length,
+              message: "Website suite and its approved test scripts deleted; historical reports retained.",
+            });
+          }
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Deletion failed" });
+        } finally {
+          activeDeletion = false;
+        }
+        return;
+      }
       if (path === "/api/preflight") {
-        if (activeRun || activePreflight) {
+        if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Browser busy. Finish the current test or selector check first." });
           return;
         }
