@@ -91,6 +91,10 @@ npm run agent -- run examples/task-intent.json
 
 [Architecture, example, limits and evidence format](docs/targeted-dom-discovery.md).
 
+### Human-reviewed text assertions (feature branch)
+
+When a text assertion fails, the Test Builder shows **expected vs observed** and lets the tester edit the expected text. A **Use observed text as draft** shortcut is provided, but the change requires explicit confirmation that the new expectation matches the requirements. **Save reviewed assertion and rerun from start** creates a *new* saved test, marks only the revised assertion as `human-confirmed`, retains the original file and reruns from step 1. No model call is required, and the application output is **never accepted automatically**.
+
 ### Human-assisted locator choice (feature branch)
 
 If live DOM discovery finds several equally plausible elements, it **stops before acting** and records structured candidate details in the execution report. The Test Builder now displays radio-button choices with the element names, roles and nearby text. Selecting the correct one and clicking **Save corrected copy and rerun from start** saves a new reviewed JSON test, keeping the original unchanged, and starts a fresh deterministic Playwright run.
