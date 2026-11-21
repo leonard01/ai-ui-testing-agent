@@ -68,6 +68,16 @@ Every step becomes a named `test.step` and assertions preserve the approved expe
 
 **Important:** review generated files for test credentials or sensitive input values before committing them publicly. See [independent run setup and compatibility notes](playwright-export.md).
 
+## Input placeholders versus form labels (TodoMVC Enter-key fix)
+
+TodoMVC's new-task textbox displays `What needs to be done?` as its **placeholder**, not as an associated HTML label. `getByLabel("What needs to be done?")` will not locate it, so a `press Enter` step using the form-label strategy can time out *even when the earlier fill step succeeded*.
+
+The Review UI now offers **Input placeholder** as a locator strategy for textboxes. Choose it for both the fill and the keypress, using the exact visible placeholder text. It exports directly to Playwright as `page.getByPlaceholder("What needs to be done?", { exact: true })`. New AI drafts include the page snapshot's `placeholder` attribute and explicit instructions not to confuse it with an HTML label.
+
+Previously saved scripts are also supported: if a **fill** or **press** step uses a label locator with zero matching labels, the runner tries the exact placeholder **only when one visible element matches**. It records this fallback in the step's live DOM resolution evidence, without rewriting the saved test or changing any expectations. If two fields share that placeholder, no element is selected and the original step fails safely. Read-only selector preflight points out a matching placeholder when appropriate.
+
+This correction does not loosen click or assertion locators. No browser event or Enter press is simulated until a real input is uniquely identified.
+
 ## Nested website paths and hash-router URLs
 
 Some applications are not hosted at the domain root—for example, TodoMVC at `https://demo.playwright.dev/todomvc/#/`. A test whose first navigation is a bare `"/"` now opens the **configured application URL**, including its nested path and `#/` fragment, rather than sending the browser to `https://demo.playwright.dev/` (which serves a 404).
