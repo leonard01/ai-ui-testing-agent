@@ -170,6 +170,94 @@ test("failed UI run shows first assertion mismatch and screenshot/trace download
   expect(traceResponse.headers.get("content-type")).toContain("application/zip");
 });
 
+test("human chooses among live checkbox candidates; repaired copy reruns successfully", async ({ page }) => {
+  const ambiguous = {
+    schemaVersion: 1,
+    id: "two-task-choice",
+    title: "Complete only the presentation task",
+    version: 1,
+    steps: [
+      { id: "open", description: "Open task list", action: { kind: "navigate", url: "/" } },
+      { id: "task1", description: "Enter presentation", action: {
+        kind: "fill", target: { by: "role", role: "textbox", name: "Task" },
+        value: "preparing a presentation",
+      } },
+      { id: "add1", description: "Add presentation", action: {
+        kind: "click", target: { by: "role", role: "button", name: "Add" },
+      } },
+      { id: "task2", description: "Enter documentation", action: {
+        kind: "fill", target: { by: "role", role: "textbox", name: "Task" },
+        value: "reviewing documentation",
+      } },
+      { id: "add2", description: "Add documentation", action: {
+        kind: "click", target: { by: "role", role: "button", name: "Add" },
+      } },
+      { id: "finish", description: "Complete the presentation task", action: {
+        kind: "click", target: { by: "intent", value: "Complete", role: "checkbox" },
+      } },
+      { id: "verify", description: "Check completed count", action: {
+        kind: "assert-text", target: { by: "role", role: "status" },
+        expected: "2 tasks, 1 completed", provenance: "requirements",
+      } },
+      { id: "delete", description: "Remove unfinished documentation task", action: {
+        kind: "click", target: { by: "intent", value: "Delete reviewing documentation", role: "button" },
+      } },
+      { id: "final", description: "Only presentation remains", action: {
+        kind: "assert-text", target: { by: "role", role: "status" },
+        expected: "1 task, 1 completed", provenance: "requirements",
+      } },
+    ],
+  };
+  const savedResponse = await page.request.post(url + "/api/save", {
+    data: { definition: ambiguous, baseURL: "http://127.0.0.1:3000" },
+  });
+  expect(savedResponse.status()).toBe(200);
+  const saved = await savedResponse.json();
+  await page.goto(url);
+  await page.getByLabel("Approved saved test").selectOption(saved.id);
+  await page.getByRole("button", { name: "Run selected test" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
+  await expect(page.locator(".repair-choice")).toBeVisible();
+  await expect(page.locator(".repair-option")).toHaveCount(2);
+  const radio = page.locator(".repair-option")
+    .filter({ hasText: "Complete preparing a presentation" })
+    .locator('input[type="radio"]');
+  await radio.check();
+  const firstRun = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  const originalReport = await (await fetch(url + firstRun)).json();
+  const failingStep = originalReport.steps.find((step) => step.id === "finish");
+  expect(failingStep.status).toBe("execution-error");
+  expect(failingStep.ambiguity.candidates).toHaveLength(2);
+  expect(failingStep.ambiguity.intent).toBe("Complete");
+
+  // The repair endpoint must reject arbitrary candidate indices even on valid runs.
+  const rejected = await page.request.post(url + "/api/repair", {
+    data: { runId: firstRun.split("/")[3], candidateIndex: 99 },
+  });
+  expect(rejected.status()).toBe(400);
+
+  await page.getByRole("button", { name: "Save corrected copy and rerun from start" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  const newFile = await page.getByLabel("Approved saved test").inputValue();
+  expect(newFile).not.toBe(saved.id);
+  const files = await readdir(outputDir);
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  const repaired = JSON.parse(await readFile(join(outputDir, newFile), "utf8"));
+  expect(original.steps[5].action.target.value).toBe("Complete");
+  expect(repaired.steps[5].action.target).toEqual({
+    by: "intent", value: "Complete preparing a presentation", role: "checkbox",
+  });
+  expect(repaired.steps[6].action.expected).toBe("2 tasks, 1 completed");
+  expect(repaired.steps[8].action.expected).toBe("1 task, 1 completed");
+  expect(files).toContain(newFile);
+  expect(files).toContain(saved.id);
+  const finalReportURL = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  const finalReport = await (await fetch(url + finalReportURL)).json();
+  expect(finalReport.status).toBe("passed");
+  expect(finalReport.steps[5].resolution.name).toBe("Complete preparing a presentation");
+});
+
 test("cannot run an unsaved or arbitrary path, or access nonexistent report", async () => {
   const invalid = await fetch(url + "/api/run", {
     method: "POST", headers: { "Content-Type": "application/json" },
