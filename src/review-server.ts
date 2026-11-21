@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import { mkdir, readFile, readdir, rm, unlink, writeFile, rmdir } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 import { join, resolve, dirname } from "node:path";
@@ -694,7 +694,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         try {
           // Only delete known generated UUID directories. Never delete
           // saved test scripts or unrelated items in the results folder.
-          let directories: Awaited<ReturnType<typeof readdir>>;
+          let directories: Dirent[];
           try { directories = await readdir(resultsDir, { withFileTypes: true }); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -1267,7 +1267,6 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           } finally {
             suite.state = "finished";
             suite.finishedAt = new Date().toISOString();
-            if (activeRun === id) activeRun = null;
             try {
               const suiteDir = join(resultsDir, "suites", id);
               await mkdir(suiteDir, { recursive: true });
@@ -1275,6 +1274,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 JSON.stringify(suiteSnapshot(suite), null, 2) + "\n");
             } catch {
               // An artifact-write issue must not erase completed in-memory results.
+            } finally {
+              // Keep the execution lock until the suite's last report write
+              // has finished. Delete All History cannot race that write.
+              if (activeRun === id) activeRun = null;
             }
           }
         })().catch(() => {
