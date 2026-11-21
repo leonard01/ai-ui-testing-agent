@@ -40,7 +40,7 @@ Open **http://127.0.0.1:3100/** in a browser.
 4. Select **GroqCloud** (real hosted model, using free-tier limits) or **Fixture** (prewritten nine-step test for debugging; does *not* generate new steps from the entered request).
 5. Click **Generate draft**. The server inspects the specified page in a headless Chromium session, sends the selected instructions and bounded snapshot to the chosen model, and validates the returned JSON with the existing schema.
 6. Inspect the **human-readable plan**. Each card shows the real operation, target, value or expectation and assertion provenance. Inferred assertions and suspicious named listitem locators are flagged.
-7. Change fields via **Edit fields** if needed, then individually confirm each step represents your intended behaviour.
+7. Change fields via **Edit fields** if needed, including switching a locator between accessible role/name, form label and visible text. For example, replace an incorrect form-label locator for the **Add** button with role **button**, accessible name **Add**. Then individually confirm each step represents your intended behaviour.
 8. Click **Approve and save JSON test**. This saves an ordinary, framework-neutral file under `generated/`. It **does not execute** the test. Use the displayed `npm run agent -- run ...` command afterward.
 
 Editing is intentionally small in this first version: field values, locators, descriptions, paths and expected text; adding/removing/reordering steps without regenerating is not yet supported. Revise the instructions and generate another draft to change the overall workflow.
