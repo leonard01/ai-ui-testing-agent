@@ -306,9 +306,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               step.action.target.role !== ambiguity.role) {
             throw new Error("The saved test changed since this execution; rerun it before repairing");
           }
-          const supportedRoles = ["button", "textbox", "checkbox", "heading", "status", "listitem"];
-          const selectedRole = ambiguity.role ||
-            (supportedRoles.includes(selected.role) ? selected.role : undefined);
+          const candidateRole = selected.role;
+          const groundedRole = candidateRole === "button" || candidateRole === "textbox" ||
+            candidateRole === "checkbox" || candidateRole === "heading" ||
+            candidateRole === "status" || candidateRole === "listitem"
+            ? candidateRole : undefined;
+          const selectedRole = ambiguity.role || groundedRole;
           step.action.target = {
             by: "intent",
             value: selected.name,
