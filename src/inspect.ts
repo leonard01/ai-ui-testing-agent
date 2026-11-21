@@ -11,7 +11,11 @@ export interface PageSnapshot {
 }
 
 export function ensureAllowedNavigation(destination: string, base: URL): URL {
-  const url = new URL(destination, base);
+  // For this tool, a bare "/" in a test script means "open the configured
+  // application entry", not necessarily the website domain root. This is
+  // important for apps hosted at /todomvc/#/, /app/, etc. All other paths,
+  // hashes and absolute URLs retain normal URL-resolution semantics.
+  const url = destination === "/" ? new URL(base.href) : new URL(destination, base);
   if (
     !["http:", "https:"].includes(base.protocol) ||
     base.username || base.password ||
