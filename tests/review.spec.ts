@@ -392,6 +392,40 @@ test("wrong existing button text assertion searches product div and repairs sele
       data: { runId, stepId: "backpack", candidateIndex: 17 },
     });
     expect(invalidIndex.status()).toBe(400);
+
+    const searchField = picker.getByLabel("Search visible DOM text");
+    const search = picker.getByRole("button", { name: "Search captured DOM" });
+    await expect(searchField).toHaveValue("Sauce Labs Backpack");
+    // The tester can search for DIFFERENT page text without changing the
+    // expected assertion or replaying navigation/product actions.
+    await searchField.fill("Add to cart");
+    await search.click();
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
+    await expect(picker.locator(".assertion-dom-option")).toContainText(['button named "Add to cart"']);
+    const afterWrongSearch = await page.request.get(url + link);
+    const wrongSearchReport = await afterWrongSearch.json();
+    expect(wrongSearchReport.steps[1].expected).toBe("Sauce Labs Backpack");
+
+    await searchField.fill("backpack");
+    await search.click();
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
+    await expect(picker).toContainText('Visible text "Sauce Labs Backpack"');
+    const afterSearch = await (await page.request.get(url + link)).json();
+    expect(afterSearch.steps[1].assertionAlternatives).toMatchObject({
+      query: "backpack", searched: true, total: 1,
+    });
+    const missingSearchToken = await page.request.post(url + "/api/repair-assertion-target", {
+      data: { runId, stepId: "backpack", candidateIndex: 0 },
+    });
+    expect(missingSearchToken.status()).toBe(400);
+    await searchField.fill("no such product");
+    await search.click();
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(0);
+    await expect(picker).toContainText("No uniquely identifiable visible text matched");
+    await expect(button).toBeDisabled();
+    await searchField.fill("Backpack");
+    await search.click();
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
     await picker.locator('input[type="radio"]').check();
     await expect(button).toBeEnabled();
     await button.click();
