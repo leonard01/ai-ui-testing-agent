@@ -102,6 +102,21 @@ async function approveDraft(page: import("@playwright/test").Page) {
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
 }
 
+test("review warns when AI proposes generic checkbox intent across multiple items", async ({ page }) => {
+  await generateFixture(page);
+  const complete = page.locator(".step").nth(5);
+  await complete.getByRole("button", { name: "Edit fields" }).click();
+  await complete.getByLabel("Locator strategy").selectOption("intent");
+  await complete.getByLabel("Target intention (not a CSS selector)").fill("Complete");
+  await complete.getByLabel("Expected role (optional)").selectOption("checkbox");
+  await complete.getByRole("button", { name: "Apply changes" }).click();
+  await expect(complete).toContainText("Ambiguous target risk");
+  await complete.getByRole("button", { name: "Edit fields" }).click();
+  await complete.getByLabel("Target intention (not a CSS selector)").fill("Complete Prepare interview");
+  await complete.getByRole("button", { name: "Apply changes" }).click();
+  await expect(complete).not.toContainText("Ambiguous target risk");
+});
+
 test("run approved test from browser and show per-step diagnostics without CLI", async ({ page }) => {
   await generateFixture(page);
   await approveDraft(page);
