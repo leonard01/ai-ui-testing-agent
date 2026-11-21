@@ -91,6 +91,14 @@ npm run agent -- run examples/task-intent.json
 
 [Architecture, example, limits and evidence format](docs/targeted-dom-discovery.md).
 
+### Human-assisted locator choice (feature branch)
+
+If live DOM discovery finds several equally plausible elements, it **stops before acting** and records structured candidate details in the execution report. The Test Builder now displays radio-button choices with the element names, roles and nearby text. Selecting the correct one and clicking **Save corrected copy and rerun from start** saves a new reviewed JSON test, keeping the original unchanged, and starts a fresh deterministic Playwright run.
+
+This preserves expected results and requires human selection; no AI model call is needed to repair the locator. Candidates with indistinguishable names or truncated lists still require a manual locator correction. A fresh run is required after updating the app to produce structured choice data; earlier reports cannot be repaired directly.
+
+[Human-assisted locator workflow and limits](docs/test-review-ui.md).
+
 ### Plain-English test review UI (early MVP, feature branch only)
 
 For testers who don't want to write Markdown files and edit raw JSON, this feature branch includes a **local web interface** for natural-language test drafting and review.
