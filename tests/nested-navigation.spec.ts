@@ -13,8 +13,7 @@ const appHTML = `<!doctype html>
 <html lang="en"><head><title>TodoMVC fixture</title></head><body>
   <main>
     <h1>todos</h1>
-    <label for="todo">What needs to be done?</label>
-    <input id="todo" autocomplete="off" />
+    <input id="todo" autocomplete="off" placeholder="What needs to be done?" />
     <ul id="tasks"></ul>
     <p role="status">0 items left</p>
   </main>
@@ -62,7 +61,7 @@ function testDefinition() {
     ],
   };
 }
-async function site(): Promise<{ server: Server; url: string }> {
+async function site(duplicatePlaceholder = false): Promise<{ server: Server; url: string }> {
   const server = createServer((req, res) => {
     if (req.url !== "/todomvc/") {
       res.writeHead(404, { "Content-Type": "text/html" });
@@ -70,7 +69,10 @@ async function site(): Promise<{ server: Server; url: string }> {
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(appHTML);
+    res.end(duplicatePlaceholder
+      ? appHTML.replace('<ul id="tasks"></ul>',
+        '<input id="todo-copy" placeholder="What needs to be done?" /><ul id="tasks"></ul>')
+      : appHTML);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return { server, url: "http://127.0.0.1:" +
@@ -102,10 +104,19 @@ test("a bare / navigates to the configured nested hash app, never the 404 origin
     expect(report.status, JSON.stringify(report, null, 2)).toBe("passed");
     expect(report.steps.every((step) => step.status === "passed")).toBe(true);
     expect(report.steps.find((step) => step.id === "url")?.observed).toBe(url);
+    // Legacy AI scripts called a placeholder a "label"; resolve it from
+    // the live DOM only when its exact placeholder is uniquely visible.
+    for (const id of ["fill", "enter"]) {
+      const resolution = report.steps.find((step) => step.id === id)?.resolution;
+      expect(resolution?.locator).toContain("exact placeholder fallback");
+    }
 
     // The read-only preflight and Playwright exporter must resolve / alike.
     const preflight = await preflightSelectors(testDefinition(), url, browser);
     expect(preflight.inspectedURL).toBe(url);
+    expect(preflight.findings.some((finding) =>
+      finding.suggestedTarget?.by === "placeholder" &&
+      finding.suggestedTarget.value === "What needs to be done?")).toBe(true);
     const standalone = generatePlaywrightSpec(testDefinition(), {
       baseURL: url, timeoutMs: 1500,
     });
@@ -128,10 +139,15 @@ test("generated draft uses the snapshot's exact TodoMVC URL, including /todomvc/
     if (first.kind !== "navigate") throw new Error("Expected navigation");
     expect(first.url).toBe(url);
     expect(draft.snapshot.url).toBe(url);
+    expect(draft.snapshot.controls).toContainEqual({
+      kind: "textbox", name: "What needs to be done?",
+      placeholder: "What needs to be done?",
+    });
 
     const system = makeGenerationPrompt("Add a task", draft.snapshot).system;
     expect(system).toContain("FIRST step MUST use exactly the page snapshot URL");
     expect(system).toContain(JSON.stringify(url));
+    expect(system).toContain("{by:'placeholder',value:'What needs to be done?'}");
     expect(system).not.toContain("Navigate action: {kind:'navigate',url:'/'}");
 
     const report = await runTest(draft.definition, {
@@ -139,6 +155,57 @@ test("generated draft uses the snapshot's exact TodoMVC URL, including /todomvc/
     }, browser);
     expect(report.status, JSON.stringify(report, null, 2)).toBe("passed");
     expect(report.steps.find((step) => step.id === "visible")?.status).toBe("passed");
+  } finally {
+    await stop(server);
+  }
+});
+
+test("fresh AI scripts explicitly use placeholder for both fill and press Enter", async ({ browser }, info) => {
+  const { server, url } = await site();
+  try {
+    const definition = testDefinition();
+    for (const step of definition.steps) {
+      if ((step.id === "fill" || step.id === "enter") &&
+          (step.action.kind === "fill" || step.action.kind === "press")) {
+        step.action.target = { by: "placeholder", value: "What needs to be done?" };
+      }
+    }
+    const draft = await generateDraft({
+      baseURL: url, model: "stub",
+      requirements: 'Enter "Buy groceries", press Enter and verify it appears.',
+    }, async () => JSON.stringify(definition), browser);
+    expect(draft.definition.steps.find(step => step.id === "enter")?.action).toMatchObject({
+      kind: "press", target: { by: "placeholder", value: "What needs to be done?" },
+      key: "Enter",
+    });
+    const report = await runTest(draft.definition, {
+      baseURL: url, outputDir: info.outputPath("placeholder-todomvc"), timeoutMs: 1500,
+    }, browser);
+    expect(report.status, JSON.stringify(report, null, 2)).toBe("passed");
+    expect(report.steps.every((step) => step.status === "passed")).toBe(true);
+    const preflight = await preflightSelectors(draft.definition, url, browser);
+    expect(preflight.findings.some((finding) =>
+      finding.stepId === "fill" && finding.matches === 1)).toBe(true);
+    const source = generatePlaywrightSpec(draft.definition, { baseURL: url });
+    expect(source).toContain(
+      'page.getByPlaceholder("What needs to be done?", { exact: true })');
+    expect(source).toContain('await target.press("Enter")');
+  } finally {
+    await stop(server);
+  }
+});
+
+test("ambiguous placeholder fallback fails safely instead of pressing on an arbitrary input", async ({ browser }, info) => {
+  const { server, url } = await site(true);
+  try {
+    const report = await runTest(testDefinition(), {
+      baseURL: url, outputDir: info.outputPath("ambiguous-placeholder"),
+      timeoutMs: 300,
+    }, browser);
+    expect(report.status).toBe("execution-error");
+    expect(report.steps.find((step) => step.id === "fill")?.status).toBe("execution-error");
+    expect(report.steps.find((step) => step.id === "fill")?.resolution).toBeUndefined();
+    expect(report.steps.find((step) => step.id === "enter")?.status).toBe("skipped");
   } finally {
     await stop(server);
   }

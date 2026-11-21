@@ -30,6 +30,7 @@ function locator(page: Page, target: Exclude<Target, { by: "intent" }>): Locator
     return "nth" in target && target.nth !== undefined ? matches.nth(target.nth) : matches;
   }
   if (target.by === "label") return page.getByLabel(target.value, { exact: true });
+  if (target.by === "placeholder") return page.getByPlaceholder(target.value, { exact: true });
   return page.getByText(target.value, { exact: true });
 }
 
@@ -42,6 +43,11 @@ async function obviousAlternative(
   target: Exclude<Target, { by: "intent" }>,
 ): Promise<PreflightFinding["suggestedTarget"]> {
   if (target.by === "label") {
+    // The visible hint inside a textbox is a placeholder, not a label.
+    const placeholder = page.getByPlaceholder(target.value, { exact: true });
+    if (await placeholder.count() === 1 && await placeholder.isVisible()) {
+      return { by: "placeholder", value: target.value };
+    }
     for (const role of ["button", "checkbox"] as const) {
       const candidate = page.getByRole(role, { name: target.value, exact: true });
       if (await candidate.count() === 1 && await candidate.isVisible()) {

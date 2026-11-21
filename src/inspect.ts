@@ -5,7 +5,7 @@ export interface PageSnapshot {
   url: string;
   title: string;
   headings: string[];
-  controls: Array<{ kind: string; name: string; type?: string }>;
+  controls: Array<{ kind: string; name: string; type?: string; placeholder?: string }>;
   statusText: string[];
   sampleText: string[];
 }
@@ -64,11 +64,16 @@ export async function inspectApplication(
       )).slice(0, 60).map((element) => {
         const node = element as HTMLElement;
         const type = node.getAttribute("type") ?? undefined;
+        const placeholder = clip(node.getAttribute("placeholder"));
         const kind = node.getAttribute("role") ||
           (node.tagName === "INPUT"
             ? (type === "checkbox" || type === "radio" ? type : "textbox")
             : node.tagName.toLowerCase());
-        return { kind, name: accessibleName(node), ...(type ? { type } : {}) };
+        return {
+          kind, name: accessibleName(node),
+          ...(type ? { type } : {}),
+          ...(placeholder ? { placeholder } : {}),
+        };
       });
       return {
         url: location.href,

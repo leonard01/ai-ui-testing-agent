@@ -29,6 +29,8 @@ function locate(page: Page, target: Target): Locator {
   }
   if (target.by === "label")
     return page.getByLabel(target.value, { exact: true });
+  if (target.by === "placeholder")
+    return page.getByPlaceholder(target.value, { exact: true });
   if (target.by === "text")
     return page.getByText(target.value, { exact: true });
   throw new Error("Intent targets must be grounded using live DOM discovery");
@@ -153,6 +155,24 @@ export async function runTest(
             target = locator;
           } else {
             target = locate(page, action.target);
+            // Backward compatibility for reviewed scripts whose AI draft
+            // confused visible placeholder text with a real HTML label.
+            // Never guess among several matches or change a saved locator.
+            if ((action.kind === "fill" || action.kind === "press") &&
+                action.target.by === "label" && await target.count() === 0) {
+              const alternative = page.getByPlaceholder(action.target.value, { exact: true });
+              if (await alternative.count() === 1 && await alternative.isVisible()) {
+                target = alternative;
+                result.resolution = {
+                  intent: action.target.value, method: "live-dom",
+                  tag: await alternative.evaluate(el => el.tagName.toLowerCase()),
+                  role: "textbox", name: action.target.value,
+                  nearby: "", locator: "exact placeholder fallback " +
+                    JSON.stringify(action.target.value),
+                  candidatesInspected: 1,
+                };
+              }
+            }
           }
           if (action.kind === "click") await target.click();
           else if (action.kind === "fill") await target.fill(action.value);
