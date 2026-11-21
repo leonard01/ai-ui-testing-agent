@@ -92,6 +92,8 @@ test("unique Google Search button blocked by autocomplete offers human-approved 
     await expect(page.locator("#run-summary")).toContainText("FAILED");
     const link = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
     expect(link).toBeTruthy();
+    const runId = link.match(/\/api\/runs\/([a-f0-9-]{36})\//)?.[1];
+    expect(runId).toBeTruthy();
     const before = await (await page.request.get(site.reviewURL + link)).json();
     expect(before.steps[1].status).toBe("passed");
     expect(before.steps[2].error).toContain("intercepts pointer events");
@@ -106,7 +108,7 @@ test("unique Google Search button blocked by autocomplete offers human-approved 
     await expect(repair).toContainText("Click blocked by another page element");
     await expect(repair).toContainText("press Enter");
     const denied = await page.request.post(site.reviewURL + "/api/repair-submit", {
-      data: { runId: before.id, stepId: "click", confirmed: false },
+      data: { runId, stepId: "click", confirmed: false },
     });
     expect(denied.status()).toBe(400);
 
