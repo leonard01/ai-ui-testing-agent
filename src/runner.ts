@@ -274,6 +274,40 @@ export async function runTest(
                 page, step.action.target, step.action.kind,
               );
               if (alternatives.candidates.length) result.locatorAlternatives = alternatives;
+            } else if (step.action.kind === "click" &&
+                /intercepts pointer events|intercepting pointer events/i.test(message(error))) {
+              // The target exists and is unique: changing its index cannot
+              // fix a popup obscuring the click. Keep this distinct from a
+              // missing/ambiguous selector and never force a click.
+              result.blockedClick = { reason: "pointer-interception" };
+              const button = await currentLocator.elementHandle();
+              if (button && step.action.target.by === "role" &&
+                  step.action.target.role === "button" &&
+                  /search/i.test(step.action.target.name ?? "")) {
+                for (let i = report.steps.length - 2; i >= 0; i--) {
+                  const prior = definition.steps[i];
+                  if (prior.action.kind !== "fill" ||
+                      prior.action.target.by === "intent" ||
+                      report.steps[i]?.status !== "passed") continue;
+                  const field = locate(page, prior.action.target);
+                  if (await field.count() !== 1 || !await field.isVisible()) continue;
+                  const input = await field.elementHandle();
+                  if (!input) continue;
+                  const sameForm = await button.evaluate((element, textField) => {
+                    if (!(element instanceof HTMLInputElement) ||
+                        element.type !== "submit" ||
+                        !(textField instanceof HTMLInputElement) ||
+                        !["text", "search"].includes(textField.type)) return false;
+                    return !!element.form && element.form === textField.form;
+                  }, input);
+                  if (sameForm) {
+                    result.blockedClick.submitWithEnter = {
+                      sourceStepId: prior.id, target: prior.action.target,
+                    };
+                    break;
+                  }
+                }
+              }
             }
           } catch {
             // Preserve the original failure even if optional discovery fails.
