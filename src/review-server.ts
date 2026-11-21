@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
