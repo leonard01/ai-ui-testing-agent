@@ -126,7 +126,8 @@
       input.type = "text";
       input.value = value ?? "";
       input.addEventListener("input", () => onChange(input.value));
-      parent.append(label, input);
+      label.append(input);
+      parent.append(label);
     }
     function beginEdit(card, step, index) {
       const edits = make("div", null, "edits");
