@@ -5,6 +5,7 @@ import { createReviewServer } from "../src/review-server.js";
 import { GroqProviderError } from "../src/hosted-providers.js";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { approvedPath, listApprovedIds } from "./helpers/saved-files.js";
 import { tmpdir } from "node:os";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -78,9 +79,9 @@ test("plain-English input produces a readable review-only fixture draft", async 
   await expect(save).toBeEnabled();
   await save.click();
   await expect(page.locator("#saved")).toContainText("The test has NOT been executed");
-  const files = await readdir(outputDir);
+  const files = await listApprovedIds(outputDir);
   expect(files).toHaveLength(1);
-  const draft = JSON.parse(await readFile(join(outputDir, files[0]), "utf8"));
+  const draft = JSON.parse(await readFile(await approvedPath(outputDir, files[0]), "utf8"));
   expect(draft.steps).toHaveLength(9);
   expect(draft.steps.every((step: { action: { provenance?: string } }) =>
     step.action.provenance !== "human-confirmed",
@@ -117,9 +118,9 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
-  const files = await readdir(outputDir);
+  const files = await listApprovedIds(outputDir);
   const drafts = await Promise.all(files.map(async (file) => JSON.parse(
-    await readFile(join(outputDir, file), "utf8"),
+    await readFile(await approvedPath(outputDir, file), "utf8"),
   )));
   expect(drafts.some((draft) => draft.steps[2].action.value === "Prepare release")).toBe(true);
   expect(drafts.some((draft) => draft.steps[3].action.target.by === "role" && draft.steps[3].action.target.role === "button" && draft.steps[3].action.target.name === "Add")).toBe(true);
@@ -283,16 +284,16 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   await expect(reviseButton).toBeDisabled();
   await confirm.check();
   await expect(reviseButton).toBeEnabled();
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
   await reviseButton.click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   const revisedId = await page.getByLabel("Approved saved test").inputValue();
   expect(revisedId).not.toBe(saved.id);
-  expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+  expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
   await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
   expect((await page.request.get(url + originalReportLink)).status()).toBe(404);
-  const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
+  const revised = JSON.parse(await readFile(await approvedPath(outputDir, revisedId), "utf8"));
   expect(original.steps[8].action).toMatchObject({
     expected: "1 tasks, 1 completed", provenance: "requirements",
   });
@@ -315,7 +316,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   const originalId = await page.getByLabel("Approved saved test").inputValue();
   expect(originalId).toMatch(/^reviewed-/);
   await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
-  const original = JSON.parse(await readFile(join(outputDir, originalId), "utf8"));
+  const original = JSON.parse(await readFile(await approvedPath(outputDir, originalId), "utf8"));
   const beforeList = (await (await page.request.get(url + "/api/tests")).json()).tests;
   // A malformed replacement must never remove the source file.
   const rejected = await page.request.post(url + "/api/save", {
@@ -323,7 +324,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
       baseURL: "http://127.0.0.1:3000", replaceId: originalId },
   });
   expect(rejected.status()).toBe(400);
-  expect((await readdir(outputDir)).includes(originalId)).toBe(true);
+  expect((await listApprovedIds(outputDir)).includes(originalId)).toBe(true);
   await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
   await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   await expect(page.locator(".step")).toHaveCount(9);
@@ -344,8 +345,8 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await expect(page.locator("#approved-tests option[value='" + revisedId + "']")).toHaveCount(1);
   const afterList = (await (await page.request.get(url + "/api/tests")).json()).tests;
   expect(afterList.length).toBe(beforeList.length);
-  await expect.poll(async () => (await readdir(outputDir)).includes(originalId)).toBe(false);
-  const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
+  await expect.poll(async () => (await listApprovedIds(outputDir)).includes(originalId)).toBe(false);
+  const revised = JSON.parse(await readFile(await approvedPath(outputDir, revisedId), "utf8"));
   expect(original.steps[3].description).not.toBe("Add a task via the button");
   expect(revised.steps[3].description).toBe("Add a task via the button");
   expect(revised.steps[3].action).toEqual(original.steps[3].action);
@@ -400,8 +401,8 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
     const currentId = await page.getByLabel("Approved saved test").inputValue();
-    expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
-    const amended = JSON.parse(await readFile(join(outputDir, currentId), "utf8"));
+    expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
+    const amended = JSON.parse(await readFile(await approvedPath(outputDir, currentId), "utf8"));
     expect(amended.steps[1].action).toEqual({
       kind: "assert-text", target: { by: "text", value: "Sauce Labs Backpack" },
       expected: "Sauce Labs Laptop", provenance: "requirements",
@@ -441,7 +442,7 @@ test("wrong existing button text assertion searches product div and repairs sele
     });
     expect(resp.status(), await resp.text()).toBe(200);
     const saved = await resp.json();
-    const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+    const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
@@ -523,8 +524,8 @@ test("wrong existing button text assertion searches product div and repairs sele
     await expect(page.locator("#run-summary")).toContainText("PASSED");
     const revisedId = await page.getByLabel("Approved saved test").inputValue();
     expect(revisedId).not.toBe(saved.id);
-    expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
-    const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
+    expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
+    const revised = JSON.parse(await readFile(await approvedPath(outputDir, revisedId), "utf8"));
     expect(revised.steps[0]).toEqual(original.steps[0]);
     expect(revised.steps[1].action).toEqual({
       kind: "assert-text",
@@ -575,7 +576,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     });
     expect(savedResponse.status(), await savedResponse.text()).toBe(200);
     const saved = await savedResponse.json();
-    const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+    const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
@@ -621,7 +622,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     await expect(page.locator("#run-summary")).toContainText("PASSED");
     const correctedId = await page.getByLabel("Approved saved test").inputValue();
     expect(correctedId).not.toBe(saved.id);
-    const amended = JSON.parse(await readFile(join(outputDir, correctedId), "utf8"));
+    const amended = JSON.parse(await readFile(await approvedPath(outputDir, correctedId), "utf8"));
     expect(original.steps[1].action.target).toEqual({
       by: "role", role: "heading", name: "Products",
     });
@@ -630,7 +631,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
       provenance: "requirements",
     });
     expect(amended.steps[0]).toEqual(original.steps[0]);
-    expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+    expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
     await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
     expect((await page.request.get(url + reportLink)).status()).toBe(404);
     const latest = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
@@ -661,7 +662,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   });
   expect(savedResponse.status(), await savedResponse.text()).toBe(200);
   const saved = await savedResponse.json();
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
   await page.goto(url);
   await page.getByLabel("Approved saved test").selectOption(saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
@@ -701,11 +702,11 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   const correctedId = await page.getByLabel("Approved saved test").inputValue();
   expect(correctedId).not.toBe(saved.id);
-  expect((await readdir(outputDir)).includes(saved.id)).toBe(false);
+  expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
   await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
   const discarded = await page.request.get(url + reportLink);
   expect(discarded.status()).toBe(404);
-  const corrected = JSON.parse(await readFile(join(outputDir, correctedId), "utf8"));
+  const corrected = JSON.parse(await readFile(await approvedPath(outputDir, correctedId), "utf8"));
   expect(original.steps[3].action.target).toEqual({ by: "label", value: "Add" });
   expect(corrected.steps[3].action.target).toEqual({
     by: "role", role: "button", name: "Add",
@@ -773,7 +774,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   await radio.check();
   const firstRun = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
   if (!firstRun) throw new Error("Missing report link");
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
+  const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
   const originalReport = await (await fetch(url + firstRun)).json();
   const failingStep = originalReport.steps.find((step: { id: string }) => step.id === "finish");
   expect(failingStep.status).toBe("execution-error");
@@ -791,8 +792,8 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   const newFile = await page.getByLabel("Approved saved test").inputValue();
   expect(newFile).not.toBe(saved.id);
-  const files = await readdir(outputDir);
-  const repaired = JSON.parse(await readFile(join(outputDir, newFile), "utf8"));
+  const files = await listApprovedIds(outputDir);
+  const repaired = JSON.parse(await readFile(await approvedPath(outputDir, newFile), "utf8"));
   expect(original.steps[5].action.target.value).toBe("Complete");
   expect(repaired.steps[5].action.target).toEqual({
     by: "intent", value: "Complete preparing a presentation", role: "checkbox",
