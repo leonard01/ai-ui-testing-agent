@@ -5,7 +5,7 @@ import { loadEnvFile } from "node:process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { generateDraft, type ModelProvider } from "./generation.js";
+import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
@@ -455,12 +455,16 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         try {
           const result = await generateDraft({
             baseURL: input.baseURL, requirements: input.requirements, model,
+            retryMalformedOutput: input.provider === "groq",
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
+            generationAttempts: result.generationAttempts,
             message: input.provider === "fixture"
               ? "Fixture is a prewritten demonstration, not AI-generated."
-              : "AI-generated draft. Verify each step and inferred assertion before approving.",
+              : result.generationAttempts > 1
+                ? "The first AI draft was invalid. A second model call corrected its JSON schema. Review every step and assertion before approving."
+                : "AI-generated draft. Verify each step and inferred assertion before approving.",
           });
         } catch (error) {
           if (error instanceof GroqProviderError) {
@@ -472,6 +476,15 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               providerCode: error.providerCode,
               providerType: error.providerType,
               providerParam: error.providerParam,
+              error: error.message,
+              requirementsCharacters: input.requirements.length,
+            });
+          } else if (error instanceof GeneratedDraftValidationError) {
+            json(res, 422, {
+              source: error.source,
+              category: error.category,
+              attempts: error.attempts,
+              problems: error.problems,
               error: error.message,
               requirementsCharacters: input.requirements.length,
             });
