@@ -128,6 +128,16 @@
         <p id="draft-hint" class="muted"></p>
         <div id="step-list"></div>
         <p id="review-progress" class="muted"></p>
+        <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
+          <h3 id="traceability-heading">Requirements traceability (optional)</h3>
+          <p class="muted">One requirement per line. Click Load requirements to create a reviewable matrix, then explicitly link each requirement to its test steps and assertions. No AI-generated claim of coverage is accepted.</p>
+          <label for="requirement-lines">Requirement statements, one per line</label>
+          <textarea id="requirement-lines" rows="4" placeholder="A user can add a named task&#10;The task can be marked complete&#10;Deleting the task removes it from the list"></textarea>
+          <button type="button" id="traceability-load" class="secondary">Load requirements for mapping</button>
+          <p id="traceability-note" role="status" class="muted"></p>
+          <p id="traceability-summary" class="muted"></p>
+          <div id="traceability-list"></div>
+        </section>
         <div style="padding:12px 0">
           <button type="button" id="selector-preflight" class="secondary">Check selectors (read-only)</button>
           <p class="muted">Optional: inspect the starting page before approval. Later dynamic targets may be deferred; no test actions or AI calls are made.</p>
@@ -158,6 +168,7 @@
         <button type="button" id="run-test" disabled>Run selected test</button>
       </div>
       <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
+      <a id="saved-traceability" hidden target="_blank" rel="noopener" style="margin-left:8px">View requirement matrix (JSON)</a>
       <a id="export-playwright" class="secondary" hidden style="margin-top:10px;margin-left:8px;padding:11px 16px;border-radius:8px;text-decoration:none;border:1px solid #205e86" download>Export Playwright (.spec.ts)</a>
       <p class="muted">Export the selected approved test as a standalone Playwright TypeScript spec. The download does not execute tests, use AI, or modify saved cases.</p>
       <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
@@ -439,6 +450,7 @@
         list.append(card);
       }
       updateApproval();
+      if (definition) renderTraceability();
     }
     function clearPreflight() {
       preflightRevision++;
@@ -480,6 +492,101 @@
         if (revision === preflightRevision) $("selector-preflight").disabled = false;
       }
     });
+    function requirementStatus(entry) {
+      const linked = definition.steps.filter((step) => entry.stepIds.includes(step.id));
+      const assertions = linked.filter((step) => step.action.kind.startsWith("assert-"));
+      if (!linked.length) return "Unmapped — no test steps linked";
+      if (!assertions.length) return "Steps only — no verification assertion linked";
+      if (assertions.every((step) => step.action.provenance === "inferred")) {
+        return "AI assumption only — expected result needs human review";
+      }
+      return "Assertion linked — design coverage only, not an execution result";
+    }
+    function refreshTraceabilityStatus() {
+      const entries = definition?.requirements ?? [];
+      let unmapped = 0, actionsOnly = 0, inferred = 0, linked = 0;
+      for (const [index, entry] of entries.entries()) {
+        const status = requirementStatus(entry);
+        const field = document.querySelectorAll(".trace-requirement-status")[index];
+        if (field) field.textContent = status;
+        if (status.startsWith("Unmapped")) unmapped++;
+        else if (status.startsWith("Steps only")) actionsOnly++;
+        else if (status.startsWith("AI assumption")) inferred++;
+        else linked++;
+      }
+      const linkedSteps = new Set(entries.flatMap((entry) => entry.stepIds));
+      const unlinkedAssertions = (definition?.steps ?? []).filter((step) =>
+        step.action.kind.startsWith("assert-") && !linkedSteps.has(step.id));
+      $("traceability-summary").textContent = entries.length
+        ? entries.length + " requirements: " + linked + " with assertion links, " +
+          inferred + " using only inferred assertions, " + actionsOnly +
+          " steps-only, " + unmapped + " unmapped. " +
+          unlinkedAssertions.length + " assertion steps not linked to any requirement."
+        : "No requirement statements loaded. Mapping is optional; no coverage is assumed.";
+    }
+    function renderTraceability() {
+      const list = $("traceability-list");
+      list.replaceChildren();
+      const entries = definition?.requirements ?? [];
+      for (const [index, entry] of entries.entries()) {
+        const card = make("article", null, "trace-requirement");
+        card.style.marginTop = "10px";
+        card.append(make("strong", entry.id + ": " + entry.text));
+        card.append(make("p", "", "trace-requirement-status"));
+        const details = make("details");
+        const summary = make("summary", "Link steps or assertions to " + entry.id);
+        details.append(summary);
+        for (const [stepIndex, step] of definition.steps.entries()) {
+          const label = make("label");
+          label.style.display = "flex";
+          label.style.gap = "8px";
+          label.style.margin = "6px 0";
+          const box = make("input");
+          box.type = "checkbox";
+          box.value = step.id;
+          box.checked = entry.stepIds.includes(step.id);
+          box.addEventListener("change", () => {
+            const selection = new Set(entry.stepIds);
+            if (box.checked) selection.add(step.id); else selection.delete(step.id);
+            // Keep links in step order; this records explicit human selections only.
+            entry.stepIds = definition.steps.filter((item) => selection.has(item.id))
+              .map((item) => item.id);
+            refreshTraceabilityStatus();
+          });
+          label.append(box, make("span",
+            "Step " + (stepIndex + 1) + ": " + step.description +
+            (step.action.kind.startsWith("assert-")
+              ? " [ASSERTION: " + step.action.provenance + "]" : " [action]")));
+          details.append(label);
+        }
+        card.append(details);
+        list.append(card);
+      }
+      refreshTraceabilityStatus();
+    }
+    $("traceability-load").addEventListener("click", () => {
+      if (!definition) return;
+      const lines = $("requirement-lines").value.split(/\r?\n/)
+        .map((line) => line.trim().replace(/^(?:[-*]\s+|\d+[.)]\s+)/, "").trim())
+        .filter(Boolean);
+      if (lines.length > 40 || lines.some((line) => line.length > 2000)) {
+        $("traceability-note").textContent = "Maximum 40 requirements, each 1–2,000 characters.";
+        return;
+      }
+      const previous = definition.requirements ?? [];
+      let cleared = 0;
+      definition.requirements = lines.map((line, index) => {
+        const old = previous[index];
+        const unchanged = old && old.text === line;
+        if (old && !unchanged && old.stepIds.length) cleared++;
+        return { id: "R" + (index + 1), text: line,
+          stepIds: unchanged ? [...old.stepIds] : [] };
+      });
+      $("traceability-note").textContent =
+        "Requirement list loaded. Link steps explicitly below; nothing is auto-matched." +
+        (cleared ? " " + cleared + " changed requirements had their previous links cleared." : "");
+      renderTraceability();
+    });
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
@@ -508,6 +615,13 @@
       selectedApprovedId = $("approved-tests").value;
       $("run-test").disabled = running || !selectedApprovedId;
       $("edit-saved").disabled = running || !selectedApprovedId;
+      const traceLink = $("saved-traceability");
+      traceLink.hidden = !selectedApprovedId;
+      if (selectedApprovedId) {
+        traceLink.href = "/api/tests/" + encodeURIComponent(selectedApprovedId) + "/traceability";
+      } else {
+        traceLink.removeAttribute("href");
+      }
       const exportLink = $("export-playwright");
       exportLink.hidden = !selectedApprovedId;
       if (selectedApprovedId) {
@@ -1100,6 +1214,9 @@
       try {
         const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
         definition = payload.definition;
+        $("requirement-lines").value = (definition.requirements ?? [])
+          .map((requirement) => requirement.text).join("\n");
+        $("traceability-note").textContent = "";
         editingSavedId = id;
         approvals = new Set();
         clearPreflight();
@@ -1185,6 +1302,11 @@
             (data.error || "Could not generate draft"));
         }
         definition = data.definition;
+        // Requirements are displayed as candidates only. Human reviewers
+        // explicitly load and link them; no AI mapping becomes saved metadata.
+        $("requirement-lines").value = requirements;
+        $("traceability-note").textContent =
+          "Edit the input into one requirement per line, then load it to map coverage.";
         editingSavedId = null;
         approvals = new Set();
         clearPreflight();
