@@ -286,6 +286,14 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   expect(originalId).toMatch(/^reviewed-/);
   await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
   const original = JSON.parse(await readFile(join(outputDir, originalId), "utf8"));
+  const beforeList = (await (await page.request.get(url + "/api/tests")).json()).tests;
+  // A malformed replacement must never remove the source file.
+  const rejected = await page.request.post(url + "/api/save", {
+    data: { definition: { ...original, schemaVersion: 17 },
+      baseURL: "http://127.0.0.1:3000", replaceId: originalId },
+  });
+  expect(rejected.status()).toBe(400);
+  expect((await readdir(outputDir)).includes(originalId)).toBe(true);
   await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
   await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   await expect(page.locator(".step")).toHaveCount(9);
@@ -304,6 +312,8 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   expect(revisedId).not.toBe(originalId);
   await expect(page.locator("#approved-tests option[value='" + originalId + "']")).toHaveCount(0);
   await expect(page.locator("#approved-tests option[value='" + revisedId + "']")).toHaveCount(1);
+  const afterList = (await (await page.request.get(url + "/api/tests")).json()).tests;
+  expect(afterList.length).toBe(beforeList.length);
   await expect.poll(async () => (await readdir(outputDir)).includes(originalId)).toBe(false);
   const revised = JSON.parse(await readFile(join(outputDir, revisedId), "utf8"));
   expect(original.steps[3].description).not.toBe("Add a task via the button");
