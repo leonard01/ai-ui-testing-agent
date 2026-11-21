@@ -14,6 +14,7 @@ import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discov
 import { runTest } from "./runner.js";
 import { preflightSelectors } from "./preflight.js";
 import { generatePlaywrightSpec } from "./export.js";
+import { buildTraceabilityReport } from "./traceability.js";
 import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
 
@@ -334,6 +335,16 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") json(res, 200, { tests: [] });
           else json(res, 500, { error: "Could not list approved tests" });
+        }
+        return;
+      }
+      const traceabilityPath = /^\/api\/tests\/(reviewed-\d{13}-[a-f0-9]{8}\.json)\/traceability$/.exec(path);
+      if (req.method === "GET" && traceabilityPath) {
+        try {
+          const definition = await readSaved(traceabilityPath[1]);
+          json(res, 200, buildTraceabilityReport(definition));
+        } catch {
+          json(res, 404, { error: "Saved test not found or invalid" });
         }
         return;
       }
