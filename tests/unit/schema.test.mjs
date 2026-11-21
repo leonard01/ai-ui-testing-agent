@@ -34,6 +34,16 @@ test("rejects unsupported actions, missing provenance, extra fields and empty ca
     assert.throws(() => parseTestDefinition(c));
   }
 });
+test("accepts intent targets and rejects unsupported or empty intent", () => {
+  const draft = structuredClone(valid);
+  draft.steps[2].action.target = { by: "intent", value: "Task", role: "textbox" };
+  draft.steps[3].action.target = { by: "intent", value: "Add task", role: "button" };
+  assert.equal(parseTestDefinition(draft).steps[2].action.target.by, "intent");
+  draft.steps[3].action.target = { by: "intent", value: "", role: "button" };
+  assert.throws(() => parseTestDefinition(draft));
+  draft.steps[3].action.target = { by: "intent", value: "Add", role: "invalid" };
+  assert.throws(() => parseTestDefinition(draft));
+});
 test("rejects duplicate step IDs", () => {
   const c = structuredClone(valid);
   c.steps[1].id = c.steps[0].id;
