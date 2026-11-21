@@ -251,7 +251,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-assertion"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -330,6 +330,65 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid repair request" });
+        }
+        return;
+      }
+      if (path === "/api/repair-assertion") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a request object");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Failed assertion step ID is required");
+          }
+          if (typeof input.expected !== "string" || input.expected.length > 10_000) {
+            throw new Error("New expected text must contain at most 10,000 characters");
+          }
+          if (input.confirmed !== true) {
+            throw new Error("Tester must explicitly confirm the new expectation against requirements");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || job.report?.status !== "assertion-failed") {
+            throw new Error("This run has no completed text assertion failure to review");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.status === "assertion-failed" &&
+            typeof step.expected === "string" && typeof step.observed === "string",
+          );
+          if (!failed) {
+            throw new Error("Requested step is not a failed text assertion with an observed value");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || step.action.kind !== "assert-text" ||
+              step.action.expected !== failed.expected) {
+            throw new Error("Saved assertion differs from the failed run; rerun before reviewing");
+          }
+          if (input.expected === step.action.expected) {
+            throw new Error("The new expected text is unchanged");
+          }
+          // The page's observed value is evidence, never an automatically
+          // accepted oracle. Only explicit human confirmation can change it.
+          const previousExpected = step.action.expected;
+          step.action.expected = input.expected;
+          step.action.provenance = "human-confirmed";
+          const reviewed = parseTestDefinition(definition);
+          const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
+          const file = join(savedDir, id);
+          await mkdir(savedDir, { recursive: true });
+          await writeFile(file, JSON.stringify(reviewed, null, 2) + "\n", { flag: "wx" });
+          json(res, 201, {
+            id, file, revisedStepId: failed.id,
+            previousExpected, newExpected: input.expected,
+            observed: failed.observed,
+            message: "Saved human-confirmed assertion in a new test copy. Original unchanged; no run started.",
+          });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid assertion review" });
         }
         return;
       }
