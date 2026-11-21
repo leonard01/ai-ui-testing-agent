@@ -23,6 +23,7 @@ export interface StepResult {
   ambiguity?: AmbiguousResolution;
   locatorAlternatives?: MissingLocatorChoices;
   assertionAlternatives?: MissingAssertionChoices;
+  assertionSearchAvailable?: boolean;
 }
 export interface RunReport {
   schemaVersion: 1;
