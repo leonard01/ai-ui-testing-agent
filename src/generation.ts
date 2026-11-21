@@ -111,6 +111,13 @@ export async function generateDraft(
     if (definition.requirements !== undefined) {
       throw new Error("AI draft cannot claim human-confirmed requirement links; assign them in the review UI");
     }
+    // Some models still emit "/" for the first navigate even when the app
+    // lives under a nested path or hash route. Its initial destination is
+    // known from the inspected page, so preserve that exact URL in the draft.
+    const firstAction = definition.steps[0]?.action;
+    if (firstAction?.kind === "navigate" && firstAction.url === "/") {
+      firstAction.url = snapshot.url;
+    }
     for (const step of definition.steps) {
       if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
       if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
@@ -135,10 +142,11 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "Do NOT include sourceUrl: the review server records the approved website URL, not the model.",
     "Every element of steps MUST be a JSON OBJECT with exactly id, description and action. NEVER put a plain string in the steps array.",
     "Incorrect: \"steps\":[{\"id\":\"open\",\"description\":\"Open\",\"action\":{\"kind\":\"navigate\",\"url\":\"/\"}},\"Verify the status\"]",
-    "Correct: \"steps\":[{\"id\":\"open\",\"description\":\"Open\",\"action\":{\"kind\":\"navigate\",\"url\":\"/\"}},{\"id\":\"verify\",\"description\":\"Verify the status\",\"action\":{\"kind\":\"assert-text\",\"target\":{\"by\":\"role\",\"role\":\"status\"},\"expected\":\"0 tasks, 0 completed\",\"provenance\":\"requirements\"}}]",
+    "Correct: \"steps\":[{\"id\":\"open\",\"description\":\"Open\",\"action\":{\"kind\":\"navigate\",\"url\":" + JSON.stringify(snapshot.url) + "}},{\"id\":\"verify\",\"description\":\"Verify the status\",\"action\":{\"kind\":\"assert-text\",\"target\":{\"by\":\"role\",\"role\":\"status\"},\"expected\":\"0 tasks, 0 completed\",\"provenance\":\"requirements\"}}]",
 
     "Allowed actions: navigate, click, fill, check, uncheck, select-option, press, assert-text, assert-visible, assert-url, assert-count.",
-    "Navigate action: {kind:'navigate',url:'/'}; the first step must navigate to the application's path.",
+    "Navigate action: {kind:'navigate',url:string}. The FIRST step MUST use exactly the page snapshot URL including its path, query and hash fragment, not just '/'.",
+    "Page snapshot URL to navigate to first: " + JSON.stringify(snapshot.url) + ". Do not navigate to the domain root for a nested app.",
     "Click action: {kind:'click',target:TARGET}. Fill action: {kind:'fill',target:TARGET,value:string}.",
     "Checkbox/radio actions: {kind:'check',target:TARGET} and {kind:'uncheck',target:TARGET}; check means set checked, not toggle.",
     "Dropdown action: {kind:'select-option',target:TARGET,value:string}; value is the native select option VALUE, not its visible label.",
