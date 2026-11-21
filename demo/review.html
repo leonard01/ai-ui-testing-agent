@@ -1019,6 +1019,60 @@
           repair.append(save, manual);
           card.append(repair);
         }
+        if (step.status === "execution-error" && step.blockedClick?.reason === "pointer-interception") {
+          const cardBody = make("div", null, "locator-repair");
+          cardBody.append(make("h3", "Click blocked by another page element"));
+          cardBody.append(make("p",
+            "Playwright found the button, but another page element (often a " +
+            "search suggestion popup) intercepted pointer events. A retry or a " +
+            "different match index won't remove this obstruction."));
+          const suggestion = step.blockedClick.submitWithEnter;
+          const feedback = make("p", "", "repair-feedback");
+          feedback.setAttribute("role", "status");
+          if (suggestion) {
+            cardBody.append(make("p", "Verified alternative: press Enter in " +
+              describeTarget(suggestion.target) + " (filled at step " +
+              suggestion.sourceStepId + "). The search input and submit button " +
+              "belong to the same form. Only your approval changes this step."));
+            const save = make("button", "Use Enter to submit and rerun");
+            save.type = "button";
+            save.addEventListener("click", async () => {
+              if (running || !result.fileId) return;
+              if (!window.confirm("Replace this blocked Search button click with " +
+                  "Enter on the verified search textbox? All assertions stay unchanged.")) return;
+              save.disabled = true;
+              feedback.textContent = "Saving approved Enter submission...";
+              try {
+                const updated = await requestJSON("/api/repair-submit", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    runId: result.id, stepId: step.id, confirmed: true,
+                  }),
+                });
+                await refreshApprovedTests(updated.id);
+                feedback.textContent = "Correction saved. Rerunning from step 1...";
+                await executeApproved(updated.id);
+              } catch (error) {
+                feedback.textContent = "Correction not saved: " +
+                  (error.message || String(error));
+                save.disabled = false;
+              }
+            });
+            cardBody.append(save);
+          } else {
+            cardBody.append(make("p", "No same-form search textbox could be " +
+              "verified. Review the form manually; the tool will not force " +
+              "the click or choose a different control without evidence.", "muted"));
+          }
+          const edit = make("button", "Edit failing action locator", "secondary");
+          edit.type = "button";
+          edit.disabled = !result.fileId;
+          edit.addEventListener("click", () => {
+            if (result.fileId) void loadSavedForEditing(result.fileId, step.id);
+          });
+          cardBody.append(edit, feedback);
+          card.append(cardBody);
+        }
         if (step.status === "execution-error" && step.locatorAlternatives?.candidates?.length) {
           const evidence = step.locatorAlternatives;
           const repair = make("div", null, "locator-repair");
@@ -1110,7 +1164,8 @@
         if (step.status === "execution-error" &&
             (step.actionKind === "click" || step.actionKind === "fill" ||
              step.actionKind === "press") &&
-            !step.locatorAlternatives?.candidates?.length && !step.ambiguity) {
+            !step.locatorAlternatives?.candidates?.length && !step.ambiguity &&
+             !step.blockedClick) {
           const repair = make("div", null, "locator-repair");
           repair.append(make("h3", "Review failed action locator"));
           repair.append(make("p",

@@ -663,7 +663,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -921,6 +921,52 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid repair request" });
+        }
+        return;
+      }
+      if (path === "/api/repair-submit") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a confirmed repair request");
+          }
+          const input = body as Record<string, unknown>;
+          if (input.confirmed !== true ||
+              typeof input.runId !== "string" || !RUN_ID.test(input.runId) ||
+              typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Choose a blocked search step and confirm Enter submission");
+          }
+          const job = jobs.get(input.runId);
+          const failed = job?.report?.steps.find((step) =>
+            step.id === input.stepId && step.status === "execution-error" &&
+            step.actionKind === "click" && step.blockedClick?.submitWithEnter);
+          const suggestion = failed?.blockedClick?.submitWithEnter;
+          if (!job || job.state !== "finished" || !failed || !suggestion) {
+            throw new Error("No verified intercepted submit button and search input are available");
+          }
+          const definition = await readSaved(job.fileId);
+          const source = definition.steps.find((step) => step.id === suggestion.sourceStepId);
+          const blocked = definition.steps.find((step) => step.id === failed.id);
+          if (!blocked || blocked.action.kind !== "click" ||
+              blocked.action.target.by !== "role" ||
+              !/search/i.test(blocked.action.target.name ?? "") ||
+              !source || source.action.kind !== "fill" ||
+              JSON.stringify(source.action.target) !== JSON.stringify(suggestion.target)) {
+            throw new Error("The saved script no longer matches verified search form evidence");
+          }
+          // A human explicitly approves changing the action, not just its
+          // selector. Requirements and subsequent assertions remain intact.
+          blocked.action = { kind: "press", target: suggestion.target, key: "Enter" };
+          const corrected = parseTestDefinition(definition);
+          const { id, replacedId } = await saveApproved(corrected, job.fileId);
+          json(res, 201, {
+            id, replacedId, repairedStepId: blocked.id,
+            approvedAction: blocked.action,
+            message: "Confirmed Enter submission saved; test expectations were not modified.",
+          });
+        } catch (error) {
+          json(res, 400, {
+            error: error instanceof Error ? error.message : "Invalid Enter submission repair",
+          });
         }
         return;
       }

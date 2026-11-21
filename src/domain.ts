@@ -24,6 +24,15 @@ export interface StepResult {
   resolution?: DiscoveryEvidence;
   ambiguity?: AmbiguousResolution;
   locatorAlternatives?: MissingLocatorChoices;
+  /** A unique submit button was found but an overlay blocked the click. */
+  blockedClick?: {
+    reason: "pointer-interception";
+    /** Human approval is required before converting click to Enter. */
+    submitWithEnter?: {
+      sourceStepId: string;
+      target: Extract<TestAction, { kind: "press" }>["target"];
+    };
+  };
   assertionAlternatives?: MissingAssertionChoices;
   assertionSearchAvailable?: boolean;
 }
