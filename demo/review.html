@@ -243,6 +243,7 @@
         (Number.isInteger(target.nth) ? " (match " + (target.nth + 1) + ", by DOM order)" : "");
       if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + ")" : "");
       if (target.by === "label") return 'field labelled "' + target.value + '"';
+      if (target.by === "placeholder") return 'field with placeholder "' + target.value + '"';
       if (target.by === "text") return 'visible text "' + target.value + '"';
       return "unrecognised target";
     }
@@ -285,6 +286,7 @@
         for (const [value, title] of [
           ["role", "Accessible role and name"],
           ["label", "Form label"],
+          ["placeholder", "Input placeholder"],
           ["text", "Visible text"],
           ...(clone.action.kind === "assert-count" ? [] :
             [["intent", "Live DOM intent (recommended for unknown elements)"]]),
@@ -355,7 +357,8 @@
               }
             }
           } else {
-            labeledInput(locatorFields, t.by === "label" ? "Form label text" : "Visible text", t.value, (v) => {
+            labeledInput(locatorFields, t.by === "label" ? "Form label text" :
+              t.by === "placeholder" ? "Input placeholder text" : "Visible text", t.value, (v) => {
               t.value = v;
             });
           }
