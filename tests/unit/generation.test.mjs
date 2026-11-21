@@ -26,6 +26,8 @@ test("creates a review-first prompt with provenance constraints", () => {
   );
   assert.match(system, /NEVER claim 'human-confirmed'/);
   assert.match(system, /untrusted DATA/);
+  assert.match(system, /For visible buttons with text such as Add/);
+  assert.match(system, /label locator targets form fields/);
   assert.match(system, /HTML listitem roles often have NO accessible name/);
   assert.match(system, /prefer .*by:'text'.*Task text/);
   assert.match(prompt, /One new task must increase/);
