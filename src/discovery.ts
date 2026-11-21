@@ -43,6 +43,18 @@ export interface MissingLocatorChoices {
 }
 
 
+/** Explicitly selected correction for a missing assertion target. */
+export interface AssertionCandidate extends AmbiguousCandidate {
+  /** Verified Playwright selector, grounded in the live DOM. */
+  target: ExplicitTarget;
+}
+export interface MissingAssertionChoices {
+  attempted: ExplicitTarget;
+  query: string;
+  candidates: AssertionCandidate[];
+  total: number;
+}
+
 /** Deliberately stop before any click or fill if the live DOM is ambiguous. */
 export class AmbiguousIntentError extends Error {
   readonly ambiguity: AmbiguousResolution;
@@ -199,6 +211,69 @@ export async function findLocatorAlternatives(
     candidates: matches.slice(0, 12),
     // A full list is required for one-click repair; do not hide plausible choices.
     total: matches.length + (ranked.length > 24 ? ranked.length - 24 : 0),
+  };
+}
+
+/**
+ * Search the live DOM after an assertion locator fails to resolve.
+ *
+ * Prefer matching visible text rather than assuming the tag/role was correct:
+ * on SauceDemo, "Products" is a <span class="title"> rather than a
+ * heading. Candidates must be unique, visible Playwright locators and are
+ * *only proposed*, never substituted automatically. No model call.
+ */
+export async function findAssertionAlternatives(
+  page: Page,
+  attempted: ExplicitTarget,
+  operation: "assert-text" | "assert-visible",
+  expected?: string,
+): Promise<MissingAssertionChoices> {
+  const query = attempted.by === "role"
+    ? attempted.name || (operation === "assert-text" ? expected ?? "" : "")
+    : attempted.value;
+  const normalized = (value: string) => value.replace(/\\s+/g, " ").trim().toLowerCase();
+  const request = normalized(query);
+  if (!request) return { attempted, query: "", candidates: [], total: 0 };
+  const terms = keywords(request);
+  const { candidates } = await inspectCandidates(page, operation);
+  const matches = candidates.flatMap((candidate) => {
+    const name = normalized(candidate.name);
+    const visibleText = normalized(candidate.text);
+    if (!name && !visibleText) return [];
+    const exact = name === request || visibleText === request;
+    const scored = terms.length ? candidateScore(candidate, terms) : null;
+    if (!exact && scored === null) return [];
+    return [{ candidate, score: exact ? 1000 : scored ?? 0 }];
+  }).sort((a, b) => b.score - a.score);
+  const proposed: AssertionCandidate[] = [];
+  for (const { candidate } of matches.slice(0, 40)) {
+    const role = candidate.role;
+    let target: ExplicitTarget | undefined;
+    if (role === "button" || role === "textbox" || role === "checkbox" ||
+        role === "heading" || role === "status" || role === "listitem") {
+      const byRole = page.getByRole(role, { name: candidate.name, exact: true });
+      if (candidate.name && await byRole.count() === 1 && await byRole.isVisible()) {
+        target = { by: "role", role, name: candidate.name };
+      }
+    }
+    if (!target && candidate.text) {
+      const byText = page.getByText(candidate.text, { exact: true });
+      if (await byText.count() === 1 && await byText.isVisible()) {
+        target = { by: "text", value: candidate.text };
+      }
+    }
+    if (!target) continue;
+    if (proposed.some((item) => JSON.stringify(item.target) === JSON.stringify(target))) continue;
+    proposed.push({
+      tag: candidate.tag, role: candidate.role, name: candidate.name,
+      nearby: candidate.nearby, target,
+    });
+  }
+  return {
+    attempted, query,
+    candidates: proposed.slice(0, 12),
+    // If not all viable matches fit, don't permit a one-click repair.
+    total: proposed.length + (matches.length > 40 ? matches.length - 40 : 0),
   };
 }
 
