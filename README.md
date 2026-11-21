@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. PRs #3, #11, #12 and #13 are merged into `main`. Standalone Playwright TypeScript export is in development on `feature/playwright-typescript-export`.
+**Last repository review:** 21 November 2026. PRs #3, #11, #12, #13 and #14 are merged into `main`. Human-reviewed requirements traceability is in development on `feature/requirements-traceability`.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #13](https://github.com/leonard01/ai-ui-testing-agent/pull/13), sequential test suite execution |
+| Most recent merged feature | [Pull request #14](https://github.com/leonard01/ai-ui-testing-agent/pull/14), standalone Playwright export |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -193,7 +193,17 @@ All current runner actions and assertions have translations, including select/ch
 npm run agent -- export examples/add-task.json --base-url http://127.0.0.1:3000 --output generated/add-task.spec.ts
 ```
 
-A real exported file is exercised by the automated Playwright suite. See [full export instructions, limitations and security notes](docs/playwright-export.md). The feature remains on `feature/playwright-typescript-export` until its pull request is verified and merged.
+A real exported file is exercised by the automated Playwright suite. See [full export instructions, limitations and security notes](docs/playwright-export.md). This feature is merged on `main` through PR #14.
+
+### Requirements-to-test traceability (new feature branch)
+
+The human review UI now includes an **optional Requirements traceability matrix**. Reviewers enter one requirement per line and explicitly select which test steps and assertions map to each requirement; nothing is automatically linked by the AI. Optional `requirements` records are saved alongside the existing structured JSON test with strict validation of requirement IDs and referenced step IDs.
+
+The dashboard identifies **unmapped requirements**, requirements with **actions but no verification assertions**, those relying only on **inferred AI assertions**, and requirements with a **non-inferred assertion linked**. The latter signals design-time traceability, **not proof that the test has run or passed**. It also highlights assertions not linked to any requirement.
+
+After saving, `GET /api/tests/<approved-id>/traceability` provides a read-only machine-readable matrix. Existing saved tests remain valid without this metadata, and generated AI output cannot impersonate human mapping. Changing requirement text clears stale links instead of silently asserting outdated coverage. No additional model calls are needed.
+
+[Full traceability workflow, schema and limitations](docs/requirements-traceability.md). This feature is on `feature/requirements-traceability` pending PR CI.
 
 ### Not implemented yet
 
@@ -202,8 +212,9 @@ A real exported file is exercised by the automated Playwright suite. See [full e
 - Recording a user's interactions into a test case.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover (the review UI provides limited per-step timeout selection).
 - Full project management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
-- Exporting to frameworks other than Playwright (standalone Playwright TypeScript is now available on the feature branch).
-- API, mobile and load testing, or additional language exporters.\n- Advanced keyboard chords, rich multiselect semantics, and visual assertions.
+- Exporting to frameworks other than Playwright (standalone Playwright TypeScript is available on `main`).
+- API, mobile and load testing, or additional language exporters.
+- Advanced keyboard chords, rich multiselect semantics, and visual assertions.
 
 The current runner executes explicitly authored cases. Its data contracts and browser actions provide the execution layer for these later capabilities.
 
@@ -398,19 +409,21 @@ A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. E
 | Project setup, TypeScript, Playwright and GitHub Actions | Implemented |
 | Structured JSON runner, validation, browser evidence and demo | Implemented and CI-verified |
 | Generate a reviewable test from requirements or a page snapshot | Implemented on `main` (quality still being evaluated) |
-| Read-only starting-page selector preflight | Feature branch, not merged |
+| Read-only starting-page selector preflight | Implemented and merged (#11) |
 | Record test steps from human browser use | Planned |
 | Edit an existing test by observing a user's corrections | Planned |
 | Live human ↔ AI browser handoff and playback controls | Planned |
-| Export independent Playwright TypeScript scripts | Implemented on feature branch, not yet merged |
+| Sequential approved test suites | Implemented and merged (#13) |
+| Export independent Playwright TypeScript scripts | Implemented and merged (#14) |
+| Requirement-to-step and assertion traceability | Feature branch; pending CI and review |
 
-Requirements-to-test generation and reviewed failure repair are now on `main`. The preflight feature remains separate until verified.
+Requirements-to-test generation, selector preflight, suite execution, reviewed repairs and standalone Playwright exports are on `main`.
 
 ## Direction and next milestones
 
 The long-term goal is to let a QA engineer design, demonstrate, execute and maintain tests through an AI-assisted interface while retaining editable definitions, reviewable changes and portable code exports.
 
-Next priorities are selector preflight, broader browser actions, test-suite execution and TypeScript export; recording and interactive handoff remain future work. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
+Next priorities are human-reviewed traceability, durable execution history and repeatable benchmark coverage; recording and interactive handoff remain future work. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
 
 Design principles:
 
