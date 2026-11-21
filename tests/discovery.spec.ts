@@ -151,3 +151,28 @@ test("intent targets work for dynamically added task text in the existing demo",
   expect(report.status, JSON.stringify(report.steps, null, 2)).toBe("passed");
   expect(report.steps[2].resolution?.name).toBe("Add");
 });
+
+test("two task checkboxes reject generic Complete but resolve exact intended task", async ({ browser }) => {
+  const tab = await browser.newPage();
+  try {
+    await tab.setContent(`<!doctype html><main>
+      <label><input type="checkbox" aria-label="Complete preparing a presentation">
+        preparing a presentation</label>
+      <label><input type="checkbox" aria-label="Complete reviewing documentation">
+        reviewing documentation</label>
+    </main>`);
+    await expect(discoverTarget(tab, {
+      by: "intent", value: "Complete", role: "checkbox",
+    }, "click", 250)).rejects.toThrow(/Ambiguous intent.*Complete/);
+
+    const resolved = await discoverTarget(tab, {
+      by: "intent", value: "Complete preparing a presentation", role: "checkbox",
+    }, "click", 250);
+    expect(resolved.evidence.name).toBe("Complete preparing a presentation");
+    await resolved.locator.check();
+    await expect(tab.getByRole("checkbox", { name: "Complete preparing a presentation" })).toBeChecked();
+    await expect(tab.getByRole("checkbox", { name: "Complete reviewing documentation" })).not.toBeChecked();
+  } finally {
+    await tab.close();
+  }
+});
