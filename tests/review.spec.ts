@@ -88,6 +88,46 @@ test("plain-English input produces a readable review-only fixture draft", async 
   )).toBe(true);
 });
 
+test("Add All explicitly confirms every proposed step without auto-saving or hiding individual review", async ({ page }) => {
+  const previouslySaved = (await listApprovedIds(outputDir)).length;
+  await generateFixture(page);
+  const addAll = page.getByRole("button", { name: "Add All", exact: true });
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(addAll).toBeEnabled();
+  await expect(save).toBeDisabled();
+  await expect(page.locator("#review-progress")).toHaveText("0 of 9 steps confirmed");
+
+  // Confirm one step manually, then bulk-confirm the rest. This must not
+  // mutate definitions, save to disk, execute tests or map requirements.
+  await page.locator(".step input[type=checkbox]").first().check();
+  await expect(page.locator("#review-progress")).toHaveText("1 of 9 steps confirmed");
+  await addAll.click();
+  await expect(page.locator(".step input[type=checkbox]:checked")).toHaveCount(9);
+  await expect(page.locator("#review-progress")).toHaveText("9 of 9 steps confirmed");
+  await expect(addAll).toBeDisabled();
+  await expect(save).toBeEnabled();
+  await expect(page.locator("#saved")).toBeEmpty();
+  expect(await listApprovedIds(outputDir)).toHaveLength(previouslySaved);
+
+  // Individual checks remain editable, and changing a step requires
+  // confirmation again: bulk approval is not permanent or automatic.
+  await page.locator(".step input[type=checkbox]").nth(2).uncheck();
+  await expect(save).toBeDisabled();
+  await expect(addAll).toBeEnabled();
+  await addAll.click();
+  const step = page.locator(".step").nth(3);
+  await step.getByRole("button", { name: "Edit fields" }).click();
+  await step.getByRole("button", { name: "Apply changes" }).click();
+  await expect(page.locator("#review-progress")).toHaveText("8 of 9 steps confirmed");
+  await expect(save).toBeDisabled();
+  await addAll.click();
+  await expect(page.locator("#review-progress")).toHaveText("9 of 9 steps confirmed");
+
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  expect(await listApprovedIds(outputDir)).toHaveLength(previouslySaved + 1);
+});
+
 test("user edits a step using form fields, without editing JSON", async ({ page }) => {
   await generateFixture(page);
   const thirdStep = page.locator(".step").nth(2);
@@ -379,6 +419,8 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     expect(savedResponse.status()).toBe(200);
     const saved = await savedResponse.json();
     await page.goto(url);
+    // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
@@ -444,6 +486,8 @@ test("wrong existing button text assertion searches product div and repairs sele
     const saved = await resp.json();
     const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
+    // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
@@ -578,6 +622,8 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     const saved = await savedResponse.json();
     const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
+    // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
     await page.getByLabel("Approved saved test").selectOption(saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();

@@ -75,16 +75,38 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await page.goto(url);
   const suite = page.getByLabel("Test suite (website URL)");
   await suite.selectOption(sauce);
+  const single = page.getByLabel("Approved saved test");
+  await expect(single.locator("option")).toHaveCount(3); // blank + two SauceDemo scripts
+  await expect(single.locator('option[value="' + first + '"]')).toHaveCount(1);
+  await expect(single.locator('option[value="' + second + '"]')).toHaveCount(1);
+  await expect(single.locator('option[value="' + third + '"]')).toHaveCount(0);
+  await single.selectOption(first);
+  await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
+  await expect(page.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "View requirement matrix (JSON)" })).toBeVisible();
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(2);
   await expect(page.locator("#suite-site-note")).toContainText("2 saved test scripts");
   await expect(page.locator("#base-url")).toHaveValue(sauce + "/");
   await page.getByRole("button", { name: "Select first 10" }).click();
   await expect(page.locator("#suite-selection-status")).toContainText("2 tests selected");
   await suite.selectOption(local);
+  await expect(single.locator("option")).toHaveCount(2); // blank + local website script
+  await expect(single.locator('option[value="' + first + '"]')).toHaveCount(0);
+  await expect(single.locator('option[value="' + second + '"]')).toHaveCount(0);
+  await expect(single.locator('option[value="' + third + '"]')).toHaveCount(1);
+  await expect(single).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toBeHidden();
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-selection-status")).toContainText("0 tests selected");
   await expect(page.locator("#base-url")).toHaveValue(local + "/");
   await expect(page.getByRole("button", { name: "Run selected suite" })).toBeDisabled();
+  await single.selectOption(third);
+  await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
+  await suite.selectOption(sauce);
+  await expect(single).toHaveValue(""); // switching suites never retains a foreign script
+  await expect(single.locator('option[value="' + third + '"]')).toHaveCount(0);
 
   const mixed = await post("/api/suites", {
     ids: [first, third], baseURL: local,
@@ -161,6 +183,8 @@ test("existing flat JSON scripts stay visible under unassigned suite and can be 
   ]);
   await page.goto(url);
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
+  await expect(page.getByLabel("Approved saved test").locator("option")).toHaveCount(2);
+  await expect(page.getByLabel("Approved saved test").locator('option[value="' + other + '"]')).toHaveCount(0);
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-site-note")).toContainText("Older saved scripts");
   await expect(page.getByRole("button", { name: "Delete this website test suite" })).toBeDisabled();
