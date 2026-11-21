@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. PRs #3, #11, #12, #13 and #14 are merged into `main`. Human-reviewed requirements traceability is in development on `feature/requirements-traceability`.
+**Last repository review:** 21 November 2026. PRs #3, #11, #12, #13, #14 and #15 are merged into `main`. Disk-backed execution history is being developed on `feature/persistent-run-history`.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #14](https://github.com/leonard01/ai-ui-testing-agent/pull/14), standalone Playwright export |
+| Most recent merged feature | [Pull request #15](https://github.com/leonard01/ai-ui-testing-agent/pull/15), requirement traceability |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -203,7 +203,17 @@ The dashboard identifies **unmapped requirements**, requirements with **actions 
 
 After saving, `GET /api/tests/<approved-id>/traceability` provides a read-only machine-readable matrix. Existing saved tests remain valid without this metadata, and generated AI output cannot impersonate human mapping. Changing requirement text clears stale links instead of silently asserting outdated coverage. No additional model calls are needed.
 
-[Full traceability workflow, schema and limitations](docs/requirements-traceability.md). This feature is on `feature/requirements-traceability` pending PR CI.
+[Full traceability workflow, schema and limitations](docs/requirements-traceability.md). This feature is merged into `main` through PR #15.
+
+### Persistent execution history (new feature branch)
+
+Completed individual run reports and suite summaries are now available across **local review-server restarts**. The Review UI includes an **Execution history** panel with timestamps, statuses and **Open previous run/suite** actions. Reopening past results never executes a test or contacts an AI provider.
+
+Reports and screenshots/traces remain under `run-results/`. New small `run-metadata.json` sidecars record the saved-test identity and optional suite association. At server startup the tool restores up to **100 completed runs and 20 completed suites**, including older valid `report.json` files without metadata. It ignores corrupt and interrupted reports rather than presenting them as passing tests. Loaded results have their original diagnoses and available evidence.
+
+**Current limitation:** Existing reviewed-assertion repair workflows remove the superseded approved test and its old run evidence; this history is not yet a revision-preserving audit log. The in-memory limit is not automatic disk cleanup. See [storage and history guidance](docs/persistent-history.md).
+
+The feature remains on `feature/persistent-run-history` until its PR has passed CI and is merged.
 
 ### Not implemented yet
 
@@ -415,7 +425,7 @@ A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. E
 | Live human ↔ AI browser handoff and playback controls | Planned |
 | Sequential approved test suites | Implemented and merged (#13) |
 | Export independent Playwright TypeScript scripts | Implemented and merged (#14) |
-| Requirement-to-step and assertion traceability | Feature branch; pending CI and review |
+| Requirement-to-step and assertion traceability | Implemented and merged (#15) |\n| Persistent execution history | Feature branch; pending CI and review |
 
 Requirements-to-test generation, selector preflight, suite execution, reviewed repairs and standalone Playwright exports are on `main`.
 
@@ -423,7 +433,7 @@ Requirements-to-test generation, selector preflight, suite execution, reviewed r
 
 The long-term goal is to let a QA engineer design, demonstrate, execute and maintain tests through an AI-assisted interface while retaining editable definitions, reviewable changes and portable code exports.
 
-Next priorities are human-reviewed traceability, durable execution history and repeatable benchmark coverage; recording and interactive handoff remain future work. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
+Next priorities are persistent history, repeatable test-quality benchmarks and reliable cross-site demos; recording and interactive handoff remain future work. The separate functionality tracker records accepted, proposed, deferred and rejected items alongside release and delivery status.
 
 Design principles:
 

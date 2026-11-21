@@ -36,6 +36,7 @@ type RunJob = {
   error?: string;
   /** Short-lived DOM evidence held in memory, never included in reports. */
   assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
+  suiteId?: string;
 };
 
 type SuiteEntry = {
@@ -181,11 +182,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   let activeRun: string | null = null;
   let activePreflight = false;
 
-  function registerRun(fileId: string): RunJob {
+  function registerRun(fileId: string, suiteId?: string): RunJob {
     const id = randomUUID();
     const job: RunJob = {
       id, fileId, state: "running", startedAt: new Date().toISOString(),
-      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(),
+      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(), suiteId,
     };
     jobs.set(id, job);
     while (jobs.size > MAX_RUN_HISTORY) {
@@ -221,6 +222,160 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       report: suite.state === "finished"
         ? "/api/suites/" + suite.id + "/report.json" : undefined,
     };
+  }
+
+
+  // Run reports and suite reports are already persisted by the execution layer.
+  // Keep a small metadata sidecar for the saved-test identity and suite membership;
+  // no secret inputs, browser state or captured DOM evidence are stored here.
+  async function persistRun(job: RunJob, state: "finished" | "error"): Promise<void> {
+    await mkdir(job.outputDir, { recursive: true });
+    await writeFile(join(job.outputDir, "run-metadata.json"), JSON.stringify({
+      schemaVersion: 1, fileId: job.fileId, suiteId: job.suiteId,
+      startedAt: job.startedAt, state, error: job.error,
+    }, null, 2) + "\n");
+  }
+
+  function validISO(value: unknown): value is string {
+    return typeof value === "string" && Number.isFinite(Date.parse(value));
+  }
+  function validRunReport(value: unknown): value is RunReport {
+    if (!value || typeof value !== "object") return false;
+    const report = value as Partial<RunReport>;
+    return report.schemaVersion === 1 &&
+      ["passed", "assertion-failed", "execution-error"].includes(report.status ?? "") &&
+      Array.isArray(report.steps) &&
+      typeof report.durationMs === "number" &&
+      (typeof report.title === "string" || report.title === null) &&
+      !!report.artifacts && typeof report.artifacts === "object";
+  }
+
+  // Restore only completed histories. An interrupted test must never be
+  // displayed as passed. Corrupt/partial data is skipped rather than executed.
+  async function restoreHistory(): Promise<void> {
+    let dirs: string[] = [];
+    try {
+      dirs = (await readdir(resultsDir, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && RUN_ID.test(entry.name))
+        .map((entry) => entry.name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const restored: RunJob[] = [];
+    for (const id of dirs) {
+      const folder = join(resultsDir, id);
+      let report: RunReport | undefined;
+      let metadata: unknown;
+      try {
+        const parsed: unknown = JSON.parse(await readFile(join(folder, "report.json"), "utf8"));
+        if (validRunReport(parsed)) report = parsed;
+      } catch { /* Legacy runner error or interrupted run */ }
+      try {
+        metadata = JSON.parse(await readFile(join(folder, "run-metadata.json"), "utf8")) as unknown;
+      } catch { /* Pre-history runs have report.json but no metadata */ }
+      const details = metadata && typeof metadata === "object"
+        ? metadata as Record<string, unknown> : {};
+      const state = details.state === "error" ? "error" : "finished";
+      if (!report && state !== "error") continue;
+      const startedAt = validISO(details.startedAt) ? details.startedAt :
+        report && validISO(report.startedAt) ? report.startedAt : undefined;
+      if (!startedAt) continue;
+      restored.push({
+        id,
+        fileId: typeof details.fileId === "string" && SAVED_NAME.test(details.fileId)
+          ? details.fileId : "",
+        state, startedAt, outputDir: folder,
+        ...(report && state === "finished" ? { report } : {}),
+        ...(state === "error" && typeof details.error === "string"
+          ? { error: details.error } : {}),
+        ...(typeof details.suiteId === "string" && RUN_ID.test(details.suiteId)
+          ? { suiteId: details.suiteId } : {}),
+      });
+    }
+    restored.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    for (const job of restored.slice(-MAX_RUN_HISTORY)) jobs.set(job.id, job);
+
+    let suiteDirs: string[] = [];
+    try {
+      suiteDirs = (await readdir(join(resultsDir, "suites"), { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && RUN_ID.test(entry.name))
+        .map((entry) => entry.name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const restoredSuites: SuiteJob[] = [];
+    for (const id of suiteDirs) {
+      try {
+        const parsed: unknown = JSON.parse(await readFile(
+          join(resultsDir, "suites", id, "report.json"), "utf8"));
+        if (!parsed || typeof parsed !== "object") continue;
+        const saved = parsed as Record<string, unknown>;
+        if (saved.id !== id || saved.state !== "finished" ||
+            !validISO(saved.startedAt) || !validISO(saved.finishedAt) ||
+            typeof saved.baseURL !== "string" ||
+            !Array.isArray(saved.tests) || saved.tests.length < 1 ||
+            saved.tests.length > MAX_SUITE_CASES) continue;
+        const entries: SuiteEntry[] = [];
+        let valid = true;
+        for (const item of saved.tests) {
+          if (!item || typeof item !== "object") { valid = false; break; }
+          const entry = item as Record<string, unknown>;
+          if (typeof entry.fileId !== "string" || !SAVED_NAME.test(entry.fileId) ||
+              typeof entry.title !== "string" ||
+              (entry.state !== "finished" && entry.state !== "error") ||
+              (entry.runId !== undefined && (typeof entry.runId !== "string" || !RUN_ID.test(entry.runId))) ||
+              (entry.verdict !== undefined &&
+                !["passed", "assertion-failed", "execution-error"].includes(String(entry.verdict)))) {
+            valid = false; break;
+          }
+          entries.push({
+            fileId: entry.fileId, title: entry.title,
+            state: entry.state,
+            ...(typeof entry.runId === "string" ? { runId: entry.runId } : {}),
+            ...(typeof entry.verdict === "string"
+              ? { verdict: entry.verdict as RunReport["status"] } : {}),
+            ...(typeof entry.durationMs === "number" ? { durationMs: entry.durationMs } : {}),
+            ...(typeof entry.error === "string" ? { error: entry.error } : {}),
+          });
+        }
+        if (!valid) continue;
+        restoredSuites.push({
+          id, state: "finished", startedAt: saved.startedAt,
+          finishedAt: saved.finishedAt, baseURL: saved.baseURL,
+          entries,
+        });
+      } catch { /* Ignore corrupt or interrupted suite snapshots */ }
+    }
+    restoredSuites.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    for (const suite of restoredSuites.slice(-MAX_SUITE_HISTORY)) suites.set(suite.id, suite);
+  }
+  await restoreHistory();
+
+  function historySnapshot() {
+    const runs = [...jobs.values()]
+      .filter((job) => job.state !== "running")
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .slice(0, MAX_RUN_HISTORY)
+      .map((job) => ({
+        id: job.id, fileId: job.fileId || null, suiteId: job.suiteId ?? null,
+        title: job.report?.title ?? "Unknown test",
+        startedAt: job.startedAt, state: job.state,
+        verdict: job.report?.status ?? "runner-error",
+        durationMs: job.report?.durationMs ?? null,
+      }));
+    const suiteList = [...suites.values()]
+      .filter((suite) => suite.state === "finished")
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .slice(0, MAX_SUITE_HISTORY)
+      .map((suite) => {
+        const summary = suiteSnapshot(suite);
+        return {
+          id: suite.id, startedAt: suite.startedAt,
+          finishedAt: suite.finishedAt,
+          verdict: summary.verdict, summary: summary.summary,
+        };
+      });
+    return { runs, suites: suiteList };
   }
 
   async function readSaved(id: string): Promise<TestDefinition> {
@@ -306,6 +461,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/health") {
         json(res, 200, { ok: true });
+        return;
+      }
+      if (req.method === "GET" && path === "/api/history") {
+        json(res, 200, historySnapshot());
         return;
       }
       const suitePath = /^\/api\/suites\/([a-f0-9-]{36})(?:\/(report\.json))?$/.exec(path);
@@ -839,7 +998,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             for (const [index, { fileId, definition }] of definitions.entries()) {
               const entry = suite.entries[index];
               entry.state = "running";
-              const run = registerRun(fileId);
+              const run = registerRun(fileId, id);
               entry.runId = run.id;
               try {
                 const report = await runTest(definition, {
@@ -848,12 +1007,16 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                     run.assertionSearchIndex?.set(stepId, evidence),
                 }, suppliedBrowser);
                 run.report = report;
+                await persistRun(run, "finished").catch(() => {
+                  // A full disk should not change the already produced verdict.
+                });
                 run.state = "finished";
                 entry.verdict = report.status;
                 entry.durationMs = report.durationMs;
                 entry.state = "finished";
               } catch {
                 run.error = "Unexpected runner error. Check local server logs.";
+                await persistRun(run, "error").catch(() => {});
                 run.state = "error";
                 entry.error = run.error;
                 entry.state = "error";
@@ -914,12 +1077,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         void runTest(definition, {
           baseURL: base.href, outputDir: job.outputDir, timeoutMs,
           onAssertionSearchIndex: (stepId, entries) => job.assertionSearchIndex?.set(stepId, entries),
-        }, suppliedBrowser).then((report) => {
+        }, suppliedBrowser).then(async (report) => {
           job.report = report;
+          await persistRun(job, "finished").catch(() => {});
           job.state = "finished";
-        }).catch(() => {
-          job.state = "error";
+        }).catch(async () => {
           job.error = "Unexpected runner error. Review local server logs.";
+          await persistRun(job, "error").catch(() => {});
+          job.state = "error";
         }).finally(() => { if (activeRun === id) activeRun = null; });
         json(res, 202, snapshot(job));
         return;

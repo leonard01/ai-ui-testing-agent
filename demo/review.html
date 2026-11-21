@@ -187,6 +187,14 @@
         <div id="suite-results"></div>
         <div id="suite-artifacts" class="artifact-links"></div>
       </div>
+      <section id="history-panel" style="margin-top:22px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
+        <h3 id="history-heading">Execution history</h3>
+        <p class="muted">Completed test runs and suites are loaded from local disk, including after restarting this server. Each report can be reopened without rerunning the test or contacting AI.</p>
+        <button type="button" id="refresh-history" class="secondary">Refresh history</button>
+        <p id="history-status" role="status" class="muted"></p>
+        <div id="history-suite-list"></div>
+        <div id="history-run-list"></div>
+      </section>
       <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
       <div id="run-results" hidden>
@@ -1074,6 +1082,74 @@
         container.append(card);
       }
     }
+    async function refreshHistory() {
+      const status = $("history-status");
+      status.textContent = "Loading completed runs from disk-backed history...";
+      try {
+        const history = await requestJSON("/api/history");
+        const suites = $("history-suite-list");
+        const runs = $("history-run-list");
+        suites.replaceChildren();
+        runs.replaceChildren();
+        suites.append(make("h4", "Suites (" + history.suites.length + ")"));
+        for (const suite of history.suites) {
+          const card = make("div", null, "history-entry");
+          card.append(make("strong", "Suite · " + suite.verdict.toUpperCase()));
+          card.append(make("span", " · " + new Date(suite.startedAt).toLocaleString() +
+            " · " + suite.summary.passed + " passed / " + suite.summary.failed +
+            " failed / " + suite.summary.errors + " errors", "muted"));
+          const button = make("button", "Open previous suite", "secondary");
+          button.type = "button";
+          button.addEventListener("click", async () => {
+            $("suite-error").textContent = "";
+            try {
+              const prior = await requestJSON("/api/suites/" + encodeURIComponent(suite.id));
+              renderSuite(prior);
+              $("suite-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+            } catch (error) {
+              $("suite-error").textContent = error.message || String(error);
+            }
+          });
+          card.append(button);
+          suites.append(card);
+        }
+        runs.append(make("h4", "Individual runs (" + history.runs.length + ")"));
+        for (const run of history.runs) {
+          const card = make("div", null, "history-entry");
+          card.append(make("strong", run.title + " · " + run.verdict.toUpperCase()));
+          card.append(make("span", " · " + new Date(run.startedAt).toLocaleString() +
+            (run.durationMs !== null ? " · " + (run.durationMs / 1000).toFixed(1) + "s" : "") +
+            (run.suiteId ? " · suite member" : ""), "muted"));
+          if (run.state === "finished") {
+            const button = make("button", "Open previous run", "secondary");
+            button.type = "button";
+            button.addEventListener("click", async () => {
+              $("run-error").textContent = "";
+              try {
+                const previous = await requestJSON("/api/runs/" + encodeURIComponent(run.id));
+                renderResult(previous);
+                $("run-status").textContent = "Viewing recorded result from " +
+                  new Date(run.startedAt).toLocaleString() + ". No test was rerun.";
+                $("run-results").scrollIntoView({ behavior: "smooth", block: "start" });
+              } catch (error) {
+                $("run-error").textContent = error.message || String(error);
+              }
+            });
+            card.append(button);
+          }
+          runs.append(card);
+        }
+        if (!history.runs.length && !history.suites.length) {
+          status.textContent = "No completed runs yet. Run an approved test or suite first.";
+        } else {
+          status.textContent = history.runs.length + " completed/failed individual runs and " +
+            history.suites.length + " completed suites available. No rerun is needed.";
+        }
+      } catch (error) {
+        status.textContent = "History unavailable: " + (error.message || String(error));
+      }
+    }
+    $("refresh-history").addEventListener("click", () => { void refreshHistory(); });
     async function watchRun(id) {
       while (true) {
         await new Promise((done) => setTimeout(done, 600));
@@ -1084,6 +1160,7 @@
         $("run-status").textContent = result.report.status === "passed"
           ? "Run complete: all reported steps passed."
           : "Run complete: " + result.report.status + ". Review the failed step below.";
+        void refreshHistory();
         break;
       }
     }
@@ -1139,7 +1216,10 @@
         await new Promise((done) => setTimeout(done, 500));
         const suite = await requestJSON("/api/suites/" + encodeURIComponent(id));
         renderSuite(suite);
-        if (suite.state === "finished") break;
+        if (suite.state === "finished") {
+          void refreshHistory();
+          break;
+        }
       }
     }
     async function executeSuite() {
@@ -1243,6 +1323,7 @@
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
+    void refreshHistory();
 
     $("requirements-file").addEventListener("change", async (event) => {
       const file = event.target.files?.[0];
