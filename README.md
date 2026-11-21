@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. PRs #3, #11 and #12 are merged into `main`. The sequential test-suite dashboard is being developed on `feature/sequential-test-suites`.
+**Last repository review:** 21 November 2026. PRs #3, #11, #12 and #13 are merged into `main`. Standalone Playwright TypeScript export is in development on `feature/playwright-typescript-export`.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #12](https://github.com/leonard01/ai-ui-testing-agent/pull/12), expanded browser actions and assertions |
+| Most recent merged feature | [Pull request #13](https://github.com/leonard01/ai-ui-testing-agent/pull/13), sequential test suite execution |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -181,7 +181,19 @@ The live suite dashboard displays progress, per-test verdicts, completed counts,
 
 Suite runs share the same execution lock as single-test runs and selector preflight, so they cannot compete for browser resources on slower laptops. A pending case cannot be replaced while its suite is running. Execution requires an explicit click, uses the saved approved JSON files, and makes no model requests. Suite history remains available **in the current server session**; reloading history after server restart remains a future task.
 
-This work is on `feature/sequential-test-suites` pending CI and review.
+This feature is merged into `main` through PR #13.
+
+### Standalone Playwright TypeScript export (new feature branch)
+
+The UI now has **Export Playwright (.spec.ts)** beside each selected approved test. The downloaded file imports only `@playwright/test`, contains one readable `test.step` per reviewed step and runs **without this agent, GroqCloud, the JSON file or a custom runtime module**. It translates role/label/text targets to normal Playwright locators; live DOM **intent** targets use an embedded deterministic helper rather than another AI call.
+
+All current runner actions and assertions have translations, including select/check/keyboard/URL/count. The exporter preserves expected results and assertion provenance, converts same-origin absolute URLs into environment-portable paths, and lets users override the base URL with `TEST_BASE_URL` in another project. No test executes during export. You can also export from the CLI:
+
+```bash
+npm run agent -- export examples/add-task.json --base-url http://127.0.0.1:3000 --output generated/add-task.spec.ts
+```
+
+A real exported file is exercised by the automated Playwright suite. See [full export instructions, limitations and security notes](docs/playwright-export.md). The feature remains on `feature/playwright-typescript-export` until its pull request is verified and merged.
 
 ### Not implemented yet
 
@@ -190,7 +202,7 @@ This work is on `feature/sequential-test-suites` pending CI and review.
 - Recording a user's interactions into a test case.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover (the review UI provides limited per-step timeout selection).
 - Full project management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
-- Exporting cases as standalone TypeScript scripts.
+- Exporting to frameworks other than Playwright (standalone Playwright TypeScript is now available on the feature branch).
 - API, mobile and load testing, or additional language exporters.\n- Advanced keyboard chords, rich multiselect semantics, and visual assertions.
 
 The current runner executes explicitly authored cases. Its data contracts and browser actions provide the execution layer for these later capabilities.
@@ -390,7 +402,7 @@ A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. E
 | Record test steps from human browser use | Planned |
 | Edit an existing test by observing a user's corrections | Planned |
 | Live human ↔ AI browser handoff and playback controls | Planned |
-| Export independent TypeScript test scripts | Planned |
+| Export independent Playwright TypeScript scripts | Implemented on feature branch, not yet merged |
 
 Requirements-to-test generation and reviewed failure repair are now on `main`. The preflight feature remains separate until verified.
 

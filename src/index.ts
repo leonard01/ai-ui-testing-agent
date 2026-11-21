@@ -15,3 +15,6 @@ export type {
 
 export { generateDraft, makeGenerationPrompt } from "./generation.js";
 export type { DraftOptions, GeneratedDraft, ModelProvider } from "./generation.js";
+
+export { generatePlaywrightSpec } from "./export.js";
+export type { PlaywrightExportOptions } from "./export.js";

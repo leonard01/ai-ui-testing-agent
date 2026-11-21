@@ -48,7 +48,17 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
-## Run multiple approved tests as a suite (new feature branch)
+## Download independent Playwright TypeScript (export milestone)
+
+Once a draft has been **approved and saved**, select that saved test in the **Approved saved test** dropdown. Click **Export Playwright (.spec.ts)** to download a single editable Playwright TypeScript test file. It runs in another Playwright project using only `@playwright/test`; no agent source, Groq model, approved JSON, or extra runtime package is required.
+
+The downloaded test includes translated navigation, click, fill, select, check, uncheck, keypress, text/visibility assertions, URL assertions, and count assertions. Plain role/name, label and text locators use normal Playwright APIs. Dynamic `intent` locators include a standalone deterministic DOM helper (still subject to ambiguity; prefer an explicit locator if a site is difficult to resolve).
+
+Every step becomes a named `test.step` and assertions preserve the approved expectation and provenance. The generated script restricts navigation to the app origin; you can target a different deployment with `TEST_BASE_URL` if needed. The exporter does **not** run or rewrite tests. It does **not** contact any AI provider.
+
+**Important:** review generated files for test credentials or sensitive input values before committing them publicly. See [independent run setup and compatibility notes](playwright-export.md).
+
+## Run multiple approved tests as a suite (on main)
 
 After saving at least two test definitions, use **3. Execute and diagnose → Run a test suite**:
 

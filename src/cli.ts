@@ -1,7 +1,8 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname, basename } from "node:path";
 import { parseArgs } from "node:util";
 import { runTest } from "./runner.js";
+import { generatePlaywrightSpec } from "./export.js";
 
 async function main() {
   const { values, positionals } = parseArgs({
@@ -13,10 +14,31 @@ async function main() {
       timeout: { type: "string", default: "5000" },
     },
   });
-  if (positionals.length !== 2 || positionals[0] !== "run")
+  if (positionals.length !== 2 ||
+      (positionals[0] !== "run" && positionals[0] !== "export"))
     throw new Error(
-      "Usage: npm run agent -- run <case.json> [--base-url URL] [--output DIR] [--headed] [--timeout MS]",
+      "Usage: npm run agent -- run <case.json> [--base-url URL] [--output DIR] [--headed] [--timeout MS]\n" +
+      "   or: npm run agent -- export <case.json> [--base-url URL] [--output PATH.spec.ts] [--timeout MS]",
     );
+  if (positionals[0] === "export") {
+    // CLI export accepts a validated definition; the review UI download is
+    // restricted to already-approved saved cases.
+    const input = JSON.parse(await readFile(positionals[1], "utf8")) as unknown;
+    const source = generatePlaywrightSpec(input, {
+      baseURL: values["base-url"]!,
+      timeoutMs: Number(values.timeout),
+    });
+    const filename = basename(positionals[1]).replace(/\.json$/i, "") + ".spec.ts";
+    const file = resolve(values.output ?? join("generated", filename));
+    if (!file.endsWith(".spec.ts")) {
+      throw new Error("Playwright export output must end with .spec.ts");
+    }
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, source, { flag: "wx" });
+    console.log("Exported standalone Playwright TypeScript: " + file);
+    console.log("Review the test data before sharing or committing it.");
+    return;
+  }
   const outputDir = resolve(
     values.output ?? `run-results/${Date.now()}-${process.pid}`,
   );

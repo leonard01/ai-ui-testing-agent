@@ -13,6 +13,7 @@ import { ensureAllowedNavigation } from "./inspect.js";
 import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
 import { preflightSelectors } from "./preflight.js";
+import { generatePlaywrightSpec } from "./export.js";
 import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
 
@@ -333,6 +334,28 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") json(res, 200, { tests: [] });
           else json(res, 500, { error: "Could not list approved tests" });
+        }
+        return;
+      }
+      const exportPath = /^\/api\/tests\/(reviewed-\d{13}-[a-f0-9]{8}\.json)\/export\.ts$/.exec(path);
+      if (req.method === "GET" && exportPath) {
+        try {
+          const query = new URL(req.url ?? "/", "http://127.0.0.1");
+          const base = validatedBaseURL(query.searchParams.get("baseURL"));
+          const rawTimeout = query.searchParams.get("timeoutMs");
+          const timeoutMs = rawTimeout === null ? 5000 : Number(rawTimeout);
+          const definition = await readSaved(exportPath[1]);
+          const source = generatePlaywrightSpec(definition, { baseURL: base.href, timeoutMs });
+          const filename = exportPath[1].replace(/\.json$/, ".spec.ts");
+          res.writeHead(200, {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Disposition": "attachment; filename=\"" + filename + "\"",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+          });
+          res.end(source);
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Export unavailable" });
         }
         return;
       }
