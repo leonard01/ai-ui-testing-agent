@@ -768,10 +768,18 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (!selected || !selected.name.trim()) {
             throw new Error("This candidate has no meaningful name; edit the locator manually");
           }
-          if (ambiguity.candidates.some((candidate, index) =>
-            index !== input.candidateIndex && candidate.name === selected.name &&
-            candidate.role === selected.role)) {
-            throw new Error("These candidates have identical names; choose a more specific locator manually");
+          const identical = ambiguity.candidates.filter((candidate) =>
+            candidate.name === selected.name && candidate.role === selected.role);
+          const isDuplicate = identical.length > 1;
+          if (isDuplicate && (
+              !Number.isInteger(selected.nth) || selected.nth! < 0 ||
+              selected.matchCount !== identical.length ||
+              identical.some((candidate) =>
+                !Number.isInteger(candidate.nth) ||
+                candidate.matchCount !== identical.length) ||
+              new Set(identical.map((candidate) => candidate.nth)).size !== identical.length
+          )) {
+            throw new Error("Identical elements could not be matched reliably by position. Edit the locator manually.");
           }
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((step) => step.id === failed.id);
@@ -789,11 +797,22 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             candidateRole === "status" || candidateRole === "listitem"
             ? candidateRole : undefined;
           const selectedRole = ambiguity.role || groundedRole;
-          step.action.target = {
-            by: "intent",
-            value: selected.name,
-            ...(selectedRole ? { role: selectedRole } : {}),
-          };
+          if (isDuplicate) {
+            if (!groundedRole || selected.nth === undefined) {
+              throw new Error("Cannot repair identical elements without a verified role and position");
+            }
+            // The chosen ordinal was grounded in the failed run's real DOM.
+            // An exact role/name locator is deterministic at replay time.
+            step.action.target = {
+              by: "role", role: groundedRole, name: selected.name, nth: selected.nth,
+            };
+          } else {
+            step.action.target = {
+              by: "intent",
+              value: selected.name,
+              ...(selectedRole ? { role: selectedRole } : {}),
+            };
+          }
           const repaired = parseTestDefinition(definition);
           const { id, file, replacedId } = await saveApproved(repaired, job.fileId);
           json(res, 201, {
