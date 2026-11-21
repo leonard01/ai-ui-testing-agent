@@ -238,7 +238,9 @@
     }
     function describeTarget(target) {
       if (!target) return "unknown element";
-      if (target.by === "role") return target.role + (target.name ? ' named "' + target.name + '"' : "");
+      if (target.by === "role") return target.role +
+        (target.name ? ' named "' + target.name + '"' : "") +
+        (Number.isInteger(target.nth) ? " (match " + (target.nth + 1) + ", by DOM order)" : "");
       if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + ")" : "");
       if (target.by === "label") return 'field labelled "' + target.value + '"';
       if (target.by === "text") return 'visible text "' + target.value + '"';
@@ -332,6 +334,26 @@
             labeledInput(locatorFields, "Accessible name (may be blank)", t.name ?? "", (v) => {
               if (v.trim()) t.name = v; else delete t.name;
             });
+            if (clone.action.kind !== "assert-count") {
+              const indexLabel = make("label", "Match index (0 = first; blank requires a unique match)");
+              const indexInput = make("input");
+              indexInput.type = "number";
+              indexInput.min = "0";
+              indexInput.max = "249";
+              indexInput.step = "1";
+              indexInput.value = t.nth === undefined ? "" : String(t.nth);
+              indexInput.addEventListener("input", () => {
+                if (!indexInput.value.trim()) delete t.nth;
+                else t.nth = Number(indexInput.value);
+              });
+              indexLabel.append(indexInput);
+              locatorFields.append(indexLabel);
+              if (t.nth !== undefined) {
+                locatorFields.append(make("p",
+                  "Positional locators may become unreliable if the page's element order changes.",
+                  "note"));
+              }
+            }
           } else {
             labeledInput(locatorFields, t.by === "label" ? "Form label text" : "Visible text", t.value, (v) => {
               t.value = v;
@@ -1007,6 +1029,8 @@
           const save = make("button", "Save corrected copy and rerun from start");
           save.type = "button";
           save.disabled = true;
+          const feedback = make("p", "", "repair-feedback");
+          feedback.setAttribute("role", "status");
           let selected = -1;
           ambiguity.candidates.forEach((candidate, index) => {
             const label = make("label", null, "repair-option");
@@ -1015,14 +1039,28 @@
             radio.name = group;
             radio.value = String(index);
             const labelText = make("span");
-            labelText.append(make("strong", candidate.name || "<unnamed element>"));
+            const duplicates = ambiguity.candidates.filter((entry) =>
+              entry.role === candidate.role && entry.name === candidate.name);
+            const ordinal = duplicates.length > 1 && Number.isInteger(candidate.nth)
+              ? " — match " + (candidate.nth + 1) + " of " + candidate.matchCount
+              : "";
+            labelText.append(make("strong", (candidate.name || "<unnamed element>") + ordinal));
             labelText.append(make("small",
               "<" + candidate.tag + "> · role: " + (candidate.role || "not specified")));
             if (candidate.nearby) labelText.append(make("small", "Nearby: " + candidate.nearby));
             radio.addEventListener("change", () => {
               selected = index;
+              const isDuplicate = duplicates.length > 1;
+              const canIndex = Number.isInteger(candidate.nth) &&
+                candidate.matchCount === duplicates.length;
               save.disabled = running || ambiguity.total > ambiguity.candidates.length ||
-                !candidate.name?.trim();
+                !candidate.name?.trim() || (isDuplicate && !canIndex);
+              feedback.textContent = isDuplicate
+                ? canIndex
+                  ? "This will select match " + (candidate.nth + 1) +
+                    " using current page order. This can break if the website reorders elements."
+                  : "These identical elements cannot be distinguished safely. Edit the step locator manually."
+                : "Ready to save the selected target and rerun the complete test.";
             });
             label.append(radio, labelText);
             choices.append(label);
@@ -1038,8 +1076,12 @@
             "step's target, not its expected results. The corrected test will restart from step 1.",
             "muted"));
           save.addEventListener("click", async () => {
-            if (running || selected < 0) return;
+            if (running || selected < 0) {
+              feedback.textContent = "Select an element before saving a correction.";
+              return;
+            }
             save.disabled = true;
+            feedback.textContent = "Saving correction and preparing a fresh test run...";
             $("run-error").textContent = "";
             try {
               const repaired = await requestJSON("/api/repair", {
@@ -1048,15 +1090,18 @@
                 body: JSON.stringify({ runId: result.id, candidateIndex: selected }),
               });
               await refreshApprovedTests(repaired.id);
+              feedback.textContent = "Correction saved. Running the revised script from step 1...";
               $("run-status").textContent = 'Saved new test with target "' +
                 repaired.approvedIntent + '". Starting test again from step 1...';
               await executeApproved(repaired.id);
             } catch(error) {
-              $("run-error").textContent = error.message || String(error);
+              const explanation = error.message || String(error);
+              $("run-error").textContent = explanation;
+              feedback.textContent = "Correction not saved: " + explanation;
               save.disabled = false;
             }
           });
-          repair.append(save);
+          repair.append(save, feedback);
           card.append(repair);
         }
         if (step.status === "assertion-failed" &&
