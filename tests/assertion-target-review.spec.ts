@@ -75,7 +75,7 @@ function definition(target: unknown) {
 
 for (const [description, wrongTarget] of [
   ["incorrect heading role", { by: "role", role: "heading", name: "Buy groceries" }],
-  ["unresolvable list item intent", { by: "intent", role: "listitem", value: "Buy groceries" }],
+  ["unresolvable heading intent", { by: "intent", role: "heading", value: "Buy groceries" }],
 ] as const) {
   test("visible task text offers a verified locator repair for " + description, async ({ browser, page }) => {
     const dir = await mkdtemp(join(tmpdir(), "todo-assert-repair-"));
