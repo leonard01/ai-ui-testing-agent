@@ -110,6 +110,14 @@ In **3. Execute and diagnose → Run a test suite**, choose a **Test suite (webs
 
 See [website test suite organization and storage](website-test-suites.md) for details.
 
+## Duplicate explicit button selectors (Google Search)
+
+A strict mode violation such as `getByRole('button', { name: 'Google Search', exact: true }) resolved to 2 elements` means Playwright found **multiple** matching elements; it does not mean the button is missing or that the network is slow. Retrying the same locator will not fix this ambiguity.
+
+When a saved **click** step uses an explicit role/name locator and it matches two or more identical, visible elements, the runner now captures verified, numbered matches (for example **Google Search — match 1 of 2** and **match 2 of 2**) and stops without choosing automatically. In the failure report's **Choose a replacement element** section, a human can select one, **Save corrected locator and rerun from start**, and retain all original test assertions. The repaired Playwright locator uses `nth: 0` or `nth: 1` in the saved JSON, supported by both the runner and exported Playwright TypeScript.
+
+The positions reflect DOM order at failure time and are **fragile** if the site changes. If not all matches can be verified, the UI shows an **Edit failing action locator** fallback. Another option for search forms is to **press Enter on the unique search textbox**, bypassing duplicate submit buttons altogether. Do not automatically select `first()` or retry the same strict-mode-violating click.
+
 ## Repairing identically named buttons and controls
 
 When a step says "Click one Delete button" after the page creates two identical **Delete** buttons, the live DOM resolver intentionally stops rather than guessing which element to click. The **Choose the intended element** panel now displays the candidate order as **match 1 of 2** and **match 2 of 2**, provided Playwright verifies the elements correspond exactly to the inspected live DOM.
