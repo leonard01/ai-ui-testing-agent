@@ -104,7 +104,7 @@
           <option value="groq">GroqCloud · hosted AI (free tier)</option>
           <option value="fixture">Prewritten demonstration · no AI</option>
         </select>
-        <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. The API key stays on your computer's local server.</div>
+        <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. If a draft fails schema validation, the generator makes at most one extra Groq model call to correct it (two calls maximum). The API key stays on your computer's local server.</div>
         <button type="submit" id="generate" style="margin-top:20px;width:100%">Generate draft</button>
       </form>
       <p class="status" id="generation-status" role="status"></p>
@@ -681,9 +681,10 @@
               ? "Generation/validation failed in our application."
               : "Test Builder request failed (HTTP " + response.status + ").";
           const category = data.category ? " Category: " + data.category + "." : "";
+          const attempts = data.attempts ? " Attempts: " + data.attempts + "." : "";
           const inputLength = Number.isInteger(data.requirementsCharacters)
             ? " Your instructions: " + data.requirementsCharacters + " characters." : "";
-          throw new Error(origin + category + inputLength + "\n" +
+          throw new Error(origin + category + attempts + inputLength + "\n" +
             (data.error || "Could not generate draft"));
         }
         definition = data.definition;
@@ -696,7 +697,8 @@
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
         $("draft-hint").textContent = data.message;
         renderSteps();
-        $("generation-status").textContent = "Draft ready for review; nothing has been executed.";
+        $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
+          (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "");
       } catch(error) {
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
