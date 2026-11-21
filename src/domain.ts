@@ -1,6 +1,8 @@
 import type { z } from "zod";
 import type { testDefinitionSchema } from "./schema.js";
 
+import type { DiscoveryEvidence } from "./discovery.js";
+
 export type TestDefinition = z.infer<typeof testDefinitionSchema>;
 export type TestStep = TestDefinition["steps"][number];
 export type TestAction = TestStep["action"];
@@ -17,6 +19,7 @@ export interface StepResult {
   expected?: string;
   observed?: string;
   error?: string;
+  resolution?: DiscoveryEvidence;
 }
 export interface RunReport {
   schemaVersion: 1;
