@@ -49,7 +49,7 @@ export interface AssertionCandidate extends AmbiguousCandidate {
   target: ExplicitTarget;
 }
 export interface MissingAssertionChoices {
-  attempted: ExplicitTarget;
+  attempted: ExplicitTarget | IntentTarget;
   query: string;
   candidates: AssertionCandidate[];
   total: number;
@@ -215,70 +215,92 @@ export async function findLocatorAlternatives(
 }
 
 /**
- * Search the live DOM after an assertion locator fails to resolve.
+ * Search the page's actual visible text, rather than just an allowlist of
+ * semantic elements. Product names frequently live in plain <div>s, and
+ * an assertion can point to the WRONG existing element (not only a missing
+ * one). We propose exact visible text matches, never rewrite expectations.
  *
- * Prefer matching visible text rather than assuming the tag/role was correct:
- * on SauceDemo, "Products" is a <span class="title"> rather than a
- * heading. Candidates must be unique, visible Playwright locators and are
- * *only proposed*, never substituted automatically. No model call.
+ * Do not read input values, hidden DOM, script/style content or arbitrary
+ * text dumps. A candidate must be visible and uniquely addressable by
+ * Playwright before it reaches the review UI.
  */
 export async function findAssertionAlternatives(
   page: Page,
-  attempted: ExplicitTarget,
+  attempted: ExplicitTarget | IntentTarget,
   operation: "assert-text" | "assert-visible",
   expected?: string,
+  searchExpectedText = false,
 ): Promise<MissingAssertionChoices> {
-  const query = attempted.by === "role"
-    ? attempted.name || (operation === "assert-text" ? expected ?? "" : "")
-    : attempted.value;
-  const normalized = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
-  const request = normalized(query);
+  const query = searchExpectedText && operation === "assert-text" ? expected ?? "" :
+    attempted.by === "role" ? attempted.name || (operation === "assert-text" ? expected ?? "" : "") :
+    attempted.value;
+  const norm = (value: string) => value.replace(/\s+/g, " ").trim();
+  const request = norm(query);
   if (!request) return { attempted, query: "", candidates: [], total: 0 };
-  const terms = keywords(request);
-  const { candidates } = await inspectCandidates(page, operation);
-  const matches = candidates.flatMap((candidate) => {
-    const name = normalized(candidate.name);
-    const visibleText = normalized(candidate.text);
-    if (!name && !visibleText) return [];
-    const exact = name === request || visibleText === request;
-    const scored = terms.length ? candidateScore(candidate, terms) : null;
-    if (!exact && scored === null) return [];
-    return [{ candidate, score: exact ? 1000 : scored ?? 0 }];
-  }).sort((a, b) => b.score - a.score);
-  // An exact "Products" match is preferable to unrelated surrounding
-  // copy like "Browse products here". Only consider fuzzy candidates when
-  // there is no exact visible text match.
-  const ranked = matches.some((entry) => entry.score === 1000)
-    ? matches.filter((entry) => entry.score === 1000) : matches;
+
+  const domMatches = await page.evaluate((requested) => {
+    const normalized = (v: string) => v.replace(/\s+/g, " ").trim();
+    const clip = (v: string, limit: number) => normalized(v).slice(0, limit);
+    const result: Array<{
+      tag: string; role: string; name: string; text: string; nearby: string;
+    }> = [];
+    // Collect leaf-most visible elements whose own rendered content is the
+    // requested text. Ancestor wrappers with the same content are excluded.
+    const nodes = document.querySelectorAll<HTMLElement>("body *");
+    for (const el of Array.from(nodes).slice(0, 12_000)) {
+      if (el.closest('[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,input,textarea,[contenteditable="true"]')) continue;
+      if (!el.getClientRects().length) continue;
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility !== "visible") continue;
+      const displayed = normalized(el.innerText || "");
+      if (displayed !== requested) continue;
+      const hasExactChild = Array.from(el.children).some((child) =>
+        normalized((child as HTMLElement).innerText || "") === requested &&
+        !!(child as HTMLElement).getClientRects().length,
+      );
+      if (hasExactChild) continue;
+      const tag = el.tagName.toLowerCase();
+      const role = el.getAttribute("role") ||
+        (/^h[1-6]$/.test(tag) ? "heading" :
+         tag === "li" ? "listitem" :
+         tag === "button" ? "button" : "");
+      const name = clip(el.getAttribute("aria-label") || el.innerText || "", 130);
+      result.push({
+        tag, role, name, text: clip(el.innerText || "", 130),
+        nearby: clip((el.parentElement as HTMLElement | null)?.innerText || "", 180),
+      });
+      if (result.length > 60) break;
+    }
+    return result;
+  }, request);
+
   const proposed: AssertionCandidate[] = [];
-  for (const { candidate } of ranked.slice(0, 40)) {
-    const role = candidate.role;
+  for (const candidate of domMatches) {
     let target: ExplicitTarget | undefined;
+    const role = candidate.role;
     if (role === "button" || role === "textbox" || role === "checkbox" ||
         role === "heading" || role === "status" || role === "listitem") {
-      const byRole = page.getByRole(role, { name: candidate.name, exact: true });
-      if (candidate.name && await byRole.count() === 1 && await byRole.isVisible()) {
+      const locator = page.getByRole(role, { name: candidate.name, exact: true });
+      if (candidate.name && await locator.count() === 1 && await locator.isVisible() &&
+          norm((await locator.innerText()) || "") === request) {
         target = { by: "role", role, name: candidate.name };
       }
     }
-    if (!target && candidate.text) {
-      const byText = page.getByText(candidate.text, { exact: true });
-      if (await byText.count() === 1 && await byText.isVisible()) {
+    if (!target) {
+      const locator = page.getByText(candidate.text, { exact: true });
+      if (await locator.count() === 1 && await locator.isVisible() &&
+          norm((await locator.innerText()) || "") === request) {
         target = { by: "text", value: candidate.text };
       }
     }
-    if (!target) continue;
-    if (proposed.some((item) => JSON.stringify(item.target) === JSON.stringify(target))) continue;
-    proposed.push({
-      tag: candidate.tag, role: candidate.role, name: candidate.name,
-      nearby: candidate.nearby, target,
-    });
+    if (!target || proposed.some((c) => JSON.stringify(c.target) === JSON.stringify(target))) continue;
+    proposed.push({ tag: candidate.tag, role: candidate.role,
+      name: candidate.name, nearby: candidate.nearby, target });
   }
   return {
-    attempted, query,
+    attempted, query: request,
     candidates: proposed.slice(0, 12),
-    // If not all viable matches fit, don't permit a one-click repair.
-    total: proposed.length + (ranked.length > 40 ? ranked.length - 40 : 0),
+    total: proposed.length + (domMatches.length > 60 ? 1 : 0),
   };
 }
 
