@@ -26,7 +26,8 @@ export interface PreflightReport {
 
 function locator(page: Page, target: Exclude<Target, { by: "intent" }>): Locator {
   if (target.by === "role") {
-    return page.getByRole(target.role, { name: target.name, exact: true });
+    const matches = page.getByRole(target.role, { name: target.name, exact: true });
+    return "nth" in target && target.nth !== undefined ? matches.nth(target.nth) : matches;
   }
   if (target.by === "label") return page.getByLabel(target.value, { exact: true });
   return page.getByText(target.value, { exact: true });
