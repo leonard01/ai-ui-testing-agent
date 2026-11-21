@@ -997,15 +997,17 @@
           const repair = make("div", null, "locator-repair");
           repair.append(make("h3", "Choose a replacement element"));
           repair.append(make("p",
-            "The original locator could not find its element. Playwright inspected " +
-            "the live page at the failure point and found these possible targets. " +
-            "Choose only the intended one; no action has been taken on these candidates."));
+            "The original locator either matched no element or matched multiple elements. " +
+            "Playwright inspected the live page at failure time. Choose a verified " +
+            "target only if you can identify the intended element; no action has been taken."));
           repair.append(make("p", "Failed locator: " + describeTarget(evidence.attempted), "muted"));
           const choices = make("fieldset");
           choices.append(make("legend", "Which element should this action use?"));
           const save = make("button", "Save corrected locator and rerun from start");
           save.type = "button";
           save.disabled = true;
+          const feedback = make("p", "", "repair-feedback");
+          feedback.setAttribute("role", "status");
           let selected = -1;
           evidence.candidates.forEach((candidate, index) => {
             const label = make("label", null, "locator-option");
@@ -1014,12 +1016,25 @@
             radio.name = "missing-" + result.id + "-" + step.id;
             radio.value = String(index);
             const info = make("span");
-            info.append(make("strong", candidate.role + " named " + candidate.name));
+            const duplicate = evidence.candidates.filter((item) =>
+              item.role === candidate.role && item.name === candidate.name).length > 1;
+            const ordinal = duplicate && Number.isInteger(candidate.nth)
+              ? " — match " + (candidate.nth + 1) + " of " + candidate.matchCount
+              : "";
+            info.append(make("strong", candidate.role + " named " + candidate.name + ordinal));
             info.append(make("small", "<" + candidate.tag + ">"));
             if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
             radio.addEventListener("change", () => {
               selected = index;
-              save.disabled = running || evidence.total !== evidence.candidates.length;
+              const safe = !duplicate || (Number.isInteger(candidate.nth) &&
+                candidate.matchCount === evidence.candidates.length);
+              save.disabled = running || evidence.total !== evidence.candidates.length || !safe;
+              feedback.textContent = duplicate
+                ? safe
+                  ? "Match " + (candidate.nth + 1) +
+                    " uses the page's current element order. It can break if Google reorders its buttons."
+                  : "Identical elements could not be safely distinguished; edit the locator manually."
+                : "Ready to save the selected locator.";
             });
             label.append(radio, info);
             choices.append(label);
@@ -1046,15 +1061,42 @@
                 }),
               });
               await refreshApprovedTests(updated.id);
+              feedback.textContent = "Correction saved. Starting a fresh run...";
               $("run-status").textContent = "Saved corrected target for " +
                 updated.repairedStepId + ". Rerunning from step 1...";
               await executeApproved(updated.id);
             } catch(error) {
               $("run-error").textContent = error.message || String(error);
+              feedback.textContent = "Correction not saved: " + (error.message || String(error));
               save.disabled = false;
             }
           });
-          repair.append(save);
+          const manual = make("button", "Edit failing action locator", "secondary");
+          manual.type = "button";
+          manual.disabled = !result.fileId;
+          manual.addEventListener("click", () => {
+            if (result.fileId) void loadSavedForEditing(result.fileId, step.id);
+          });
+          repair.append(save, manual, feedback);
+          card.append(repair);
+        }
+        if (step.status === "execution-error" &&
+            (step.actionKind === "click" || step.actionKind === "fill" ||
+             step.actionKind === "press") &&
+            !step.locatorAlternatives?.candidates?.length && !step.ambiguity) {
+          const repair = make("div", null, "locator-repair");
+          repair.append(make("h3", "Review failed action locator"));
+          repair.append(make("p",
+            "The saved locator could not perform this action and no uniquely verified " +
+            "alternative was captured. You can edit the failed action without changing " +
+            "its expected results."));
+          const manual = make("button", "Edit failing action locator", "secondary");
+          manual.type = "button";
+          manual.disabled = !result.fileId;
+          manual.addEventListener("click", () => {
+            if (result.fileId) void loadSavedForEditing(result.fileId, step.id);
+          });
+          repair.append(manual);
           card.append(repair);
         }
         if (step.ambiguity && step.ambiguity.candidates?.length) {
