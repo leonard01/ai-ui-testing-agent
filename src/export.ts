@@ -10,7 +10,6 @@ export interface PlaywrightExportOptions {
 }
 
 type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
-type ActionWithTarget = Exclude<TestAction, { kind: "navigate" | "assert-url" }>;
 
 const INTENT_RUNTIME = String.raw`
 // This helper is bundled into the exported file: it imports nothing from
@@ -174,15 +173,21 @@ function targetExpression(target: Target, operation: string): string {
     ", " + literal(operation) + ")";
 }
 
-function exportAction(action: TestAction): string[] {
+function portablePath(raw: string, base: URL): string {
+  const destination = ensureAllowedNavigation(raw, base);
+  // Preserve the path/query/hash, but allow TEST_BASE_URL to point to another
+  // environment (staging, CI, localhost) without stale absolute URLs.
+  return destination.pathname + destination.search + destination.hash;
+}
+function exportAction(action: TestAction, base: URL): string[] {
   if (action.kind === "navigate") {
-    return ["await page.goto(sameOriginURL(" + literal(action.url) +
+    return ["await page.goto(sameOriginURL(" + literal(portablePath(action.url, base)) +
       "), { waitUntil: 'domcontentloaded' });"];
   }
   if (action.kind === "assert-url") {
     return [
       "// Assertion provenance: " + action.provenance,
-      "await expect(page).toHaveURL(sameOriginURL(" + literal(action.expected) +
+      "await expect(page).toHaveURL(sameOriginURL(" + literal(portablePath(action.expected, base)) +
       "), { timeout: STEP_TIMEOUT });",
     ];
   }
@@ -284,7 +289,7 @@ export function generatePlaywrightSpec(
     lines.push("  await test.step(" +
       literal((index + 1) + ". " + step.description) +
       ", async () => {");
-    for (const actionLine of exportAction(step.action)) {
+    for (const actionLine of exportAction(step.action, base)) {
       lines.push("    " + actionLine);
     }
     lines.push("  });");
