@@ -957,10 +957,18 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (!chosen || !chosen.name.trim()) {
             throw new Error("Choose a named element from the failed run");
           }
-          if (evidence.candidates.some((candidate, index) =>
-            index !== input.candidateIndex && candidate.name === chosen.name &&
-            candidate.role === chosen.role)) {
-            throw new Error("The candidate name is not unique; refine the target in the review UI");
+          const identical = evidence.candidates.filter((candidate) =>
+            candidate.name === chosen.name && candidate.role === chosen.role);
+          const isDuplicate = identical.length > 1;
+          if (isDuplicate && (
+              !Number.isInteger(chosen.nth) || chosen.nth! < 0 ||
+              chosen.matchCount !== identical.length ||
+              identical.some((candidate) =>
+                !Number.isInteger(candidate.nth) ||
+                candidate.matchCount !== identical.length) ||
+              new Set(identical.map((candidate) => candidate.nth)).size !== identical.length
+          )) {
+            throw new Error("Identical buttons were not verified in exact order; edit the target manually");
           }
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((entry) => entry.id === failed.id);
@@ -979,7 +987,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("Unsupported element role");
           }
           const previousTarget = step.action.target;
-          step.action.target = { by: "role", role, name: chosen.name };
+          step.action.target = isDuplicate
+            ? { by: "role", role, name: chosen.name, nth: chosen.nth }
+            : { by: "role", role, name: chosen.name };
           const corrected = parseTestDefinition(definition);
           const { id, replacedId } = await saveApproved(corrected, job.fileId);
           json(res, 201, {
