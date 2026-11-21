@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+// The app runner owns traces for its test contexts; avoid harness tracing twice.
+test.use({ trace: "off" });
 import { createReviewServer } from "../src/review-server.js";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
