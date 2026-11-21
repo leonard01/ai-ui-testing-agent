@@ -5,7 +5,7 @@ import { loadEnvFile } from "node:process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { generateDraft } from "./generation.js";
+import { generateDraft, type ModelProvider } from "./generation.js";
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
@@ -144,7 +144,7 @@ export function diagnoseRun(report: RunReport): { kind: string; explanation: str
  * Saving an approved draft never executes it. Safe for local development only:
  * there is deliberately no public-network listener or user authentication.
  */
-export async function createReviewServer(outputDir = "generated", suppliedBrowser?: Browser) {
+export async function createReviewServer(outputDir = "generated", suppliedBrowser?: Browser, groqOverride?: ModelProvider) {
   const html = await readFile(new URL("../demo/review.html", import.meta.url));
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
@@ -324,7 +324,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : String(error) });
           return;
         }
-        const provider = input.provider === "groq" ? groqProvider : fixtureProvider();
+        const provider = input.provider === "groq" ? (groqOverride ?? groqProvider) : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
           const result = await generateDraft({
