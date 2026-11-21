@@ -6,6 +6,14 @@ Turn plain-English test instructions and a live web page into reviewable test st
 
 **Status:** v0.1 functionality is implemented on `main`. This is a **working prototype / release candidate**, not a production-ready autonomous tester. A formal GitHub release/tag and final manual acceptance check are separate steps.
 
+## Watch the demo (73 seconds)
+
+[![Watch the AI UI Testing Agent v0.1 demo — plain-English test creation, approval, execution and results](assets/demo-thumbnail.jpg)](https://raw.githubusercontent.com/leonard01/ai-ui-testing-agent/main/assets/AI_UI_Testing_Agent_v0.1_LinkedIn_Demo.mp4)
+
+**[▶ Play the demo video (MP4)](https://raw.githubusercontent.com/leonard01/ai-ui-testing-agent/main/assets/AI_UI_Testing_Agent_v0.1_LinkedIn_Demo.mp4)**
+
+This recording shows the sample application, a plain-English test description, AI-generated steps, human approval, browser execution and the final passing result. No test automation code is written during the demonstration.
+
 **Jump to:** [Current functionality](#current-functionality) · [Quick start](#quick-start) · [Example workflow](#example-workflow) · [CLI and automation](#cli-and-automation) · [Limitations](#limitations-and-v01-scope) · [Detailed docs](#documentation)
 
 ## Current functionality
