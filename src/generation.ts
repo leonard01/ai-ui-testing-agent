@@ -45,7 +45,7 @@ function describeSchemaIssues(error: ZodError): string[] {
   return error.issues.slice(0, 12).map((issue) => {
     const path = issue.path.map((part) =>
       typeof part === "number" ? "[" + part + "]" : "." + part,
-    ).join("").replace(/^\\./, "") || "test";
+    ).join("").replace(/^\./, "") || "test";
     // No model output or user content in the retry feedback.
     if (issue.code === "invalid_type") {
       return path + ": expected " + issue.expected + ", received " + issue.received;
@@ -76,14 +76,14 @@ export async function generateDraft(
   let problems: string[] = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const correction = attempt === 1 ? "" : [
-      "\\nSCHEMA CORRECTION REQUIRED: The previous attempt was rejected.",
+      "\nSCHEMA CORRECTION REQUIRED: The previous attempt was rejected.",
       "Validation failures (0-based step indices): " + problems.join("; "),
       "Regenerate the COMPLETE test definition from the original requirements and snapshot.",
       "EVERY element in the steps array MUST be an object {id,description,action}.",
       "Do NOT include text-only steps, strings, descriptions by themselves, or commentary.",
       "Do not drop requirements or invent extra actions merely to satisfy the schema.",
       "Return a fresh valid JSON object with the same test intent.",
-    ].join("\\n");
+    ].join("\n");
     const output = await provider({
       model: options.model, system,
       prompt: prompt + correction,
