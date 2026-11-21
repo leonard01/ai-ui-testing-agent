@@ -56,6 +56,14 @@ The original execution stops without taking the ambiguous action. Approval creat
 
 The local API `POST /api/repair` takes a completed `runId` and a candidate index, validates them against the recorded run, and rejects unknown, missing, truncated or identically named candidate selections. It does not accept arbitrary new selectors. This does not provide full interactive debugging or approval while a session is paused: that is a future milestone.
 
+## Human-reviewed failed text assertions
+
+When the browser successfully finds an element but its text does not match the expected text, **the test fails** and the UI displays **Review failed text assertion**. The reviewer can compare the original expected value with the actual observed text, edit the expected text, and optionally copy the observed text **as a draft only**. The reviewer must explicitly check **I verified this new expected text against the intended requirements** before saving; the UI does not silently turn the actual text into an oracle.
+
+**Save reviewed assertion and rerun from start** calls the local `POST /api/repair-assertion` endpoint with a completed failing run ID, the failed step ID, the revised expected string and explicit human confirmation. The server verifies that the run really failed at that exact **assert-text** step, the original saved test has not changed, and the new text differs from the old expectation. It then saves a **new** reviewed JSON file, changes only that assertion's `expected` and `provenance` to `human-confirmed`, and starts a fresh run from step 1. The original JSON remains unchanged. The feature does not modify the web application, suppress other failures or change expected values automatically.
+
+For the two-task demo, `1 tasks, 1 completed` versus observed `1 task, 1 completed` is a test-expected-text mismatch due to singular grammar. However, **observed behaviour alone does not prove correctness**: when an assertion catches a genuine application bug, keep it failing and investigate the application instead. Literal text can depend on task counts, localization, user data, dynamic timestamps or application state. This workflow supports intentional human review of such dynamic values; richer assertion types (e.g. semantic or image validation) are not implemented yet.
+
 ## Debugging GroqCloud HTTP 400 during generation
 
 If the GroqCloud model rejects a request, the review interface now separates:
@@ -73,7 +81,7 @@ The CI regression exercises a **mocked** Groq HTTP 400; it does not spend provid
 
 Diagnosis is **deterministic**, not a new AI request. Possible categories include assertion mismatch, ambiguous target, locator/timing issue and browser/environment issue. The UI labels likely causes as suggestions, not proven root causes.
 
-- **Assertion failure**: preserve the expected requirement; compare it with the observed value. Do not automatically change assertions to make tests pass.
+- **Assertion failure**: preserve the original expected requirement and compare it with observed text. If the expected value was incorrect, use the human-reviewed text assertion panel to save a new test. Never change an expectation merely to obtain a pass.
 - **Locator or intent failure**: inspect the role, name, nearby DOM evidence and captured screenshot; edit the test definition and approve/save a revised copy.
 - **Ambiguous target**: the runner stops **without clicking**. When live DOM discovery returns distinct candidate names, the failed step presents radio choices with role and nearby text. Select the intended element and click **Save corrected copy and rerun from start**. The server accepts only a candidate recorded in that failed run, saves a separate approved JSON file and reruns it from step 1. Only that step's target intent changes; **assertions and the original saved file stay unchanged**. No extra AI model call is made.
 - **Identically named targets**: if candidates cannot be distinguished by name (or the candidate list is truncated), the one-click repair is rejected; manually refine the locator. Avoid choosing blindly.
@@ -101,5 +109,5 @@ If the test page does not expose a suitable Add User interface, an input such as
 - API keys are read locally from `.env` by the server and are not embedded in HTML, JSON test definitions or displayed error messages. `.env` is already ignored by Git.
 - GroqCloud is subject to provider free-tier rate and token allowances. A **Generate draft** click makes a model call; test review, saving, and deterministic execution do not.
 - The fixture mode is entirely offline with respect to AI. CI uses this mode and never sends a real GroqCloud request.
-- No generated tests are silently executed. Approval does not automatically mark assertions as `human-confirmed`; that provenance requires an intentional future workflow. Execution requires clicking Run selected test after saving.
+- No generated tests are silently executed. Initial draft approval does not automatically mark assertions as `human-confirmed`. The separate failed-assertion review explicitly marks only the revised assertion `human-confirmed` after the tester confirms it against requirements. Execution requires an explicit run request after saving.
 - Screenshot and trace files can contain sensitive application data. The local server serves them only on 127.0.0.1 using explicit run IDs, but this prototype should not be exposed beyond loopback.
