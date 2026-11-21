@@ -111,7 +111,8 @@ export async function generateDraft(
       } else if (step.action.kind === "assert-url") {
         ensureAllowedNavigation(step.action.expected, base);
       } else if (
-        step.action.kind.startsWith("assert-") &&
+        (step.action.kind === "assert-text" || step.action.kind === "assert-visible" ||
+          step.action.kind === "assert-url" || step.action.kind === "assert-count") &&
         step.action.provenance === "human-confirmed"
       ) {
         throw new Error("Model cannot claim human-confirmed assertion provenance");
