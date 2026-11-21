@@ -4,7 +4,7 @@ This is a **local-only** test-draft builder, not a deployed SaaS application. It
 
 ## Start
 
-From the repository root, with Node.js 22+, Playwright Chromium installed, and the generation feature branch checked out:
+From the repository root, with Node.js 22+ and Playwright Chromium installed:
 
 ```bash
 git pull --ff-only
@@ -48,6 +48,20 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 After restarting the UI server, the saved test dropdown repopulates from `generated/reviewed-*.json`. The UI retains execution reports on disk in `run-results/`. The current prototype does not reload historical reports after a server restart; use the saved JSON report files for those historical runs.
 
+## Run multiple approved tests as a suite (new feature branch)
+
+After saving at least two test definitions, use **3. Execute and diagnose → Run a test suite**:
+
+1. Tick one or more saved tests (up to 10), or use **Select first 10**.
+2. Set the application URL and step timeout, then click **Run selected suite**.
+3. Watch the live progress indicator and per-case **queued / running / passed / assertion-failed / execution-error** verdicts.
+4. For any completed case, choose **View details** to open its existing step results, expected/observed values, screenshot, trace and repair options.
+5. Open **suite JSON report** for a consolidated verdict. A copy is written under `run-results/suites/<suite-id>/report.json`.
+
+**Execution guarantees:** The server validates every selected saved test and all its same-origin navigation/URL assertions *before* it starts the suite; it rejects invalid or duplicate IDs, unknown files and oversized selections. Tests run sequentially, never in parallel, with a fresh isolated browser context per test. A failed test does not stop the next one. While a suite is running, a second suite, single test, selector preflight or replacement of one of its queued tests is rejected. This limits browser contention on older laptops.
+
+No AI model is contacted when replaying approved cases, and review approvals/expectations are never silently modified. Current-session suite results can be opened from the dashboard, but suite history is not loaded into the UI after a server restart; the saved JSON summary remains available on disk. This is a bounded first version, not a persistent test management system.
+
 ## Broader browser actions and assertions (development branch)
 
 Generated and reviewed JSON cases may now include:
@@ -60,9 +74,9 @@ Generated and reviewed JSON cases may now include:
 
 The **Edit fields** interface displays each action in readable language and permits its fields to be changed without editing JSON. It does not yet offer an action-type conversion menu; use generation to create new action kinds. All assertions still require reviewed provenance. Count and URL mismatches remain test failures; locator preflight is only advisory and cannot prove actions will succeed after state changes.
 
-This feature is on `feature/broader-browser-actions` until CI and review pass.
+Broader browser actions are merged into `main` via PR #12.
 
-## Read-only selector preflight (feature branch)
+## Read-only selector preflight (on main)
 
 Before confirming and saving a generated or edited draft, click **Check selectors (read-only)** below the step list. The local server opens just the first navigation URL in a fresh, isolated Chromium context and checks explicit role/name, label and visible-text locators. No test click, fill or assertion is executed, no AI model is contacted, and no test fields are modified.
 

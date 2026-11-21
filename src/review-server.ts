@@ -20,7 +20,9 @@ const MAX_BODY_BYTES = 110_000;
 const MAX_REQUIREMENTS_CHARS = 12_000;
 const SAVED_NAME = /^reviewed-\d{13}-[a-f0-9]{8}\.json$/;
 const RUN_ID = /^[a-f0-9-]{36}$/;
-const MAX_RUN_HISTORY = 20;
+const MAX_RUN_HISTORY = 100;
+const MAX_SUITE_HISTORY = 20;
+const MAX_SUITE_CASES = 10;
 
 type RunJob = {
   id: string;
@@ -32,6 +34,25 @@ type RunJob = {
   error?: string;
   /** Short-lived DOM evidence held in memory, never included in reports. */
   assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
+};
+
+type SuiteEntry = {
+  fileId: string;
+  title: string;
+  state: "queued" | "running" | "finished" | "error";
+  runId?: string;
+  verdict?: RunReport["status"];
+  durationMs?: number;
+  error?: string;
+};
+
+type SuiteJob = {
+  id: string;
+  state: "running" | "finished";
+  startedAt: string;
+  finishedAt?: string;
+  baseURL: string;
+  entries: SuiteEntry[];
 };
 
 function json(res: ServerResponse, status: number, data: unknown): void {
@@ -154,8 +175,51 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
   const jobs = new Map<string, RunJob>();
+  const suites = new Map<string, SuiteJob>();
   let activeRun: string | null = null;
   let activePreflight = false;
+
+  function registerRun(fileId: string): RunJob {
+    const id = randomUUID();
+    const job: RunJob = {
+      id, fileId, state: "running", startedAt: new Date().toISOString(),
+      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(),
+    };
+    jobs.set(id, job);
+    while (jobs.size > MAX_RUN_HISTORY) {
+      const oldest = jobs.keys().next().value;
+      if (!oldest || oldest === activeRun) break;
+      jobs.delete(oldest);
+    }
+    return job;
+  }
+
+  function suiteSnapshot(suite: SuiteJob) {
+    const completed = suite.entries.filter((entry) =>
+      entry.state === "finished" || entry.state === "error").length;
+    const passed = suite.entries.filter((entry) => entry.verdict === "passed").length;
+    const failed = suite.entries.filter((entry) =>
+      entry.verdict === "assertion-failed" || entry.verdict === "execution-error").length;
+    const errors = suite.entries.filter((entry) => entry.state === "error").length;
+    return {
+      id: suite.id, state: suite.state, startedAt: suite.startedAt,
+      finishedAt: suite.finishedAt, baseURL: suite.baseURL,
+      verdict: suite.state === "running" ? "running" :
+        passed === suite.entries.length ? "passed" : "failed",
+      summary: {
+        total: suite.entries.length, completed, passed, failed, errors,
+        remaining: suite.entries.length - completed,
+      },
+      tests: suite.entries.map((entry) => ({
+        ...entry,
+        report: entry.runId && jobs.has(entry.runId)
+          ? "/api/runs/" + entry.runId + "/report.json" : undefined,
+        detailAvailable: Boolean(entry.runId && jobs.has(entry.runId)),
+      })),
+      report: suite.state === "finished"
+        ? "/api/suites/" + suite.id + "/report.json" : undefined,
+    };
+  }
 
   async function readSaved(id: string): Promise<TestDefinition> {
     if (!SAVED_NAME.test(id)) throw new Error("Invalid approved test filename");
@@ -174,8 +238,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   ): Promise<{ id: string; file: string; replacedId?: string }> {
     if (replacesId) {
       if (!SAVED_NAME.test(replacesId)) throw new Error("Invalid test to replace");
-      if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running")) {
-        throw new Error("Cannot replace a test while it is running");
+      if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running") ||
+          (activeRun && suites.get(activeRun)?.entries.some((entry) => entry.fileId === replacesId))) {
+        throw new Error("Cannot replace a test while it is running in a test suite");
       }
       await readSaved(replacesId);
     }
@@ -239,6 +304,18 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/health") {
         json(res, 200, { ok: true });
+        return;
+      }
+      const suitePath = /^\/api\/suites\/([a-f0-9-]{36})(?:\/(report\.json))?$/.exec(path);
+      if (req.method === "GET" && suitePath) {
+        const suite = suites.get(suitePath[1]);
+        if (!suite || !RUN_ID.test(suitePath[1])) {
+          json(res, 404, { error: "Test suite run not found" });
+        } else if (suitePath[2] && suite.state !== "finished") {
+          json(res, 409, { error: "Test suite is still running" });
+        } else {
+          json(res, 200, suiteSnapshot(suite));
+        }
         return;
       }
       if (req.method === "GET" && path === "/api/tests") {
@@ -308,7 +385,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/preflight", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -674,6 +751,102 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
+      if (path === "/api/suites") {
+        let definitions: Array<{ fileId: string; definition: TestDefinition }>;
+        let base: URL;
+        let timeoutMs: number;
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected a request object");
+          const input = body as Record<string, unknown>;
+          if (!Array.isArray(input.ids) || input.ids.length < 1 ||
+              input.ids.length > MAX_SUITE_CASES ||
+              !input.ids.every((id) => typeof id === "string" && SAVED_NAME.test(id)) ||
+              new Set(input.ids).size !== input.ids.length) {
+            throw new Error("Choose 1–" + MAX_SUITE_CASES + " unique approved saved tests");
+          }
+          base = validatedBaseURL(input.baseURL);
+          timeoutMs = input.timeoutMs === undefined ? 5000 : Number(input.timeoutMs);
+          if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) {
+            throw new Error("Timeout must be between 100 and 60000 ms");
+          }
+          // Validate every saved script BEFORE starting any execution.
+          definitions = [];
+          for (const fileId of input.ids as string[]) {
+            const definition = await readSaved(fileId);
+            verifyNavigations(definition, base);
+            definitions.push({ fileId, definition });
+          }
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid suite request" });
+          return;
+        }
+        if (activeRun || activePreflight) {
+          json(res, 409, { error: "A test or selector preflight is already running. Finish it before starting another." });
+          return;
+        }
+        const id = randomUUID();
+        const suite: SuiteJob = {
+          id, state: "running", startedAt: new Date().toISOString(),
+          baseURL: base.href,
+          entries: definitions.map(({ fileId, definition }) => ({
+            fileId, title: definition.title, state: "queued",
+          })),
+        };
+        suites.set(id, suite);
+        while (suites.size > MAX_SUITE_HISTORY) {
+          const oldest = suites.keys().next().value;
+          if (!oldest || oldest === id) break;
+          suites.delete(oldest);
+        }
+        activeRun = id; // Shared execution lock with single tests and preflight.
+        json(res, 202, suiteSnapshot(suite));
+        void (async () => {
+          try {
+            for (const [index, { fileId, definition }] of definitions.entries()) {
+              const entry = suite.entries[index];
+              entry.state = "running";
+              const run = registerRun(fileId);
+              entry.runId = run.id;
+              try {
+                const report = await runTest(definition, {
+                  baseURL: base.href, outputDir: run.outputDir, timeoutMs,
+                  onAssertionSearchIndex: (stepId, evidence) =>
+                    run.assertionSearchIndex?.set(stepId, evidence),
+                }, suppliedBrowser);
+                run.report = report;
+                run.state = "finished";
+                entry.verdict = report.status;
+                entry.durationMs = report.durationMs;
+                entry.state = "finished";
+              } catch {
+                run.error = "Unexpected runner error. Check local server logs.";
+                run.state = "error";
+                entry.error = run.error;
+                entry.state = "error";
+              }
+              // Deliberately continue after assertion failures / execution errors.
+            }
+          } finally {
+            suite.state = "finished";
+            suite.finishedAt = new Date().toISOString();
+            if (activeRun === id) activeRun = null;
+            try {
+              const suiteDir = join(resultsDir, "suites", id);
+              await mkdir(suiteDir, { recursive: true });
+              await writeFile(join(suiteDir, "report.json"),
+                JSON.stringify(suiteSnapshot(suite), null, 2) + "\n");
+            } catch {
+              // An artifact-write issue must not erase completed in-memory results.
+            }
+          }
+        })().catch(() => {
+          // An unexpected orchestration error should not hold the execution lock.
+          suite.state = "finished";
+          suite.finishedAt = new Date().toISOString();
+          if (activeRun === id) activeRun = null;
+        });
+        return;
+      }
       if (path === "/api/run") {
         let fileId: string;
         let definition: TestDefinition;
@@ -699,17 +872,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 409, { error: "A test or selector preflight is already running. Finish it before starting another." });
           return;
         }
-        const id = randomUUID();
-        const job: RunJob = {
-          id, fileId, state: "running", startedAt: new Date().toISOString(),
-          outputDir: join(resultsDir, id),
-          assertionSearchIndex: new Map(),
-        };
-        jobs.set(id, job);
-        if (jobs.size > MAX_RUN_HISTORY) {
-          const oldest = jobs.keys().next().value;
-          if (oldest && oldest !== id) jobs.delete(oldest);
-        }
+        const job = registerRun(fileId);
+        const id = job.id;
         activeRun = id;
         // Execute only when explicitly requested, using the *saved* approved test.
         // Runs are serialized to avoid opening several Chromiums on old laptops.
