@@ -60,6 +60,14 @@ For a failed explicit locator such as `getByLabel("Add")`, the runner now inspec
 
 The runner does not silently click or change targets. If the candidate list is incomplete or no unique candidate can be validated, use **Edit selected saved test in review form** instead. If a chosen locator fails on a later run, the error and evidence remain visible. The server rejects arbitrary candidate indexes and invalid run/step IDs.
 
+## Text mismatch: find the expected value elsewhere on the page
+
+A text assertion can resolve a locator successfully but read the **wrong element**: for example, the generated target returns `Add to cart` while the actual expected text `Sauce Labs Backpack` is visible in a separate product-name `<div>`. This remains a genuine **assertion failure**. The runner now searches *all eligible visible DOM text elements* (not just a fixed list of spans, headings, labels or statuses), prioritizing **exact rendered text matches**. It excludes hidden/script/input content and verifies the proposed Playwright selector uniquely identifies a visible element.
+
+The UI shows **Find assertion target in live DOM** even when the original selector was found but returned the wrong text. The user can choose the actual product-name element. The saved correction replaces only the assertion's selector, leaving expected text and provenance intact. The previous failed saved test and its current-session run artifacts are removed after successful replacement; rerun begins at step 1.
+
+If the expected text is *not present* in the live DOM, the test stays failed and the app does not offer unrelated text as a false positive. The reviewer can investigate whether navigation, authentication, application state, timing or the expectation is wrong. This feature requires no Groq call and does **not** silently rewrite assertions to pass. Text rendered only in images/canvas, CSS pseudo-elements, hidden frames or duplicate indistinguishable elements may require future visual or scoped selector support.
+
 ## Failed assertion locator: live DOM text search
 
 When a visibility or text assertion cannot locate its original target (for example `getByRole("heading", { name: "Products" })`), the runner searches **visible DOM elements on the page at failure time**, including spans, headings, text containers and status regions. A screenshot or the initial page snapshot is not sufficient for dynamic post-login content. The search uses the missing locator's name/text, ranks exact matches first and proposes only elements whose Playwright role/name or exact visible-text locator is unique and currently visible. It never searches input field values or blindly clicks anything.
