@@ -224,8 +224,9 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
     .locator('input[type="radio"]');
   await radio.check();
   const firstRun = await page.getByRole("link", { name: "View full JSON report" }).getAttribute("href");
+  if (!firstRun) throw new Error("Missing report link");
   const originalReport = await (await fetch(url + firstRun)).json();
-  const failingStep = originalReport.steps.find((step) => step.id === "finish");
+  const failingStep = originalReport.steps.find((step: { id: string }) => step.id === "finish");
   expect(failingStep.status).toBe("execution-error");
   expect(failingStep.ambiguity.candidates).toHaveLength(2);
   expect(failingStep.ambiguity.intent).toBe("Complete");
