@@ -226,7 +226,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Original expected: 1 tasks, 1 completed");
   await expect(panel).toContainText("Observed from run: 1 task, 1 completed");
-  const expectedField = panel.getByLabel("New expected text");
+  const expectedField = panel.getByLabel("New expected text", { exact: true });
   await expect(expectedField).toHaveValue("1 tasks, 1 completed");
   const confirm = panel.getByRole("checkbox", { name: /I verified this new expected text/ });
   const reviseButton = panel.getByRole("button", { name: "Save reviewed assertion and rerun from start" });
