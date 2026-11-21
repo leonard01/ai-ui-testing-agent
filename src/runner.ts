@@ -10,7 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
-import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -18,6 +18,7 @@ export interface RunOptions {
   outputDir: string;
   headed?: boolean;
   timeoutMs?: number;
+  onAssertionSearchIndex?: (stepId: string, entries: AssertionSearchEntry[]) => void;
 }
 type Target = Exclude<TestAction, { kind: "navigate" }>["target"];
 function locate(page: Page, target: Target): Locator {
@@ -236,6 +237,16 @@ export async function runTest(
             }
           } catch {
             // Candidate discovery is best-effort; retain the original error.
+          }
+        }
+        if (page && (step.action.kind === "assert-text" ||
+            step.action.kind === "assert-visible") && options.onAssertionSearchIndex) {
+          try {
+            const index = await captureAssertionSearchIndex(page);
+            options.onAssertionSearchIndex(step.id, index);
+            result.assertionSearchAvailable = true;
+          } catch {
+            // Failed assertion and its screenshot remain available.
           }
         }
         result.error = message(error);
