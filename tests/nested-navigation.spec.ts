@@ -61,7 +61,7 @@ function testDefinition() {
     ],
   };
 }
-async function site(): Promise<{ server: Server; url: string }> {
+async function site(duplicatePlaceholder = false): Promise<{ server: Server; url: string }> {
   const server = createServer((req, res) => {
     if (req.url !== "/todomvc/") {
       res.writeHead(404, { "Content-Type": "text/html" });
@@ -69,7 +69,10 @@ async function site(): Promise<{ server: Server; url: string }> {
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(appHTML);
+    res.end(duplicatePlaceholder
+      ? appHTML.replace('<ul id="tasks"></ul>',
+        '<input id="todo-copy" placeholder="What needs to be done?" /><ul id="tasks"></ul>')
+      : appHTML);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   return { server, url: "http://127.0.0.1:" +
@@ -192,21 +195,17 @@ test("fresh AI scripts explicitly use placeholder for both fill and press Enter"
   }
 });
 
-test("ambiguous placeholder fallback does not arbitrarily select an input", async ({ browser }, info) => {
-  const { server, url } = await site();
+test("ambiguous placeholder fallback fails safely instead of pressing on an arbitrary input", async ({ browser }, info) => {
+  const { server, url } = await site(true);
   try {
-    // Add a duplicate placeholder field to the fixture via a cloned markup page
-    // in a separate browser page; use direct Playwright to verify the same
-    // exact-match cardinality rule the runner applies.
-    const page = await browser.newPage();
-    try {
-      await page.goto(url);
-      await page.locator("#todo").evaluate((el) => el.after(el.cloneNode()));
-      const candidates = page.getByPlaceholder("What needs to be done?", { exact: true });
-      expect(await candidates.count()).toBe(2);
-    } finally {
-      await page.close();
-    }
+    const report = await runTest(testDefinition(), {
+      baseURL: url, outputDir: info.outputPath("ambiguous-placeholder"),
+      timeoutMs: 300,
+    }, browser);
+    expect(report.status).toBe("execution-error");
+    expect(report.steps.find((step) => step.id === "fill")?.status).toBe("execution-error");
+    expect(report.steps.find((step) => step.id === "fill")?.resolution).toBeUndefined();
+    expect(report.steps.find((step) => step.id === "enter")?.status).toBe("skipped");
   } finally {
     await stop(server);
   }
