@@ -9,9 +9,9 @@ import type { AddressInfo } from "node:net";
 let server: Server;
 let url: string;
 let outputDir: string;
-test.beforeAll(async () => {
+test.beforeAll(async ({ browser }) => {
   outputDir = await mkdtemp(join(tmpdir(), "ui-review-"));
-  server = await createReviewServer(outputDir);
+  server = await createReviewServer(outputDir, browser);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   url = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
 });
@@ -83,7 +83,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
-  await expect(page.locator("#saved")).toContainText("Saved!");
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const files = await readdir(outputDir);
   const drafts = await Promise.all(files.map(async (file) => JSON.parse(
     await readFile(join(outputDir, file), "utf8"),
@@ -104,6 +104,9 @@ test("run approved test from browser and show per-step diagnostics without CLI",
   await approveDraft(page);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
+  const passURL = await page.locator("#run-artifacts a").first().getAttribute("href");
+  const passReport = await (await fetch(url + passURL)).json();
+  expect(passReport.status, JSON.stringify(passReport, null, 2)).toBe("passed");
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   await expect(page.locator("#run-totals")).toContainText("9 passed");
   await expect(page.locator(".run-step")).toHaveCount(9);
@@ -128,6 +131,9 @@ test("failed UI run shows first assertion mismatch and screenshot/trace download
   await approveDraft(page);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
+  const failureURL = await page.locator("#run-artifacts a").first().getAttribute("href");
+  const failureReport = await (await fetch(url + failureURL)).json();
+  expect(failureReport.status, JSON.stringify(failureReport, null, 2)).toBe("assertion-failed");
   await expect(page.locator("#run-summary")).toContainText("FAILED");
   await expect(page.locator("#run-diagnosis")).toContainText("expected result");
   await expect(page.locator("#run-steps")).toContainText("99 tasks, 0 completed");
