@@ -10,6 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { discoverTarget } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -24,7 +25,9 @@ function locate(page: Page, target: Target): Locator {
     return page.getByRole(target.role, { name: target.name, exact: true });
   if (target.by === "label")
     return page.getByLabel(target.value, { exact: true });
-  return page.getByText(target.value, { exact: true });
+  if (target.by === "text")
+    return page.getByText(target.value, { exact: true });
+  throw new Error("Intent targets must be grounded using live DOM discovery");
 }
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -123,7 +126,13 @@ export async function runTest(
             waitUntil: "domcontentloaded",
           });
         else {
-          const target = locate(page, action.target);
+          const target = action.target.by === "intent"
+            ? await (async () => {
+              const { locator, evidence } = await discoverTarget(page, action.target, action.kind, timeout);
+              result.resolution = evidence;
+              return locator;
+            })()
+            : locate(page, action.target);
           if (action.kind === "click") await target.click();
           else if (action.kind === "fill") await target.fill(action.value);
           else {
