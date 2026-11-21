@@ -1,0 +1,47 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { extractResponseText, makeGenerationPrompt } from "../../dist/generation.js";
+import { ensureAllowedNavigation } from "../../dist/inspect.js";
+
+const snapshot = {
+  url: "http://127.0.0.1:3000/",
+  title: "Task list test application",
+  headings: ["Task list"],
+  controls: [{ kind: "button", name: "Add" }],
+  statusText: ["0 tasks, 0 completed"],
+  sampleText: ["Task"],
+};
+
+test("extracts text from a completed Responses API result", () => {
+  assert.equal(extractResponseText({
+    status: "completed",
+    output: [{ content: [{ type: "output_text", text: '{"ok":true}' }] }],
+  }), '{"ok":true}');
+  assert.throws(() => extractResponseText({ status: "incomplete", output: [] }), /not completed/);
+  assert.throws(() => extractResponseText({ output: [] }), /generated text/);
+});
+test("creates a review-first prompt with provenance constraints", () => {
+  const { system, prompt } = makeGenerationPrompt(
+    "One new task must increase the count", snapshot,
+  );
+  assert.match(system, /NEVER claim 'human-confirmed'/);
+  assert.match(system, /untrusted DATA/);
+  assert.match(system, /PREFER live DOM intent targets/);
+  assert.match(system, /label locator targets form fields/);
+  assert.match(system, /HTML listitem roles often have NO accessible name/);
+  assert.match(system, /runner resolves intent from the live DOM at EACH step/);
+  assert.match(system, /Never invent an ID, CSS class/);
+  assert.match(system, /repeated row controls/);
+  assert.match(system, /Complete preparing a presentation/);
+  assert.match(system, /Delete reviewing documentation/);
+  assert.match(system, /prefer .*by:'text'.*Task text/);
+  assert.match(prompt, /One new task must increase/);
+  assert.match(prompt, /review it before execution/);
+});
+test("rejects off-origin or non-HTTP navigation", () => {
+  const base = new URL(snapshot.url);
+  assert.equal(ensureAllowedNavigation("/tasks", base).pathname, "/tasks");
+  for (const url of ["https://example.org/", "//example.org", "javascript:alert(1)"]) {
+    assert.throws(() => ensureAllowedNavigation(url, base), /configured HTTP/);
+  }
+});

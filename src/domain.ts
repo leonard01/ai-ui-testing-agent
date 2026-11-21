@@ -1,6 +1,8 @@
 import type { z } from "zod";
 import type { testDefinitionSchema } from "./schema.js";
 
+import type { AmbiguousResolution, DiscoveryEvidence, MissingLocatorChoices, MissingAssertionChoices } from "./discovery.js";
+
 export type TestDefinition = z.infer<typeof testDefinitionSchema>;
 export type TestStep = TestDefinition["steps"][number];
 export type TestAction = TestStep["action"];
@@ -17,6 +19,11 @@ export interface StepResult {
   expected?: string;
   observed?: string;
   error?: string;
+  resolution?: DiscoveryEvidence;
+  ambiguity?: AmbiguousResolution;
+  locatorAlternatives?: MissingLocatorChoices;
+  assertionAlternatives?: MissingAssertionChoices;
+  assertionSearchAvailable?: boolean;
 }
 export interface RunReport {
   schemaVersion: 1;

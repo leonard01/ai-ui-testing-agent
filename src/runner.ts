@@ -10,6 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -17,6 +18,7 @@ export interface RunOptions {
   outputDir: string;
   headed?: boolean;
   timeoutMs?: number;
+  onAssertionSearchIndex?: (stepId: string, entries: AssertionSearchEntry[]) => void;
 }
 type Target = Exclude<TestAction, { kind: "navigate" }>["target"];
 function locate(page: Page, target: Target): Locator {
@@ -24,7 +26,9 @@ function locate(page: Page, target: Target): Locator {
     return page.getByRole(target.role, { name: target.name, exact: true });
   if (target.by === "label")
     return page.getByLabel(target.value, { exact: true });
-  return page.getByText(target.value, { exact: true });
+  if (target.by === "text")
+    return page.getByText(target.value, { exact: true });
+  throw new Error("Intent targets must be grounded using live DOM discovery");
 }
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -123,7 +127,16 @@ export async function runTest(
             waitUntil: "domcontentloaded",
           });
         else {
-          const target = locate(page, action.target);
+          let target: Locator;
+          if (action.target.by === "intent") {
+            const { locator, evidence } = await discoverTarget(
+              page, action.target, action.kind, timeout,
+            );
+            result.resolution = evidence;
+            target = locator;
+          } else {
+            target = locate(page, action.target);
+          }
           if (action.kind === "click") await target.click();
           else if (action.kind === "fill") await target.fill(action.value);
           else {
@@ -136,20 +149,31 @@ export async function runTest(
             checkingAssertion = true;
             if (action.kind === "assert-text") {
               result.expected = action.expected;
+              const expectedText = normalize(action.expected);
               const deadline = performance.now() + timeout;
-              do {
-                result.observed = normalize(
-                  (await target.textContent({
-                    timeout: Math.max(1, deadline - performance.now()),
-                  })) ?? "",
-                );
-                if (result.observed === normalize(action.expected)) break;
-                if (performance.now() >= deadline)
+              while (true) {
+                const remaining = deadline - performance.now();
+                // Never pass a nearly expired 1ms timeout to Playwright. Such
+                // calls obscure a real expected/observed assertion mismatch.
+                // A small floor permits one final DOM read before reporting.
+                if (remaining <= 0 && result.observed !== undefined) {
                   throw new Error(
                     `Text assertion failed: expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
                   );
-                await delay(50);
-              } while (true);
+                }
+                const readTimeout = Math.max(150, Math.ceil(remaining));
+                result.observed = normalize(
+                  (await target.textContent({ timeout: readTimeout })) ?? "",
+                );
+                if (result.observed === expectedText) break;
+                const timeLeft = deadline - performance.now();
+                if (timeLeft <= 0) {
+                  throw new Error(
+                    `Text assertion failed: expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
+                  );
+                }
+                await delay(Math.min(50, timeLeft));
+              }
             } else {
               result.expected = "visible";
               await target.waitFor({ state: "visible", timeout });
@@ -162,6 +186,69 @@ export async function runTest(
         result.status = checkingAssertion
           ? "assertion-failed"
           : "execution-error";
+        if (error instanceof AmbiguousIntentError) {
+          // Evidence comes from the live DOM, not an AI guess or error parsing.
+          // Execution deliberately stops without acting on any candidate.
+          result.ambiguity = error.ambiguity;
+        } else if (page && step.action.kind === "assert-text" &&
+          result.status === "assertion-failed") {
+          try {
+            // A selector may resolve successfully but point to the wrong
+            // element (e.g. "Add to cart" instead of "Sauce Labs Backpack").
+            // Search for the unchanged EXPECTED text, not the locator name,
+            // and offer the tester exact DOM-backed alternatives.
+            const alternatives = await findAssertionAlternatives(
+              page, step.action.target, "assert-text", step.action.expected, true,
+            );
+            if (alternatives.candidates.length) result.assertionAlternatives = alternatives;
+          } catch {
+            // Keep the failed assertion even if diagnostic search fails.
+          }
+        } else if (page && (step.action.kind === "click" || step.action.kind === "fill") &&
+          step.action.target.by !== "intent" && result.status === "execution-error" &&
+          /Timeout.*exceeded|strict mode violation|waiting for getBy/i.test(message(error))) {
+          try {
+            const currentLocator = locate(page, step.action.target);
+            // Only propose a replacement when the declared target no longer
+            // resolves to exactly one element. Never override app action failures.
+            if (await currentLocator.count() !== 1) {
+              const alternatives = await findLocatorAlternatives(
+                page, step.action.target, step.action.kind,
+              );
+              if (alternatives.candidates.length) result.locatorAlternatives = alternatives;
+            }
+          } catch {
+            // Preserve the original failure even if optional discovery fails.
+          }
+        } else if (page && (step.action.kind === "assert-text" ||
+            step.action.kind === "assert-visible") &&
+          step.action.target.by !== "intent" && result.status === "execution-error" &&
+          /Timeout.*exceeded|strict mode violation|waiting for getBy|exactly one element/i.test(message(error))) {
+          try {
+            const currentLocator = locate(page, step.action.target);
+            // Do not turn a genuine mismatch into a selector repair.
+            // Only search the DOM if the expected target itself is missing.
+            if (await currentLocator.count() === 0) {
+              const alternatives = await findAssertionAlternatives(
+                page, step.action.target, step.action.kind,
+                step.action.kind === "assert-text" ? step.action.expected : undefined,
+              );
+              if (alternatives.candidates.length) result.assertionAlternatives = alternatives;
+            }
+          } catch {
+            // Candidate discovery is best-effort; retain the original error.
+          }
+        }
+        if (page && (step.action.kind === "assert-text" ||
+            step.action.kind === "assert-visible") && options.onAssertionSearchIndex) {
+          try {
+            const index = await captureAssertionSearchIndex(page);
+            options.onAssertionSearchIndex(step.id, index);
+            result.assertionSearchAvailable = true;
+          } catch {
+            // Failed assertion and its screenshot remain available.
+          }
+        }
         result.error = message(error);
         report.status = result.status;
       } finally {

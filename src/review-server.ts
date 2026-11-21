@@ -1,0 +1,798 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { loadEnvFile } from "node:process";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
+import { fixtureProvider } from "./local-providers.js";
+import { groqProvider, GroqProviderError } from "./hosted-providers.js";
+import { parseTestDefinition } from "./schema.js";
+import { ensureAllowedNavigation } from "./inspect.js";
+import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
+import { runTest } from "./runner.js";
+import type { Browser } from "playwright";
+import type { RunReport, TestDefinition } from "./domain.js";
+
+const MAX_BODY_BYTES = 110_000;
+const MAX_REQUIREMENTS_CHARS = 12_000;
+const SAVED_NAME = /^reviewed-\d{13}-[a-f0-9]{8}\.json$/;
+const RUN_ID = /^[a-f0-9-]{36}$/;
+const MAX_RUN_HISTORY = 20;
+
+type RunJob = {
+  id: string;
+  fileId: string;
+  state: "running" | "finished" | "error";
+  startedAt: string;
+  outputDir: string;
+  report?: RunReport;
+  error?: string;
+  /** Short-lived DOM evidence held in memory, never included in reports. */
+  assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
+};
+
+function json(res: ServerResponse, status: number, data: unknown): void {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(JSON.stringify(data));
+}
+
+async function readJSON(req: IncomingMessage): Promise<unknown> {
+  if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
+    throw new Error("This endpoint requires application/json");
+  }
+  const chunks: Buffer[] = [];
+  let length = 0;
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    length += bytes.length;
+    if (length > MAX_BODY_BYTES) throw new Error("Request too large");
+    chunks.push(bytes);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } catch {
+    throw new Error("Invalid JSON request");
+  }
+}
+
+function localOrigin(req: IncomingMessage): boolean {
+  const host = req.headers.host ?? "";
+  const origin = req.headers.origin;
+  return /^127\.0\.0\.1:\d+$/.test(host) && (!origin || origin === "http://" + host);
+}
+
+function requestDetails(body: unknown): { baseURL: string; requirements: string; provider: "groq" | "fixture" } {
+  if (!body || typeof body !== "object") throw new Error("Expected a request object");
+  const data = body as Record<string, unknown>;
+  if (typeof data.baseURL !== "string" || !data.baseURL.trim()) {
+    throw new Error("Please enter the application URL");
+  }
+  const url = new URL(data.baseURL);
+  ensureAllowedNavigation(url.href, url);
+  if (typeof data.requirements !== "string" || !data.requirements.trim()) {
+    throw new Error("Enter a test instruction or import a requirements file");
+  }
+  if (data.requirements.length > MAX_REQUIREMENTS_CHARS) {
+    throw new Error("Requirements exceed 12,000 characters");
+  }
+  if (data.provider !== "groq" && data.provider !== "fixture") {
+    throw new Error("Choose an explicit generation provider (groq or fixture)");
+  }
+  return { baseURL: url.href, requirements: data.requirements, provider: data.provider };
+}
+
+function validatedBaseURL(raw: unknown): URL {
+  if (typeof raw !== "string") throw new Error("Application URL is required");
+  const base = new URL(raw);
+  ensureAllowedNavigation(base.href, base);
+  return base;
+}
+
+function verifyNavigations(definition: TestDefinition, base: URL): void {
+  for (const step of definition.steps) {
+    if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
+  }
+}
+
+function firstFailure(report: RunReport) {
+  return report.steps.find((step) =>
+    step.status === "assertion-failed" || step.status === "execution-error",
+  );
+}
+
+/** Deterministic diagnostic suggestions. No AI call and no silent assertion repair. */
+export function diagnoseRun(report: RunReport): { kind: string; explanation: string; suggestion: string } {
+  if (report.status === "passed") return {
+    kind: "passed",
+    explanation: "All steps passed.",
+    suggestion: "The result shows successful execution, not proof that the scenario is complete or requirements are correct.",
+  };
+  const step = firstFailure(report);
+  const error = step?.error ?? report.error ?? "";
+  if (report.status === "assertion-failed") return {
+    kind: "assertion-mismatch",
+    explanation: "The browser found the assertion target, but its content did not match the expected result.",
+    suggestion: "Compare expected and observed values with the requirements. Check whether an earlier action changed the page. Do not change an expectation simply to make the test pass.",
+  };
+  if (/Ambiguous intent|strict mode violation|exactly one element/i.test(error)) return {
+    kind: "ambiguous-target",
+    explanation: "The proposed target identifies multiple possible elements.",
+    suggestion: "Review the step and specify its surrounding section, role or exact target. Do not pick the first match blindly.",
+  };
+  if (/Could not resolve intent|waiting for getBy|locator\.|Timeout .* exceeded|Target closed/i.test(error)) return {
+    kind: "locator-or-timing",
+    explanation: "An interaction or target lookup could not complete.",
+    suggestion: "Check the target's role, visible text and nearby context; compare the DOM evidence and screenshot. A longer timeout only helps genuinely slow pages.",
+  };
+  if (/browserType\.launch|browser has been closed|Executable doesn't exist/i.test(error)) return {
+    kind: "environment",
+    explanation: "The browser could not launch or was unexpectedly closed.",
+    suggestion: "Check the Playwright Chromium installation and available system memory, then retry headless.",
+  };
+  return {
+    kind: "execution-error",
+    explanation: "The runner encountered an execution error that needs investigation.",
+    suggestion: "Review the first failed step, the captured error, screenshot, and Playwright trace.",
+  };
+}
+
+/**
+ * Lightweight loopback-only test review UI. No API keys are sent to the browser.
+ * Saving an approved draft never executes it. Safe for local development only:
+ * there is deliberately no public-network listener or user authentication.
+ */
+export async function createReviewServer(outputDir = "generated", suppliedBrowser?: Browser, groqOverride?: ModelProvider) {
+  const html = await readFile(new URL("../demo/review.html", import.meta.url));
+  const savedDir = resolve(outputDir);
+  const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
+  const jobs = new Map<string, RunJob>();
+  let activeRun: string | null = null;
+
+  async function readSaved(id: string): Promise<TestDefinition> {
+    if (!SAVED_NAME.test(id)) throw new Error("Invalid approved test filename");
+    const input = JSON.parse(await readFile(join(savedDir, id), "utf8")) as unknown;
+    return parseTestDefinition(input);
+  }
+
+  /**
+   * A revision supersedes an approved test rather than creating another
+   * visible version. Write and validate the replacement first; only then
+   * delete the superseded saved file. Do not touch the original on errors.
+   */
+  async function saveApproved(
+    definition: TestDefinition,
+    replacesId?: string,
+  ): Promise<{ id: string; file: string; replacedId?: string }> {
+    if (replacesId) {
+      if (!SAVED_NAME.test(replacesId)) throw new Error("Invalid test to replace");
+      if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running")) {
+        throw new Error("Cannot replace a test while it is running");
+      }
+      await readSaved(replacesId);
+    }
+    const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
+    const file = join(savedDir, id);
+    await mkdir(savedDir, { recursive: true });
+    await writeFile(file, JSON.stringify(definition, null, 2) + "\n", { flag: "wx" });
+    if (replacesId) {
+      try {
+        await unlink(join(savedDir, replacesId));
+      } catch (error) {
+        // Never leave a new duplicate if removing the superseded test failed.
+        await unlink(file).catch(() => {});
+        throw error;
+      }
+      // Stale failing executions for the replaced script should not clutter
+      // current-session history. Remove their report/trace/screenshot files too.
+      for (const [runId, job] of jobs) {
+        if (job.fileId !== replacesId || job.state === "running") continue;
+        jobs.delete(runId);
+        await rm(job.outputDir, { recursive: true, force: true }).catch(() => {
+          // A disk cleanup error must not roll back an already saved revision.
+        });
+      }
+    }
+    return { id, file, ...(replacesId ? { replacedId: replacesId } : {}) };
+  }
+
+  function snapshot(job: RunJob) {
+    return {
+      id: job.id, fileId: job.fileId, state: job.state, startedAt: job.startedAt,
+      report: job.report, error: job.error,
+      diagnosis: job.report ? diagnoseRun(job.report) : undefined,
+      artifacts: job.report ? {
+        report: "/api/runs/" + job.id + "/report.json",
+        ...(job.report.artifacts.screenshot ? {
+          screenshot: "/api/runs/" + job.id + "/failure.png",
+        } : {}),
+        ...(job.report.artifacts.trace ? {
+          trace: "/api/runs/" + job.id + "/trace.zip",
+        } : {}),
+      } : {},
+    };
+  }
+  return createServer((req, res) => {
+    void (async () => {
+      const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+      if (path.startsWith("/api/") && !localOrigin(req)) {
+        json(res, 403, { error: "Requests must come from this loopback review interface" });
+        return;
+      }
+      if (req.method === "GET" && path === "/") {
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'",
+        });
+        res.end(html);
+        return;
+      }
+      if (req.method === "GET" && path === "/health") {
+        json(res, 200, { ok: true });
+        return;
+      }
+      if (req.method === "GET" && path === "/api/tests") {
+        try {
+          const names = (await readdir(savedDir))
+            .filter((name) => SAVED_NAME.test(name)).sort().reverse().slice(0, 100);
+          const saved: Array<{ id: string; title: string; steps: number }> = [];
+          for (const id of names) {
+            try {
+              const definition = await readSaved(id);
+              saved.push({ id, title: definition.title, steps: definition.steps.length });
+            } catch { /* Skip invalid or unreadable files */ }
+          }
+          json(res, 200, { tests: saved });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") json(res, 200, { tests: [] });
+          else json(res, 500, { error: "Could not list approved tests" });
+        }
+        return;
+      }
+      const savedTestPath = /^\/api\/tests\/(reviewed-\d{13}-[a-f0-9]{8}\.json)$/.exec(path);
+      if (req.method === "GET" && savedTestPath) {
+        try {
+          const definition = await readSaved(savedTestPath[1]);
+          json(res, 200, { id: savedTestPath[1], definition });
+        } catch {
+          json(res, 404, { error: "Saved test not found" });
+        }
+        return;
+      }
+      const resultPath = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(report\.json|failure\.png|trace\.zip))?$/.exec(path);
+      if (req.method === "GET" && resultPath) {
+        const id = resultPath[1];
+        if (!RUN_ID.test(id) || !jobs.has(id)) {
+          json(res, 404, { error: "Run not found" });
+          return;
+        }
+        const job = jobs.get(id)!;
+        const artifact = resultPath[2];
+        if (!artifact) {
+          json(res, 200, snapshot(job));
+          return;
+        }
+        if (!job.report || job.state !== "finished" ||
+            (artifact === "failure.png" && job.report.artifacts.screenshot !== "failure.png") ||
+            (artifact === "trace.zip" && job.report.artifacts.trace !== "trace.zip")) {
+          json(res, 404, { error: "Artifact not available" });
+          return;
+        }
+        if (artifact === "report.json") {
+          json(res, 200, job.report);
+          return;
+        }
+        try {
+          const bytes = await readFile(join(job.outputDir, artifact));
+          res.writeHead(200, {
+            "Content-Type": artifact.endsWith(".png") ? "image/png" : "application/zip",
+            "Content-Disposition": artifact.endsWith(".zip")
+              ? "attachment; filename=trace.zip" : "inline; filename=failure.png",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "Cache-Control": "no-store",
+          });
+          res.end(bytes);
+        } catch {
+          json(res, 404, { error: "Artifact file is unavailable" });
+        }
+        return;
+      }
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+        json(res, 404, { error: "Not found" });
+        return;
+      }
+      if (!localOrigin(req)) {
+        json(res, 403, { error: "Requests must originate from this local review interface" });
+        return;
+      }
+      let body: unknown;
+      try {
+        body = await readJSON(req);
+      } catch (error) {
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/repair") {
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected a request object");
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.candidateIndex !== "number" ||
+              !Number.isInteger(input.candidateIndex) || input.candidateIndex < 0) {
+            throw new Error("Choose one of the displayed candidate elements");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || !job.report ||
+              job.report.status !== "execution-error") {
+            throw new Error("No completed ambiguous execution is available for repair");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.status === "execution-error" && !!step.ambiguity,
+          );
+          const ambiguity = failed?.ambiguity;
+          if (!failed || !ambiguity || ambiguity.total > ambiguity.candidates.length) {
+            throw new Error("No complete set of candidate choices is available for this run");
+          }
+          const selected = ambiguity.candidates[input.candidateIndex as number];
+          if (!selected || !selected.name.trim()) {
+            throw new Error("This candidate has no meaningful name; edit the locator manually");
+          }
+          if (ambiguity.candidates.some((candidate, index) =>
+            index !== input.candidateIndex && candidate.name === selected.name &&
+            candidate.role === selected.role)) {
+            throw new Error("These candidates have identical names; choose a more specific locator manually");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((step) => step.id === failed.id);
+          if (!step || step.action.kind === "navigate" ||
+              step.action.target.by !== "intent" ||
+              step.action.target.value !== ambiguity.intent ||
+              step.action.target.role !== ambiguity.role) {
+            throw new Error("The saved test changed since this execution; rerun it before repairing");
+          }
+          const candidateRole = selected.role;
+          const groundedRole = candidateRole === "button" || candidateRole === "textbox" ||
+            candidateRole === "checkbox" || candidateRole === "heading" ||
+            candidateRole === "status" || candidateRole === "listitem"
+            ? candidateRole : undefined;
+          const selectedRole = ambiguity.role || groundedRole;
+          step.action.target = {
+            by: "intent",
+            value: selected.name,
+            ...(selectedRole ? { role: selectedRole } : {}),
+          };
+          const repaired = parseTestDefinition(definition);
+          const { id, file, replacedId } = await saveApproved(repaired, job.fileId);
+          json(res, 201, {
+            id, file, replacedId, repairedStepId: failed.id,
+            previousIntent: ambiguity.intent,
+            approvedIntent: selected.name,
+            message: "Corrected test saved and failed version removed from the list; no test has been executed.",
+          });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid repair request" });
+        }
+        return;
+      }
+      if (path === "/api/repair-target") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a repair request object");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Failed step ID is required");
+          }
+          if (typeof input.candidateIndex !== "number" ||
+              !Number.isInteger(input.candidateIndex) || input.candidateIndex < 0) {
+            throw new Error("Choose one of the displayed elements");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || job.report?.status !== "execution-error") {
+            throw new Error("No completed locator failure exists for this run");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.status === "execution-error" &&
+            !!step.locatorAlternatives,
+          );
+          const evidence = failed?.locatorAlternatives;
+          if (!failed || !evidence || !evidence.candidates.length ||
+              evidence.total !== evidence.candidates.length) {
+            throw new Error("A complete set of live DOM alternatives is not available");
+          }
+          const chosen = evidence.candidates[input.candidateIndex];
+          if (!chosen || !chosen.name.trim()) {
+            throw new Error("Choose a named element from the failed run");
+          }
+          if (evidence.candidates.some((candidate, index) =>
+            index !== input.candidateIndex && candidate.name === chosen.name &&
+            candidate.role === chosen.role)) {
+            throw new Error("The candidate name is not unique; refine the target in the review UI");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || (step.action.kind !== "click" && step.action.kind !== "fill") ||
+              JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted)) {
+            throw new Error("The saved test no longer matches this run; rerun before repairing");
+          }
+          const role = chosen.role;
+          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" ||
+              step.action.kind === "fill" && role !== "textbox") {
+            throw new Error("The selected element cannot perform this action");
+          }
+          // A role/name locator corresponds to the user-selected, uniquely
+          // resolved visible candidate. Do not accept arbitrary selectors.
+          if (role !== "button" && role !== "checkbox" && role !== "textbox") {
+            throw new Error("Unsupported element role");
+          }
+          const previousTarget = step.action.target;
+          step.action.target = { by: "role", role, name: chosen.name };
+          const corrected = parseTestDefinition(definition);
+          const { id, replacedId } = await saveApproved(corrected, job.fileId);
+          json(res, 201, {
+            id, replacedId, repairedStepId: step.id,
+            previousTarget, approvedTarget: step.action.target,
+            message: "Corrected locator saved and failed test replaced; assertions remain unchanged. Execution has not started.",
+          });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid locator repair" });
+        }
+        return;
+      }
+      if (path === "/api/search-assertion-dom") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a DOM search request");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId) ||
+              typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Valid run and failed step IDs are required");
+          }
+          if (typeof input.query !== "string" || !input.query.trim() ||
+              input.query.trim().length > 180) {
+            throw new Error("DOM search text must be 1–180 characters");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" ||
+              (job.report?.status !== "execution-error" &&
+               job.report?.status !== "assertion-failed")) {
+            throw new Error("Search requires a completed failing run");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.assertionSearchAvailable === true &&
+            (step.status === "execution-error" || step.status === "assertion-failed"),
+          );
+          const entries = job.assertionSearchIndex?.get(input.stepId);
+          if (!failed || !entries) {
+            throw new Error("No searchable DOM evidence exists for this failed assertion");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || (step.action.kind !== "assert-text" &&
+              step.action.kind !== "assert-visible") ||
+              (failed.status === "assertion-failed" &&
+               (step.action.kind !== "assert-text" ||
+                failed.expected !== step.action.expected))) {
+            throw new Error("The saved assertion no longer matches the failed run");
+          }
+          const alternatives = searchCapturedAssertionText(
+            entries, step.action.target, input.query,
+          );
+          alternatives.searchToken = randomUUID();
+          failed.assertionAlternatives = alternatives;
+          json(res, 200, { alternatives,
+            message: "Search uses visible DOM evidence captured at the failure, without replaying actions." });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid DOM search" });
+        }
+        return;
+      }
+      if (path === "/api/repair-assertion-target") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a repair request object");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Failed assertion step ID is required");
+          }
+          if (typeof input.candidateIndex !== "number" ||
+              !Number.isInteger(input.candidateIndex) || input.candidateIndex < 0) {
+            throw new Error("Choose one of the displayed DOM matches");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" ||
+              (job.report?.status !== "execution-error" &&
+               job.report?.status !== "assertion-failed")) {
+            throw new Error("No completed failed assertion target is available");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId &&
+            (step.status === "execution-error" || step.status === "assertion-failed") &&
+            !!step.assertionAlternatives,
+          );
+          const evidence = failed?.assertionAlternatives;
+          if (!failed || !evidence || !evidence.candidates.length ||
+              evidence.total !== evidence.candidates.length) {
+            throw new Error("A complete set of verified live DOM matches is required");
+          }
+          if (evidence.searched &&
+              (typeof input.searchToken !== "string" ||
+               input.searchToken !== evidence.searchToken)) {
+            throw new Error("DOM search results have changed; search again before approving");
+          }
+          const selected = evidence.candidates[input.candidateIndex];
+          if (!selected || !selected.target) {
+            throw new Error("Choose a verified element from the failed run");
+          }
+          if (evidence.candidates.some((candidate, index) =>
+            index !== input.candidateIndex &&
+            JSON.stringify(candidate.target) === JSON.stringify(selected.target))) {
+            throw new Error("This candidate cannot be uniquely identified");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || (step.action.kind !== "assert-visible" && step.action.kind !== "assert-text") ||
+              JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted) ||
+              (failed.status === "assertion-failed" &&
+                (step.action.kind !== "assert-text" ||
+                 step.action.expected !== failed.expected ||
+                 !failed.observed || failed.observed === failed.expected ||
+                 (!evidence.searched &&
+                  evidence.query !== failed.expected.replace(/\s+/g, " ").trim())))) {
+            throw new Error("Saved assertion differs from the failing run; rerun before repairing");
+          }
+          const target = selected.target;
+          if (target.by !== "text" && target.by !== "role") {
+            throw new Error("Only verified role and visible-text locators are accepted");
+          }
+          if (target.by === "role" && !target.name ||
+              target.by === "text" && !target.value.trim()) {
+            throw new Error("Assertion target must uniquely identify a named element");
+          }
+          // Only the target is changed. Expected text, provenance, assertion
+          // kind and all other steps are preserved. Actual page text is never
+          // promoted to a passing expectation.
+          const previousTarget = step.action.target;
+          step.action.target = target;
+          const corrected = parseTestDefinition(definition);
+          const { id, replacedId } = await saveApproved(corrected, job.fileId);
+          json(res, 201, {
+            id, replacedId, repairedStepId: step.id,
+            previousTarget, approvedTarget: target,
+            message: "Assertion target corrected from reviewed DOM evidence; expected results unchanged. No run started.",
+          });
+        } catch (error) {
+          json(res, 400, {
+            error: error instanceof Error ? error.message : "Invalid assertion locator repair",
+          });
+        }
+        return;
+      }
+      if (path === "/api/repair-assertion") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a request object");
+          }
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId)) {
+            throw new Error("Valid completed run ID is required");
+          }
+          if (typeof input.stepId !== "string" || !input.stepId.trim()) {
+            throw new Error("Failed assertion step ID is required");
+          }
+          if (typeof input.expected !== "string" || input.expected.length > 10_000) {
+            throw new Error("New expected text must contain at most 10,000 characters");
+          }
+          if (input.confirmed !== true) {
+            throw new Error("Tester must explicitly confirm the new expectation against requirements");
+          }
+          const job = jobs.get(input.runId);
+          if (!job || job.state !== "finished" || job.report?.status !== "assertion-failed") {
+            throw new Error("This run has no completed text assertion failure to review");
+          }
+          const failed = job.report.steps.find((step) =>
+            step.id === input.stepId && step.status === "assertion-failed" &&
+            typeof step.expected === "string" && typeof step.observed === "string",
+          );
+          if (!failed) {
+            throw new Error("Requested step is not a failed text assertion with an observed value");
+          }
+          const definition = await readSaved(job.fileId);
+          const step = definition.steps.find((entry) => entry.id === failed.id);
+          if (!step || step.action.kind !== "assert-text" ||
+              step.action.expected !== failed.expected) {
+            throw new Error("Saved assertion differs from the failed run; rerun before reviewing");
+          }
+          if (input.expected === step.action.expected) {
+            throw new Error("The new expected text is unchanged");
+          }
+          // The page's observed value is evidence, never an automatically
+          // accepted oracle. Only explicit human confirmation can change it.
+          const previousExpected = step.action.expected;
+          step.action.expected = input.expected;
+          step.action.provenance = "human-confirmed";
+          const reviewed = parseTestDefinition(definition);
+          const { id, file, replacedId } = await saveApproved(reviewed, job.fileId);
+          json(res, 201, {
+            id, file, replacedId, revisedStepId: failed.id,
+            previousExpected, newExpected: input.expected,
+            observed: failed.observed,
+            message: "Human-confirmed correction saved; failed test removed. No run started.",
+          });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid assertion review" });
+        }
+        return;
+      }
+      if (path === "/api/run") {
+        let fileId: string;
+        let definition: TestDefinition;
+        let base: URL;
+        let timeoutMs: number;
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected a request object");
+          const input = body as Record<string, unknown>;
+          if (typeof input.id !== "string") throw new Error("Approved test ID is required");
+          fileId = input.id;
+          base = validatedBaseURL(input.baseURL);
+          timeoutMs = input.timeoutMs === undefined ? 5000 : Number(input.timeoutMs);
+          if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 60000) {
+            throw new Error("Timeout must be between 100 and 60000 ms");
+          }
+          definition = await readSaved(fileId);
+          verifyNavigations(definition, base);
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid test request" });
+          return;
+        }
+        if (activeRun) {
+          json(res, 409, { error: "A test is already running. Finish it before starting another." });
+          return;
+        }
+        const id = randomUUID();
+        const job: RunJob = {
+          id, fileId, state: "running", startedAt: new Date().toISOString(),
+          outputDir: join(resultsDir, id),
+          assertionSearchIndex: new Map(),
+        };
+        jobs.set(id, job);
+        if (jobs.size > MAX_RUN_HISTORY) {
+          const oldest = jobs.keys().next().value;
+          if (oldest && oldest !== id) jobs.delete(oldest);
+        }
+        activeRun = id;
+        // Execute only when explicitly requested, using the *saved* approved test.
+        // Runs are serialized to avoid opening several Chromiums on old laptops.
+        void runTest(definition, {
+          baseURL: base.href, outputDir: job.outputDir, timeoutMs,
+          onAssertionSearchIndex: (stepId, entries) => job.assertionSearchIndex?.set(stepId, entries),
+        }, suppliedBrowser).then((report) => {
+          job.report = report;
+          job.state = "finished";
+        }).catch(() => {
+          job.state = "error";
+          job.error = "Unexpected runner error. Review local server logs.";
+        }).finally(() => { if (activeRun === id) activeRun = null; });
+        json(res, 202, snapshot(job));
+        return;
+      }
+      if (path === "/api/generate") {
+        let input: ReturnType<typeof requestDetails>;
+        try {
+          input = requestDetails(body);
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+        const provider = input.provider === "groq" ? (groqOverride ?? groqProvider) : fixtureProvider();
+        const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
+        try {
+          const result = await generateDraft({
+            baseURL: input.baseURL, requirements: input.requirements, model,
+            retryMalformedOutput: input.provider === "groq",
+          }, provider);
+          json(res, 200, {
+            definition: result.definition, needsReview: true, provider: input.provider,
+            generationAttempts: result.generationAttempts,
+            message: input.provider === "fixture"
+              ? "Fixture is a prewritten demonstration, not AI-generated."
+              : result.generationAttempts > 1
+                ? "The first AI draft was invalid. A second model call corrected its JSON schema. Review every step and assertion before approving."
+                : "AI-generated draft. Verify each step and inferred assertion before approving.",
+          });
+        } catch (error) {
+          if (error instanceof GroqProviderError) {
+            // Upstream 400 is NOT invalid local user input: distinguish origins.
+            json(res, 502, {
+              source: error.source,
+              providerStatus: error.httpStatus,
+              category: error.category,
+              providerCode: error.providerCode,
+              providerType: error.providerType,
+              providerParam: error.providerParam,
+              error: error.message,
+              requirementsCharacters: input.requirements.length,
+            });
+          } else if (error instanceof GeneratedDraftValidationError) {
+            json(res, 422, {
+              source: error.source,
+              category: error.category,
+              attempts: error.attempts,
+              problems: error.problems,
+              error: error.message,
+              requirementsCharacters: input.requirements.length,
+            });
+          } else {
+            json(res, 422, {
+              source: "generator",
+              error: error instanceof Error ? error.message : "Generation failed",
+              requirementsCharacters: input.requirements.length,
+            });
+          }
+        }
+        return;
+      }
+      try {
+        const data = body as { definition?: unknown; baseURL?: unknown; replaceId?: unknown } | null;
+        const base = validatedBaseURL(data?.baseURL);
+        const definition = parseTestDefinition(data?.definition);
+        verifyNavigations(definition, base);
+        if (data?.replaceId !== undefined &&
+          (typeof data.replaceId !== "string" || !SAVED_NAME.test(data.replaceId))) {
+          throw new Error("Invalid saved test to replace");
+        }
+        const { id, file, replacedId } = await saveApproved(
+          definition, data?.replaceId as string | undefined,
+        );
+        json(res, 200, {
+          id, file, replacedId,
+          message: replacedId
+            ? "Amended test saved; previous version removed. No test has been executed."
+            : "Saved approved test definition; no test has been executed.",
+        });
+      } catch (error) {
+        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+      }
+    })().catch(() => {
+      if (!res.headersSent) json(res, 500, { error: "Internal review server error" });
+      else res.end();
+    });
+  });
+}
+
+async function main(): Promise<void> {
+  if (existsSync(".env")) loadEnvFile(".env");
+  const server = await createReviewServer();
+  server.listen(3100, "127.0.0.1", () => {
+    console.log("Test review UI: http://127.0.0.1:3100");
+    console.log("Local-only interface; no browser AI credentials required.");
+  });
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => server.close());
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 2;
+  });
+}

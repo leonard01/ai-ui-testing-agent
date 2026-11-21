@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "task-lifecycle-live-intent",
+  "title": "Task lifecycle with live DOM intent locators",
+  "version": 1,
+  "steps": [
+    {
+      "id": "open",
+      "description": "Open task list",
+      "action": {
+        "kind": "navigate",
+        "url": "/"
+      }
+    },
+    {
+      "id": "empty",
+      "description": "Verify initial empty status",
+      "action": {
+        "kind": "assert-text",
+        "target": {
+          "by": "intent",
+          "value": "status",
+          "role": "status"
+        },
+        "expected": "0 tasks, 0 completed",
+        "provenance": "requirements"
+      }
+    },
+    {
+      "id": "enter",
+      "description": "Enter task name",
+      "action": {
+        "kind": "fill",
+        "target": {
+          "by": "intent",
+          "value": "Task",
+          "role": "textbox"
+        },
+        "value": "Prepare interview"
+      }
+    },
+    {
+      "id": "add",
+      "description": "Add task",
+      "action": {
+        "kind": "click",
+        "target": {
+          "by": "intent",
+          "value": "Add task",
+          "role": "button"
+        }
+      }
+    },
+    {
+      "id": "visible",
+      "description": "Verify task appeared",
+      "action": {
+        "kind": "assert-visible",
+        "target": {
+          "by": "intent",
+          "value": "Prepare interview"
+        },
+        "provenance": "requirements"
+      }
+    },
+    {
+      "id": "completed",
+      "description": "Complete the task",
+      "action": {
+        "kind": "click",
+        "target": {
+          "by": "intent",
+          "value": "Complete Prepare interview",
+          "role": "checkbox"
+        }
+      }
+    },
+    {
+      "id": "one-done",
+      "description": "Verify completed count",
+      "action": {
+        "kind": "assert-text",
+        "target": {
+          "by": "intent",
+          "value": "status",
+          "role": "status"
+        },
+        "expected": "1 task, 1 completed",
+        "provenance": "requirements"
+      }
+    },
+    {
+      "id": "remove",
+      "description": "Delete the task",
+      "action": {
+        "kind": "click",
+        "target": {
+          "by": "intent",
+          "value": "Delete Prepare interview",
+          "role": "button"
+        }
+      }
+    },
+    {
+      "id": "reset",
+      "description": "Verify empty list",
+      "action": {
+        "kind": "assert-text",
+        "target": {
+          "by": "intent",
+          "value": "status",
+          "role": "status"
+        },
+        "expected": "0 tasks, 0 completed",
+        "provenance": "requirements"
+      }
+    }
+  ]
+}
