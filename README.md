@@ -105,7 +105,9 @@ npm run review
 
 Open **http://127.0.0.1:3100/**. Enter an instruction such as **"Add a task called Prepare interview; verify it appears; complete it and delete it."** or import a `.txt`/`.md` file. Choose GroqCloud (hosted model) or Fixture (prewritten no-AI example). The result is a **plain-English ordered step preview** with locator details, expected outcomes and provenance. Testers can edit individual fields, verify each step and explicitly approve saving the draft JSON.
 
-**Saving doesn't execute any tests.** Use the generated command to run the case through the existing deterministic Playwright runner. The `GROQ_API_KEY` stays on the local server; the browser doesn't receive it. Real Groq model accuracy and workflows on arbitrary sites still need evaluation.
+**Saving doesn't execute any tests.** After approval, use the new **3. Execute and diagnose** panel to select an approved saved case and click **Run selected test** (or use the CLI). The interface runs deterministic Playwright, displays pass/fail details for every step, expected/observed assertion values, locator-discovery evidence, and a likely cause and next action when a step fails. Where available, you can view the failure screenshot, download the Playwright trace, or open the full JSON report **without using the command line**. The `GROQ_API_KEY` stays on the local server; executing saved tests does not require another model call.
+
+Runs are intentionally **explicit, headless and serialized** so the older laptop does not have several Chromium instances competing for memory. The UI lists existing approved `generated/reviewed-*.json` tests after restarting. Real Groq model accuracy and workflows on arbitrary sites still need evaluation.
 
 [Full interface instructions, limitations, and security notes](docs/test-review-ui.md).
 
@@ -114,7 +116,7 @@ Open **http://127.0.0.1:3100/**. Enter an instruction such as **"Add a task call
 - Fully evaluated AI generation quality (including live GroqCloud model output), automatic approval or autonomous multi-page exploration (first generator is a review-only draft).
 - AI discovery of workflows or interpretation of browser targets.
 - Recording a user's interactions into a test case.
-- Execution speed controls, pause/resume, single-step, skip and manual takeover.
+- Execution speed controls, pause/resume, single-step, skip and manual takeover (the review UI provides limited per-step timeout selection).
 - Full test management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
 - Exporting cases as standalone TypeScript scripts.
 - API, mobile and load testing, or additional language exporters.
