@@ -1,0 +1,202 @@
+import type { Locator, Page } from "playwright";
+
+/** A human intention is not an AI-invented CSS selector. */
+export interface IntentTarget {
+  by: "intent";
+  value: string;
+  role?: "button" | "textbox" | "checkbox" | "heading" | "status" | "listitem";
+}
+export type TargetOperation = "click" | "fill" | "assert-text" | "assert-visible";
+
+interface DomCandidate {
+  index: number;
+  tag: string;
+  role: string;
+  name: string;
+  text: string;
+  nearby: string;
+  testId: string;
+  id: string;
+}
+export interface DiscoveryEvidence {
+  intent: string;
+  method: "live-dom";
+  tag: string;
+  role: string;
+  name: string;
+  nearby: string;
+  locator: string;
+  candidatesInspected: number;
+}
+
+const COMMON = new Set([
+  "a", "an", "the", "this", "that", "element", "control", "button", "field",
+  "input", "textbox", "box", "link", "item", "click", "fill", "enter", "type",
+  "find", "verify", "assert", "check", "visible", "select", "with", "called", "named",
+]);
+function tokens(value: string): string[] {
+  return value.toLowerCase()
+    .replace(/\buser[\s_-]+name\b/g, "username")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/[^a-z0-9]+/g).filter(Boolean)
+    .map((word) => word.endsWith("ies") && word.length > 4
+      ? word.slice(0, -3) + "y"
+      : word.endsWith("s") && word.length > 4 ? word.slice(0, -1) : word);
+}
+function keywords(value: string): string[] {
+  return [...new Set(tokens(value).filter((word) => !COMMON.has(word)))];
+}
+function candidateScore(candidate: DomCandidate, words: string[]): number | null {
+  if (words.length === 0) return 0;
+  const name = new Set(tokens(candidate.name));
+  const text = new Set(tokens(candidate.text));
+  const context = new Set(tokens(candidate.nearby));
+  const role = new Set(tokens(candidate.role));
+  let points = 0;
+  for (const word of words) {
+    if (name.has(word)) points += 15;
+    else if (text.has(word)) points += 11;
+    else if (role.has(word)) points += 10;
+    else if (context.has(word)) points += 4;
+    else return null; // Require evidence for EVERY meaningful part of the request.
+  }
+  const meaningfulName = keywords(candidate.name);
+  if (meaningfulName.length === words.length &&
+    words.every((word) => meaningfulName.includes(word))) points += 50;
+  return points;
+}
+
+/**
+ * Collect only elements relevant to the action, on the LIVE page at execution time.
+ * Avoids DOM dumps, page-wide AI guesses, and values of sensitive input fields.
+ */
+async function inspectCandidates(page: Page, operation: TargetOperation): Promise<{
+  selector: string; candidates: DomCandidate[];
+}> {
+  return page.evaluate((op) => {
+    const selectorByOperation = {
+      click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], [role=button], [role=link], [role=checkbox]",
+      fill: "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]), textarea, [contenteditable=true], [role=textbox]",
+      "assert-text": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, [data-testid]",
+      "assert-visible": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, a[href], input, [data-testid]",
+    } as const;
+    const selector = selectorByOperation[op];
+    const trim = (value: string | null | undefined, limit = 130) =>
+      (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
+    const all = Array.from(document.querySelectorAll<HTMLElement>(selector)).slice(0, 250);
+    const candidates = all.flatMap((el, index) => {
+      if (!el.getClientRects().length || el.closest("[hidden], [inert]")) return [];
+      const style = getComputedStyle(el);
+      if (style.visibility === "hidden" || style.display === "none") return [];
+      const input = el as HTMLInputElement;
+      const explicitRole = el.getAttribute("role");
+      const role = explicitRole || (
+        el.tagName === "BUTTON" || (el.tagName === "INPUT" && ["submit", "button"].includes(input.type)) ? "button" :
+        el.tagName === "A" ? "link" :
+        el.tagName === "INPUT" && input.type === "checkbox" ? "checkbox" :
+        el.tagName === "INPUT" || el.tagName === "TEXTAREA" ? "textbox" :
+        /^H[1-6]$/.test(el.tagName) ? "heading" :
+        el.tagName === "LI" ? "listitem" : ""
+      );
+      const labelledBy = (el.getAttribute("aria-labelledby") ?? "")
+        .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+      const label = input.labels?.[0]?.textContent;
+      const ownText = trim(el.innerText || el.textContent);
+      const name = trim(el.getAttribute("aria-label") || labelledBy || label ||
+        el.getAttribute("placeholder") || el.getAttribute("title") ||
+        (el.tagName === "INPUT" ? input.value && ["submit", "button"].includes(input.type) ? input.value : "" : ownText));
+      // Prefer immediate grouping over the whole form/page; imperfect forms often
+      // have a sibling span/label next to an unlabeled input.
+      const nearby = trim((el.parentElement as HTMLElement | null)?.innerText, 180);
+      return [{
+        index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
+        nearby, testId: trim(el.getAttribute("data-testid"), 100),
+        id: trim(el.id, 100),
+      }];
+    });
+    return { selector, candidates };
+  }, operation);
+}
+
+function cssAttribute(value: string): string {
+  return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+/**
+ * Resolve an intent against CURRENT DOM evidence. No model call is needed for
+ * uniquely supported matches. If 0 or >1 equally plausible candidates remain,
+ * return a diagnostic rather than clicking/filling an arbitrary element.
+ */
+export async function discoverTarget(
+  page: Page,
+  target: IntentTarget,
+  operation: TargetOperation,
+  timeoutMs: number,
+): Promise<{ locator: Locator; evidence: DiscoveryEvidence }> {
+  const request = keywords(target.value);
+  if (!request.length && !target.role) {
+    throw new Error("Intent needs a meaningful description or an explicit role");
+  }
+  const deadline = Date.now() + timeoutMs;
+  let detail = "No matching visible elements";
+  while (true) {
+    const { selector, candidates } = await inspectCandidates(page, operation);
+    const considered = candidates.filter((c) => !target.role || c.role === target.role);
+    const ranked = considered.flatMap((candidate) => {
+      const score = candidateScore(candidate, request);
+      return score === null ? [] : [{ candidate, score }];
+    }).sort((a, b) => b.score - a.score);
+    if (ranked.length) {
+      const bestScore = ranked[0].score;
+      const top = ranked.filter((entry) => entry.score === bestScore);
+      if (top.length !== 1) {
+        throw new Error(
+          "Ambiguous intent " + JSON.stringify(target.value) + ": " +
+          top.length + " equally plausible elements: " +
+          top.slice(0, 6).map(({ candidate }) =>
+            "<" + candidate.tag + "> role=" + JSON.stringify(candidate.role) +
+            " name=" + JSON.stringify(candidate.name) +
+            " nearby=" + JSON.stringify(candidate.nearby),
+          ).join("; "),
+        );
+      }
+      const match = top[0].candidate;
+      // Stable attributes preferred; positional fallback is resolved afresh
+      // each run, never stored as a brittle cross-run selector.
+      const options = [
+        ...(match.testId ? [{
+          locator: page.getByTestId(match.testId),
+          label: "data-testid=" + JSON.stringify(match.testId),
+        }] : []),
+        ...(match.id ? [{
+          locator: page.locator("[id=" + cssAttribute(match.id) + "]"),
+          label: "id=" + JSON.stringify(match.id),
+        }] : []),
+        {
+          locator: page.locator(selector).nth(match.index),
+          label: "current-DOM " + match.tag + " index=" + match.index,
+        },
+      ];
+      for (const option of options) {
+        if (await option.locator.count() === 1 && await option.locator.isVisible()) {
+          return {
+            locator: option.locator,
+            evidence: {
+              intent: target.value, method: "live-dom",
+              tag: match.tag, role: match.role, name: match.name,
+              nearby: match.nearby, locator: option.label,
+              candidatesInspected: candidates.length,
+            },
+          };
+        }
+      }
+      detail = "Matching element was no longer visible";
+    } else {
+      detail = "No visible " + (target.role ?? operation) + " element matched " +
+        JSON.stringify(target.value) + ". Candidates: " +
+        considered.slice(0, 5).map((c) => c.name || c.nearby || "<" + c.tag + ">").join("; ");
+    }
+    if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
+    await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
+  }
+}
