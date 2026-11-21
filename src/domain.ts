@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import type { testDefinitionSchema } from "./schema.js";
 
-import type { DiscoveryEvidence } from "./discovery.js";
+import type { AmbiguousResolution, DiscoveryEvidence } from "./discovery.js";
 
 export type TestDefinition = z.infer<typeof testDefinitionSchema>;
 export type TestStep = TestDefinition["steps"][number];
@@ -20,6 +20,7 @@ export interface StepResult {
   observed?: string;
   error?: string;
   resolution?: DiscoveryEvidence;
+  ambiguity?: AmbiguousResolution;
 }
 export interface RunReport {
   schemaVersion: 1;
