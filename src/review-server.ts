@@ -11,6 +11,7 @@ import { groqProvider } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { runTest } from "./runner.js";
+import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
 
 const MAX_BODY_BYTES = 110_000;
@@ -143,7 +144,7 @@ export function diagnoseRun(report: RunReport): { kind: string; explanation: str
  * Saving an approved draft never executes it. Safe for local development only:
  * there is deliberately no public-network listener or user authentication.
  */
-export async function createReviewServer(outputDir = "generated") {
+export async function createReviewServer(outputDir = "generated", suppliedBrowser?: Browser) {
   const html = await readFile(new URL("../demo/review.html", import.meta.url));
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
@@ -305,7 +306,7 @@ export async function createReviewServer(outputDir = "generated") {
         // Runs are serialized to avoid opening several Chromiums on old laptops.
         void runTest(definition, {
           baseURL: base.href, outputDir: job.outputDir, timeoutMs,
-        }).then((report) => {
+        }, suppliedBrowser).then((report) => {
           job.report = report;
           job.state = "finished";
         }).catch(() => {
