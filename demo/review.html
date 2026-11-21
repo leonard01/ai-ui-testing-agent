@@ -136,15 +136,61 @@
       if (clone.action.kind === "navigate") {
         labeledInput(edits, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
       } else {
-        const t = clone.action.target;
-        if (t.by === "role") {
-          labeledInput(edits, "Role (button, textbox, checkbox, heading, status, listitem)", t.role, (v) => { t.role = v; });
-          labeledInput(edits, "Accessible name (may be blank)", t.name, (v) => {
-            if (v.trim()) t.name = v; else delete t.name;
-          });
-        } else {
-          labeledInput(edits, "Locator " + t.by, t.value, (v) => { t.value = v; });
+        const strategyLabel = make("label", "Locator strategy");
+        const strategySelect = make("select");
+        for (const [value, title] of [
+          ["role", "Accessible role and name"],
+          ["label", "Form label"],
+          ["text", "Visible text"],
+        ]) {
+          const option = make("option", title);
+          option.value = value;
+          strategySelect.append(option);
         }
+        strategySelect.value = clone.action.target.by;
+        strategyLabel.append(strategySelect);
+        edits.append(strategyLabel);
+        const locatorFields = make("div");
+        edits.append(locatorFields);
+        const renderLocatorFields = () => {
+          locatorFields.replaceChildren();
+          const t = clone.action.target;
+          if (t.by === "role") {
+            const roleLabel = make("label", "Element role");
+            const roleSelect = make("select");
+            for (const role of ["button", "textbox", "checkbox", "heading", "status", "listitem"]) {
+              const option = make("option", role);
+              option.value = role;
+              roleSelect.append(option);
+            }
+            roleSelect.value = t.role;
+            roleSelect.addEventListener("change", () => { t.role = roleSelect.value; });
+            roleLabel.append(roleSelect);
+            locatorFields.append(roleLabel);
+            labeledInput(locatorFields, "Accessible name (may be blank)", t.name ?? "", (v) => {
+              if (v.trim()) t.name = v; else delete t.name;
+            });
+          } else {
+            labeledInput(locatorFields, t.by === "label" ? "Form label text" : "Visible text", t.value, (v) => {
+              t.value = v;
+            });
+          }
+        };
+        strategySelect.addEventListener("change", () => {
+          const oldTarget = clone.action.target;
+          const name = oldTarget.by === "role" ? oldTarget.name ?? "" : oldTarget.value;
+          if (strategySelect.value === "role") {
+            clone.action.target = {
+              by: "role",
+              role: clone.action.kind === "fill" ? "textbox" : "button",
+              ...(name ? { name } : {}),
+            };
+          } else {
+            clone.action.target = { by: strategySelect.value, value: name };
+          }
+          renderLocatorFields();
+        });
+        renderLocatorFields();
         if (clone.action.kind === "fill") {
           labeledInput(edits, "Value to enter", clone.action.value, (v) => { clone.action.value = v; });
         }
