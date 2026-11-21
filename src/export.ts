@@ -158,9 +158,11 @@ function literal(value: string | number | object): string {
 
 function targetExpression(target: Target, operation: string): string {
   if (target.by === "role") {
-    return "page.getByRole(" + literal(target.role) + ", " +
+    const base = "page.getByRole(" + literal(target.role) + ", " +
       (target.name === undefined ? "{ exact: true }" :
         "{ name: " + literal(target.name) + ", exact: true }") + ")";
+    return "nth" in target && target.nth !== undefined
+      ? base + ".nth(" + target.nth + ")" : base;
   }
   if (target.by === "label") {
     return "page.getByLabel(" + literal(target.value) + ", { exact: true })";
