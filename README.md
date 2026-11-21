@@ -4,7 +4,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 
 ## Current status
 
-**Last repository review:** 21 November 2026. PRs #3, #11, #12, #13, #14 and #15 are merged into `main`. Disk-backed execution history is being developed on `feature/persistent-run-history`.
+**Last repository review:** 21 November 2026. PRs #3, #11, #12, #13, #14, #15 and #16 are merged into `main`. Website-based suite organization is in development on `feature/site-test-suites`.
 
 
 **The main branch now includes the structured runner, AI draft generation, local review UI, and human-assisted failure repair. Real-model generation quality still needs benchmarking.**
@@ -12,7 +12,7 @@ An AI-powered UI testing platform being built to turn requirements or live webpa
 | Item | Current position |
 | --- | --- |
 | Latest implementation | `main` |
-| Most recent merged feature | [Pull request #15](https://github.com/leonard01/ai-ui-testing-agent/pull/15), requirement traceability |
+| Most recent merged feature | [Pull request #16](https://github.com/leonard01/ai-ui-testing-agent/pull/16), persistent execution history |
 | Default branch | `main` includes the runner, AI generation, review UI and repair controls |
 | Verification | Automated unit and browser integration tests; see Actions for the latest results |
 | Evidence | [Successful PR #3 CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/44900395935) |
@@ -213,7 +213,17 @@ Reports and screenshots/traces remain under `run-results/`. New small `run-metad
 
 **Current limitation:** Existing reviewed-assertion repair workflows remove the superseded approved test and its old run evidence; this history is not yet a revision-preserving audit log. The in-memory limit is not automatic disk cleanup. See [storage and history guidance](docs/persistent-history.md).
 
-The feature remains on `feature/persistent-run-history` until its PR has passed CI and is merged.
+The feature is merged into `main` through PR #16.
+
+### Website-based test suites and deletion (new feature branch)
+
+**Terminology:** A **test suite** is the collection of saved test scripts for a website URL such as `https://www.saucedemo.com`. A **test script** is one approved test such as `Add user`. A test-suite **execution** is a particular run of selected scripts; it does not create a new saved suite.
+
+The review server now captures each newly approved script's original website URL (`sourceUrl`) and saves the JSON in `generated/sites/<website-name>/`. The **Run a test suite** dropdown lists previously saved website URLs and displays only their scripts. Scripts for the same origin (scheme + host + port) share one suite, even if their starting paths differ.
+
+There are confirmed delete controls for an individual saved script and for an entire website suite. Deletion removes approved JSON test definitions **but retains historical run results, screenshots and traces**. No deletion is permitted during browser execution. Existing ungrouped `generated/reviewed-*.json` files remain visible under **Older / unassigned scripts**, and can be explicitly assigned to a website from the UI without being regenerated.
+
+[Website suite organization, naming, execution and deletion details](docs/website-test-suites.md). This change is on `feature/site-test-suites` pending CI and review.
 
 ### Not implemented yet
 
@@ -425,7 +435,7 @@ A case contains `schemaVersion`, `id`, `title`, `version` and ordered `steps`. E
 | Live human ↔ AI browser handoff and playback controls | Planned |
 | Sequential approved test suites | Implemented and merged (#13) |
 | Export independent Playwright TypeScript scripts | Implemented and merged (#14) |
-| Requirement-to-step and assertion traceability | Implemented and merged (#15) |\n| Persistent execution history | Feature branch; pending CI and review |
+| Requirement-to-step and assertion traceability | Implemented and merged (#15) |\n| Persistent execution history | Implemented and merged (#16) |\n| Website test suites, URL capture and deletion | Feature branch; pending CI and review |
 
 Requirements-to-test generation, selector preflight, suite execution, reviewed repairs and standalone Playwright exports are on `main`.
 

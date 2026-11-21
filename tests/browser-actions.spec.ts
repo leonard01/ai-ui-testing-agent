@@ -6,6 +6,7 @@ import { createReviewServer } from "../src/review-server.js";
 import type { TestDefinition } from "../src/domain.js";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { approvedPath, listApprovedIds } from "./helpers/saved-files.js";
 import { tmpdir } from "node:os";
 
 test.use({ trace: "off" });
@@ -194,9 +195,9 @@ test("UI renders and allows editing of generated new action fields without manua
     for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
     await page.getByRole("button", { name: "Approve and save JSON test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
-    const names = (await readdir(dir)).filter((name) => name.endsWith(".json"));
+    const names = (await listApprovedIds(dir));
     expect(names).toHaveLength(1);
-    const saved = JSON.parse(await readFile(join(dir, names[0]), "utf8")) as TestDefinition;
+    const saved = JSON.parse(await readFile(await approvedPath(dir, names[0]), "utf8")) as TestDefinition;
     expect(saved.steps[4].action).toMatchObject({ kind: "select-option", value: "" });
     expect(saved.steps[1].action).toMatchObject({ kind: "assert-url", expected: "/receipt" });
     expect(saved.steps[3].action).toMatchObject({ kind: "assert-count", expected: 1 });

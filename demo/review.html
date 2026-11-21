@@ -168,13 +168,20 @@
         <button type="button" id="run-test" disabled>Run selected test</button>
       </div>
       <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
+      <button type="button" id="delete-script" class="secondary" disabled style="margin-top:10px">Delete selected test script</button>
+      <button type="button" id="assign-legacy" class="secondary" disabled style="margin-top:10px">Assign older script to website URL</button>
       <a id="saved-traceability" hidden target="_blank" rel="noopener" style="margin-left:8px">View requirement matrix (JSON)</a>
       <a id="export-playwright" class="secondary" hidden style="margin-top:10px;margin-left:8px;padding:11px 16px;border-radius:8px;text-decoration:none;border:1px solid #205e86" download>Export Playwright (.spec.ts)</a>
       <p class="muted">Export the selected approved test as a standalone Playwright TypeScript spec. The download does not execute tests, use AI, or modify saved cases.</p>
       <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
       <div id="suite-panel" style="margin-top:22px;padding:16px;border:1px solid #d5dce3;border-radius:12px">
         <h3 style="margin:0 0 8px">Run a test suite</h3>
-        <p class="muted">Select up to 10 approved tests. They run sequentially, each in a fresh browser context, and a failing case does not stop the remaining cases.</p>
+        <p class="muted">A test suite is the collection of approved test scripts for one website. Choose its URL to display its scripts, then select up to 10 to run sequentially.</p>
+        <label for="suite-site">Test suite (website URL)</label>
+        <select id="suite-site"><option value="">Choose a website suite</option></select>
+        <p id="suite-site-note" class="muted"></p>
+        <button type="button" id="delete-site" class="secondary" disabled>Delete this website test suite</button>
+        <p class="muted">Deletion permanently removes the saved test scripts for the selected website. Historical run reports, screenshots and traces are kept.</p>
         <div id="suite-test-list" role="group" aria-label="Tests to include in suite"></div>
         <p id="suite-selection-status" class="muted">0 tests selected</p>
         <div class="actions">
@@ -219,6 +226,7 @@
     let selectedBaseURL = "";
     let running = false;
     let selectedApprovedId = "";
+    let approvedCatalog = [];
     let editingSavedId = null;
     let preflightRevision = 0;
 
@@ -623,6 +631,12 @@
       selectedApprovedId = $("approved-tests").value;
       $("run-test").disabled = running || !selectedApprovedId;
       $("edit-saved").disabled = running || !selectedApprovedId;
+      $("delete-script").disabled = running || !selectedApprovedId;
+      const approved = approvedCatalog.find((item) => item.id === selectedApprovedId);
+      $("assign-legacy").disabled = running || !approved || Boolean(approved.sourceUrl);
+      $("suite-site").disabled = running;
+      $("delete-site").disabled = running || !$("suite-site").value ||
+        $("suite-site").value === "__legacy__";
       const traceLink = $("saved-traceability");
       traceLink.hidden = !selectedApprovedId;
       if (selectedApprovedId) {
@@ -645,20 +659,21 @@
       }
       updateSuiteSelection();
     }
-    async function refreshApprovedTests(preferredId = $("approved-tests").value) {
-      const preservedSuiteSelection = new Set(suiteSelectedIds());
-      const payload = await requestJSON("/api/tests");
-      const suiteList = $("suite-test-list");
-      suiteList.replaceChildren();
-      const select = $("approved-tests");
-      select.replaceChildren();
-      const blank = make("option", "Select a saved test");
-      blank.value = "";
-      select.append(blank);
-      for (const test of payload.tests) {
-        const option = make("option", test.title + " (" + test.steps + " steps) — " + test.id);
-        option.value = test.id;
-        select.append(option);
+    function renderWebsiteSuite(preservedSelection = new Set()) {
+      const current = $("suite-site").value;
+      const list = $("suite-test-list");
+      list.replaceChildren();
+      const matching = approvedCatalog.filter((test) =>
+        (test.siteUrl || "__legacy__") === current);
+      if (current === "__legacy__") {
+        $("suite-site-note").textContent =
+          "Older saved scripts have no recorded URL. They remain available here; a new approved script records its website automatically.";
+      } else if (current) {
+        $("suite-site-note").textContent = matching.length + " saved test scripts for " + current;
+      } else {
+        $("suite-site-note").textContent = "Choose a website URL to show its saved scripts.";
+      }
+      for (const test of matching) {
         const row = make("label", null, "suite-case");
         row.style.display = "flex";
         row.style.gap = "10px";
@@ -667,16 +682,57 @@
         const checkbox = make("input");
         checkbox.type = "checkbox";
         checkbox.value = test.id;
-        checkbox.checked = preservedSuiteSelection.has(test.id);
+        checkbox.checked = preservedSelection.has(test.id);
         checkbox.addEventListener("change", updateSuiteSelection);
         row.append(checkbox, make("span", test.title + " (" + test.steps + " steps)"));
-        suiteList.append(row);
+        list.append(row);
       }
-      if (!payload.tests.length) {
-        suiteList.append(make("p", "No approved tests saved yet.", "muted"));
-      }
-      if (payload.tests.some((item) => item.id === preferredId)) select.value = preferredId;
+      if (!matching.length) list.append(make("p", "No saved test scripts in this suite.", "muted"));
       updateRunButton();
+    }
+    async function refreshApprovedTests(preferredId = $("approved-tests").value) {
+      const preservedSuiteSelection = new Set(suiteSelectedIds());
+      const previousSite = $("suite-site").value;
+      const payload = await requestJSON("/api/tests");
+      approvedCatalog = payload.tests;
+      const select = $("approved-tests");
+      select.replaceChildren();
+      const blank = make("option", "Select a saved test script");
+      blank.value = "";
+      select.append(blank);
+      for (const test of approvedCatalog) {
+        const site = test.siteUrl || "Unassigned";
+        const option = make("option", test.title + " (" + test.steps + " steps) · " + site);
+        option.value = test.id;
+        select.append(option);
+      }
+      if (approvedCatalog.some((item) => item.id === preferredId)) select.value = preferredId;
+      const website = $("suite-site");
+      website.replaceChildren();
+      const option = make("option", "Select website suite");
+      option.value = "";
+      website.append(option);
+      for (const site of payload.sites) {
+        const row = make("option", (site.siteUrl || "Older / unassigned scripts") +
+          " (" + site.scripts + " scripts)");
+        row.value = site.siteUrl || "__legacy__";
+        website.append(row);
+      }
+      const selectedTest = approvedCatalog.find((test) => test.id === select.value);
+      const chosen = selectedTest?.siteUrl || (selectedTest ? "__legacy__" : previousSite);
+      if (chosen && [...website.options].some((item) => item.value === chosen)) {
+        website.value = chosen;
+      } else if (website.options.length > 1) {
+        website.selectedIndex = 1;
+      }
+      // The selected website is the default execution URL for its suite,
+      // including when the page is freshly opened after a server restart.
+      if (selectedTest?.sourceUrl) {
+        $("base-url").value = selectedTest.sourceUrl;
+      } else if (!selectedTest && website.value && website.value !== "__legacy__") {
+        $("base-url").value = website.value + "/";
+      }
+      renderWebsiteSuite(preservedSuiteSelection);
     }
     function diagnosticText(result) {
       const diagnosis = result.diagnosis;
@@ -1257,7 +1313,23 @@
       updateSuiteSelection();
     });
     $("suite-run").addEventListener("click", () => { void executeSuite(); });
-    $("approved-tests").addEventListener("change", updateRunButton);
+    $("suite-site").addEventListener("change", () => {
+      const site = $("suite-site").value;
+      if (site && site !== "__legacy__") $("base-url").value = site + "/";
+      renderWebsiteSuite();
+    });
+    $("approved-tests").addEventListener("change", () => {
+      const selected = approvedCatalog.find((test) => test.id === $("approved-tests").value);
+      if (selected?.sourceUrl) $("base-url").value = selected.sourceUrl;
+      if (selected) {
+        const site = selected.siteUrl || "__legacy__";
+        if ([...$("suite-site").options].some((option) => option.value === site)) {
+          $("suite-site").value = site;
+          renderWebsiteSuite();
+        }
+      }
+      updateRunButton();
+    });
     $("base-url").addEventListener("input", updateRunButton);
     $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
@@ -1286,6 +1358,62 @@
       }
     }
     $("run-test").addEventListener("click", () => { void executeApproved(selectedApprovedId); });
+    $("assign-legacy").addEventListener("click", async () => {
+      const selected = approvedCatalog.find((item) => item.id === selectedApprovedId);
+      if (!selected || selected.sourceUrl || running) return;
+      const baseURL = $("base-url").value;
+      if (!window.confirm('Assign older test script "' + selected.title +
+          '" to website "' + baseURL + '"? The test steps will remain unchanged.')) return;
+      $("run-error").textContent = "";
+      try {
+        const result = await requestJSON("/api/assign-site", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, baseURL, confirmed: true }),
+        });
+        await refreshApprovedTests(selected.id);
+        $("run-status").textContent = result.message;
+      } catch (error) {
+        $("run-error").textContent = error.message || String(error);
+      }
+    });
+    $("delete-script").addEventListener("click", async () => {
+      const id = selectedApprovedId;
+      const test = approvedCatalog.find((item) => item.id === id);
+      if (!test || running) return;
+      if (!window.confirm('Delete saved test script "' + test.title +
+          '"? This cannot be undone. Historical run reports will remain.')) return;
+      $("run-error").textContent = "";
+      try {
+        const result = await requestJSON("/api/delete-test", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, confirmed: true }),
+        });
+        await refreshApprovedTests("");
+        $("run-status").textContent = result.message;
+      } catch (error) {
+        $("run-error").textContent = error.message || String(error);
+      }
+    });
+    $("delete-site").addEventListener("click", async () => {
+      const siteUrl = $("suite-site").value;
+      if (!siteUrl || siteUrl === "__legacy__" || running) return;
+      const count = approvedCatalog.filter((test) => test.siteUrl === siteUrl).length;
+      if (!window.confirm('Delete website test suite "' + siteUrl + '" and its ' +
+          count + ' saved test script(s)? This cannot be undone. Historical run reports will remain.')) return;
+      $("suite-error").textContent = "";
+      try {
+        const result = await requestJSON("/api/delete-site", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ siteUrl, confirmed: true }),
+        });
+        await refreshApprovedTests("");
+        $("suite-status").textContent = result.message;
+        $("suite-summary").textContent = "";
+        $("suite-results").replaceChildren();
+      } catch (error) {
+        $("suite-error").textContent = error.message || String(error);
+      }
+    });
     $("edit-saved").addEventListener("click", async () => {
       const id = selectedApprovedId;
       if (!id || running) return;

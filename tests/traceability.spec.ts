@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createReviewServer } from "../src/review-server.js";
 import { mkdtemp, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { approvedPath } from "./helpers/saved-files.js";
 import { tmpdir } from "node:os";
 import { type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -65,7 +66,7 @@ test("reviewer maps requirements, sees gaps and persists only explicit links", a
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const savedId = await page.getByLabel("Approved saved test").inputValue();
-  const saved = JSON.parse(await readFile(join(dir, savedId), "utf8"));
+  const saved = JSON.parse(await readFile(await approvedPath(dir, savedId), "utf8"));
   expect(saved.requirements).toEqual([
     { id: "R1", text: "Task creation is visible", stepIds: ["enter", "visible"] },
     { id: "R2", text: "A task may be completed", stepIds: ["complete"] },

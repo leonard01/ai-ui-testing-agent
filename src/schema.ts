@@ -74,6 +74,15 @@ export const testDefinitionSchema = z
     id: text,
     title: text,
     version: z.number().int().positive(),
+    // Captured by the review server at approval time, never AI-authored.
+    // Legacy saved tests may omit it and remain "Unassigned".
+    sourceUrl: z.string().max(2048).refine((value) => {
+      try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) &&
+          !url.username && !url.password;
+      } catch { return false; }
+    }, "sourceUrl must be an HTTP(S) URL without credentials").optional(),
     requirements: z.array(requirement).max(40).optional(),
     steps: z
       .array(z.object({ id: text, description: text, action }).strict())

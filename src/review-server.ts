@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, unlink, writeFile, rmdir } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
@@ -15,12 +15,12 @@ import { runTest } from "./runner.js";
 import { preflightSelectors } from "./preflight.js";
 import { generatePlaywrightSpec } from "./export.js";
 import { buildTraceabilityReport } from "./traceability.js";
+import { SAVED_NAME, websiteOrigin, websiteDirectory, listSavedFiles, findSavedFile } from "./site-storage.js";
 import type { Browser } from "playwright";
 import type { RunReport, TestDefinition } from "./domain.js";
 
 const MAX_BODY_BYTES = 110_000;
 const MAX_REQUIREMENTS_CHARS = 12_000;
-const SAVED_NAME = /^reviewed-\d{13}-[a-f0-9]{8}\.json$/;
 const RUN_ID = /^[a-f0-9-]{36}$/;
 const MAX_RUN_HISTORY = 100;
 const MAX_SUITE_HISTORY = 20;
@@ -37,6 +37,7 @@ type RunJob = {
   /** Short-lived DOM evidence held in memory, never included in reports. */
   assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
   suiteId?: string;
+  baseURL?: string;
 };
 
 type SuiteEntry = {
@@ -181,12 +182,13 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const suites = new Map<string, SuiteJob>();
   let activeRun: string | null = null;
   let activePreflight = false;
+  let activeDeletion = false;
 
-  function registerRun(fileId: string, suiteId?: string): RunJob {
+  function registerRun(fileId: string, suiteId?: string, baseURL?: string): RunJob {
     const id = randomUUID();
     const job: RunJob = {
       id, fileId, state: "running", startedAt: new Date().toISOString(),
-      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(), suiteId,
+      outputDir: join(resultsDir, id), assertionSearchIndex: new Map(), suiteId, baseURL,
     };
     jobs.set(id, job);
     while (jobs.size > MAX_RUN_HISTORY) {
@@ -232,7 +234,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     await mkdir(job.outputDir, { recursive: true });
     await writeFile(join(job.outputDir, "run-metadata.json"), JSON.stringify({
       schemaVersion: 1, fileId: job.fileId, suiteId: job.suiteId,
-      startedAt: job.startedAt, state, error: job.error,
+      startedAt: job.startedAt, state, error: job.error, baseURL: job.baseURL,
     }, null, 2) + "\n");
   }
 
@@ -285,6 +287,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         fileId: typeof details.fileId === "string" && SAVED_NAME.test(details.fileId)
           ? details.fileId : "",
         state, startedAt, outputDir: folder,
+        ...(typeof details.baseURL === "string" ? { baseURL: details.baseURL } : {}),
         ...(report && state === "finished" ? { report } : {}),
         ...(state === "error" && typeof details.error === "string"
           ? { error: details.error } : {}),
@@ -358,6 +361,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       .slice(0, MAX_RUN_HISTORY)
       .map((job) => ({
         id: job.id, fileId: job.fileId || null, suiteId: job.suiteId ?? null,
+        baseURL: job.baseURL ?? null,
         title: job.report?.title ?? "Unknown test",
         startedAt: job.startedAt, state: job.state,
         verdict: job.report?.status ?? "runner-error",
@@ -379,9 +383,35 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   }
 
   async function readSaved(id: string): Promise<TestDefinition> {
-    if (!SAVED_NAME.test(id)) throw new Error("Invalid approved test filename");
-    const input = JSON.parse(await readFile(join(savedDir, id), "utf8")) as unknown;
+    const file = await findSavedFile(savedDir, id);
+    const input = JSON.parse(await readFile(file, "utf8")) as unknown;
     return parseTestDefinition(input);
+  }
+
+  function ensureNoExecutionForDeletion() {
+    if (activeRun || activePreflight || [...jobs.values()].some((job) => job.state === "running")) {
+      throw new Error("Cannot delete approved scripts or website suites during an active run or preflight");
+    }
+  }
+
+  async function listApproved() {
+    const paths = (await listSavedFiles(savedDir)).slice(0, 1000);
+    const tests: Array<{
+      id: string; title: string; steps: number;
+      sourceUrl: string | null; siteUrl: string | null;
+    }> = [];
+    for (const entry of paths) {
+      try {
+        const definition = parseTestDefinition(
+          JSON.parse(await readFile(entry.path, "utf8")) as unknown);
+        const sourceUrl = definition.sourceUrl ?? null;
+        tests.push({
+          id: entry.id, title: definition.title, steps: definition.steps.length,
+          sourceUrl, siteUrl: sourceUrl ? websiteOrigin(sourceUrl) : null,
+        });
+      } catch { /* Skip unreadable or invalid definitions */ }
+    }
+    return tests;
   }
 
   /**
@@ -392,7 +422,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   async function saveApproved(
     definition: TestDefinition,
     replacesId?: string,
+    base?: URL,
   ): Promise<{ id: string; file: string; replacedId?: string }> {
+    let replacedPath: string | undefined;
+    if (activeDeletion) throw new Error("Cannot save a test while deleting a website suite");
     if (replacesId) {
       if (!SAVED_NAME.test(replacesId)) throw new Error("Invalid test to replace");
       if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running") ||
@@ -400,14 +433,20 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         throw new Error("Cannot replace a test while it is running in a test suite");
       }
       await readSaved(replacesId);
+      replacedPath = await findSavedFile(savedDir, replacesId);
     }
+    const sourceUrl = base?.href ?? definition.sourceUrl;
+    const approved = parseTestDefinition(sourceUrl
+      ? { ...definition, sourceUrl } : definition);
     const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
-    const file = join(savedDir, id);
-    await mkdir(savedDir, { recursive: true });
-    await writeFile(file, JSON.stringify(definition, null, 2) + "\n", { flag: "wx" });
-    if (replacesId) {
+    const directory = sourceUrl ? websiteDirectory(savedDir, sourceUrl) : savedDir;
+    const file = join(directory, id);
+    await mkdir(directory, { recursive: true });
+    await writeFile(file, JSON.stringify(approved, null, 2) + "\n", { flag: "wx" });
+    if (replacesId && replacedPath) {
       try {
-        await unlink(join(savedDir, replacesId));
+        await unlink(replacedPath);
+        if (dirname(replacedPath) !== savedDir) await rmdir(dirname(replacedPath)).catch(() => {});
       } catch (error) {
         // Never leave a new duplicate if removing the superseded test failed.
         await unlink(file).catch(() => {});
@@ -481,19 +520,17 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/api/tests") {
         try {
-          const names = (await readdir(savedDir))
-            .filter((name) => SAVED_NAME.test(name)).sort().reverse().slice(0, 100);
-          const saved: Array<{ id: string; title: string; steps: number }> = [];
-          for (const id of names) {
-            try {
-              const definition = await readSaved(id);
-              saved.push({ id, title: definition.title, steps: definition.steps.length });
-            } catch { /* Skip invalid or unreadable files */ }
+          const tests = await listApproved();
+          const counts = new Map<string, number>();
+          for (const test of tests) {
+            const key = test.siteUrl ?? "";
+            counts.set(key, (counts.get(key) ?? 0) + 1);
           }
-          json(res, 200, { tests: saved });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") json(res, 200, { tests: [] });
-          else json(res, 500, { error: "Could not list approved tests" });
+          const sites = [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))
+            .map(([siteUrl, scripts]) => ({ siteUrl: siteUrl || null, scripts }));
+          json(res, 200, { tests, sites });
+        } catch {
+          json(res, 500, { error: "Could not list approved test scripts" });
         }
         return;
       }
@@ -578,7 +615,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/repair", "/api/repair-target", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -593,8 +630,92 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
         return;
       }
+      if (path === "/api/delete-test" || path === "/api/delete-site" || path === "/api/assign-site") {
+        if (activeRun || activePreflight || activeDeletion) {
+          json(res, 409, { error: "Cannot delete saved scripts or suites while a browser operation or deletion is active" });
+          return;
+        }
+        activeDeletion = true;
+        try {
+          if (!body || typeof body !== "object") throw new Error("Expected deletion details");
+          const input = body as Record<string, unknown>;
+          if (input.confirmed !== true) {
+            throw new Error("Explicit deletion confirmation is required");
+          }
+          if (path === "/api/assign-site") {
+            // Explicit migration only: never guess the originating URL for a
+            // legacy file from its title or AI-written browser steps.
+            if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
+              throw new Error("Invalid legacy test script ID");
+            }
+            const file = await findSavedFile(savedDir, input.id);
+            const definition = await readSaved(input.id);
+            if (dirname(file) !== savedDir || definition.sourceUrl) {
+              throw new Error("Only an unassigned legacy script can be assigned this way");
+            }
+            const base = validatedBaseURL(input.baseURL);
+            verifyNavigations(definition, base);
+            const targetFolder = websiteDirectory(savedDir, base.href);
+            const target = join(targetFolder, input.id);
+            const approved = parseTestDefinition({ ...definition, sourceUrl: base.href });
+            await mkdir(targetFolder, { recursive: true });
+            await writeFile(target, JSON.stringify(approved, null, 2) + "\n", { flag: "wx" });
+            try {
+              await unlink(file);
+            } catch (error) {
+              await unlink(target).catch(() => {});
+              throw error;
+            }
+            json(res, 200, {
+              assignedId: input.id, siteUrl: websiteOrigin(base.href),
+              message: "Existing test script assigned to the selected website suite.",
+            });
+          } else if (path === "/api/delete-test") {
+            if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
+              throw new Error("Invalid test script ID");
+            }
+            const file = await findSavedFile(savedDir, input.id);
+            await unlink(file);
+            if (dirname(file) !== savedDir) await rmdir(dirname(file)).catch(() => {});
+            json(res, 200, {
+              deletedId: input.id, scriptsDeleted: 1,
+              message: "Approved test script deleted. Historical run reports are retained.",
+            });
+          } else {
+            if (typeof input.siteUrl !== "string" ||
+                input.siteUrl !== websiteOrigin(input.siteUrl)) {
+              throw new Error("Select a valid website test suite URL");
+            }
+            const folder = websiteDirectory(savedDir, input.siteUrl);
+            const matching = (await listSavedFiles(savedDir))
+              .filter((entry) => dirname(entry.path) === folder);
+            if (!matching.length) throw new Error("Website suite is empty or does not exist");
+            // Never recursively remove arbitrary contents from a directory:
+            // only remove approved JSON filenames belonging to this website.
+            for (const entry of matching) {
+              const definition = parseTestDefinition(
+                JSON.parse(await readFile(entry.path, "utf8")) as unknown);
+              if (!definition.sourceUrl ||
+                  websiteOrigin(definition.sourceUrl) !== input.siteUrl) {
+                throw new Error("Website suite contains scripts with mismatched metadata");
+              }
+            }
+            for (const entry of matching) await unlink(entry.path);
+            await rmdir(folder).catch(() => {});
+            json(res, 200, {
+              deletedSiteUrl: input.siteUrl, scriptsDeleted: matching.length,
+              message: "Website suite and its approved test scripts deleted; historical reports retained.",
+            });
+          }
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Deletion failed" });
+        } finally {
+          activeDeletion = false;
+        }
+        return;
+      }
       if (path === "/api/preflight") {
-        if (activeRun || activePreflight) {
+        if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Browser busy. Finish the current test or selector check first." });
           return;
         }
@@ -967,6 +1088,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           for (const fileId of input.ids as string[]) {
             const definition = await readSaved(fileId);
             verifyNavigations(definition, base);
+            if (definition.sourceUrl && websiteOrigin(definition.sourceUrl) !== base.origin) {
+              throw new Error("All scripts in one website suite must match the selected URL origin");
+            }
             definitions.push({ fileId, definition });
           }
         } catch (error) {
@@ -998,7 +1122,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             for (const [index, { fileId, definition }] of definitions.entries()) {
               const entry = suite.entries[index];
               entry.state = "running";
-              const run = registerRun(fileId, id);
+              const run = registerRun(fileId, id, base.href);
               entry.runId = run.id;
               try {
                 const report = await runTest(definition, {
@@ -1069,7 +1193,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 409, { error: "A test or selector preflight is already running. Finish it before starting another." });
           return;
         }
-        const job = registerRun(fileId);
+        const job = registerRun(fileId, undefined, base.href);
         const id = job.id;
         activeRun = id;
         // Execute only when explicitly requested, using the *saved* approved test.
@@ -1155,7 +1279,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           throw new Error("Invalid saved test to replace");
         }
         const { id, file, replacedId } = await saveApproved(
-          definition, data?.replaceId as string | undefined,
+          definition, data?.replaceId as string | undefined, base,
         );
         json(res, 200, {
           id, file, replacedId,
