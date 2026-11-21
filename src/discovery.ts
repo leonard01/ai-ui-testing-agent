@@ -32,6 +32,17 @@ export interface AmbiguousResolution {
   total: number;
 }
 
+/** Original failed locator plus candidates discovered at the failure point. */
+export type ExplicitTarget =
+  | { by: "role"; role: NonNullable<IntentTarget["role"]>; name?: string }
+  | { by: "label" | "text"; value: string };
+export interface MissingLocatorChoices {
+  attempted: ExplicitTarget;
+  candidates: AmbiguousCandidate[];
+  total: number;
+}
+
+
 /** Deliberately stop before any click or fill if the live DOM is ambiguous. */
 export class AmbiguousIntentError extends Error {
   readonly ambiguity: AmbiguousResolution;
@@ -148,6 +159,47 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
     });
     return { selector, candidates };
   }, operation);
+}
+
+/**
+ * Diagnose a failed *explicit* click or fill locator against the live DOM.
+ * Only offer role/name pairs that Playwright confirms uniquely identify
+ * a visible element. A user must select; this does NOT click or fill.
+ * Potentially sensitive input values and arbitrary page text are excluded.
+ */
+export async function findLocatorAlternatives(
+  page: Page,
+  attempted: ExplicitTarget,
+  operation: "click" | "fill",
+): Promise<MissingLocatorChoices> {
+  const requested = attempted.by === "role" ? attempted.name ?? "" : attempted.value;
+  const terms = keywords(requested);
+  const { candidates } = await inspectCandidates(page, operation);
+  const allowed = operation === "fill" ? new Set(["textbox"]) :
+    new Set(["button", "checkbox"]);
+  const ranked = candidates.flatMap((candidate) => {
+    if (!allowed.has(candidate.role) || !candidate.name) return [];
+    const score = terms.length ? candidateScore(candidate, terms) : 0;
+    if (score === null) return [];
+    return [{ candidate, score }];
+  }).sort((a, b) => b.score - a.score);
+  const matches: AmbiguousCandidate[] = [];
+  // Only expose a small, bounded, verified candidate set to the reviewer.
+  for (const { candidate } of ranked.slice(0, 24)) {
+    const role = candidate.role as "button" | "checkbox" | "textbox";
+    const locator = page.getByRole(role, { name: candidate.name, exact: true });
+    if (await locator.count() !== 1 || !await locator.isVisible()) continue;
+    if (matches.some((x) => x.role === role && x.name === candidate.name)) continue;
+    matches.push({
+      tag: candidate.tag, role, name: candidate.name, nearby: candidate.nearby,
+    });
+  }
+  return {
+    attempted,
+    candidates: matches.slice(0, 12),
+    // A full list is required for one-click repair; do not hide plausible choices.
+    total: matches.length + (ranked.length > 24 ? ranked.length - 24 : 0),
+  };
 }
 
 function cssAttribute(value: string): string {
