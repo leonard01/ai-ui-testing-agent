@@ -60,6 +60,14 @@ For a failed explicit locator such as `getByLabel("Add")`, the runner now inspec
 
 The runner does not silently click or change targets. If the candidate list is incomplete or no unique candidate can be validated, use **Edit selected saved test in review form** instead. If a chosen locator fails on a later run, the error and evidence remain visible. The server rejects arbitrary candidate indexes and invalid run/step IDs.
 
+## Editing a failed assertion's DOM search text
+
+The **Find assertion target in captured DOM** panel now has a **Search visible DOM text** input. It defaults to the expected text for a mismatch (for example, `Sauce Labs Backpack`), but the tester can type another phrase (such as `Backpack` or `Add to cart`) and click **Search captured DOM**. The UI replaces the suggestion list with grounded matches, ordered by exact, prefix, then substring match, while showing each element's tag, role and nearby context. An empty result means no uniquely addressable match was captured; shorter text may help.
+
+The runner captures a bounded index of **visible, non-editable DOM text** at the moment the assertion fails, verifying that every suggested role/name or exact-text selector matches one visible element. The local server retains that index **in memory only**, not in the downloadable report, and removes it when the superseded failed run is cleaned up. Searching this evidence does **not** replay login, clicks, form submissions, or any other test steps, and costs no AI tokens. Search is deliberately limited to the captured failed-page state; if the site changes later, rerun the test for fresh DOM evidence.
+
+Only an explicitly chosen **verified** candidate can be saved. The server checks that the selected result belongs to the most recent search using a short-lived token, and it preserves the assertion's `expected` value, kind and provenance. Searching for a different phrase is **not** the same as editing the expected assertion result: that uses the separate human-confirmed assertion editor. If more matches exist than can be shown, refine the search to proceed. A successful amendment replaces the old saved test and begins a new run from step 1.
+
 ## Text mismatch: find the expected value elsewhere on the page
 
 A text assertion can resolve a locator successfully but read the **wrong element**: for example, the generated target returns `Add to cart` while the actual expected text `Sauce Labs Backpack` is visible in a separate product-name `<div>`. This remains a genuine **assertion failure**. The runner now searches *all eligible visible DOM text elements* (not just a fixed list of spans, headings, labels or statuses), prioritizing **exact rendered text matches**. It excludes hidden/script/input content and verifies the proposed Playwright selector uniquely identifies a visible element.
