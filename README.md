@@ -99,6 +99,10 @@ When a text assertion fails, the Test Builder shows **expected vs observed** and
 
 The UI no longer accumulates failed saved-test revisions. Saving a correction first writes the new test, then removes the superseded entry from the dropdown and discards its completed run artifacts from the current session. Failed saves leave the original untouched; newly generated unrelated tests remain separate.
 
+### Full-page visible-text recovery for incorrect assertion targets
+
+An exact text assertion may find an element but find the **wrong one** (e.g. expected `Sauce Labs Backpack` while a button displays `Add to cart`). At failure time, the agent searches visible page text across regular elements such as product-name `div` blocks, verifies any suggested selector is unique and visible, and offers **Find assertion target in live DOM**. The tester can choose the correct text element through the UI; the expected result never changes automatically. Exact DOM text is required; when absent, the assertion remains failed.
+
 ### Failed assertion DOM search (feature branch)
 
 If a visibility/text assertion uses the wrong role or locator, the failed-step UI searches the **live DOM** for the requested text. For example, `getByRole("heading", {name:"Products"})` can be repaired by selecting a verified visible `<span>Products</span>` through **Find assertion target in live DOM**. The choice updates only the selector (never the expected assertion), supersedes the failed saved version and reruns the scenario. It does not auto-pass the test and does not use a model call.
