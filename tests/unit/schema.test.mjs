@@ -44,6 +44,36 @@ test("accepts intent targets and rejects unsupported or empty intent", () => {
   draft.steps[3].action.target = { by: "intent", value: "Add", role: "invalid" };
   assert.throws(() => parseTestDefinition(draft));
 });
+test("accepts expanded actions and strictly rejects unsafe keys, invalid counts, and intent counts", () => {
+  const c = structuredClone(valid);
+  const first = c.steps[0];
+  const assertion = { id: "verify", description: "Verify", action: {
+    kind: "assert-url", expected: "/receipt?ok=1", provenance: "requirements",
+  } };
+  const cases = [
+    { kind: "select-option", target: { by: "role", role: "combobox", name: "Shipping" }, value: "fast" },
+    { kind: "check", target: { by: "role", role: "checkbox", name: "Accept" } },
+    { kind: "uncheck", target: { by: "role", role: "checkbox", name: "Accept" } },
+    { kind: "check", target: { by: "role", role: "radio", name: "Option B" } },
+    { kind: "press", target: { by: "role", role: "textbox", name: "Search" }, key: "Enter" },
+    { kind: "assert-count", target: { by: "role", role: "button", name: "Duplicate" },
+      expected: 0, provenance: "inferred" },
+  ];
+  for (const action of cases) {
+    const d = { ...c, steps: [first, { id: "new", description: "New action", action }, assertion] };
+    assert.equal(parseTestDefinition(d).steps[1].action.kind, action.kind);
+  }
+  for (const action of [
+    { kind: "press", target: { by: "role", role: "textbox" }, key: "Control+Alt+Delete" },
+    { kind: "assert-count", target: { by: "text", value: "Item" }, expected: -1, provenance: "requirements" },
+    { kind: "assert-count", target: { by: "text", value: "Item" }, expected: 1.5, provenance: "requirements" },
+    { kind: "assert-count", target: { by: "intent", value: "Item" }, expected: 1, provenance: "requirements" },
+    { kind: "assert-url", expected: "/", provenance: "human-confirmed", surprise: true },
+  ]) {
+    assert.throws(() => parseTestDefinition({ ...c,
+      steps: [first, { id: "bad", description: "Invalid", action }, assertion] }));
+  }
+});
 test("rejects duplicate step IDs", () => {
   const c = structuredClone(valid);
   c.steps[1].id = c.steps[0].id;
