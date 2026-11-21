@@ -56,7 +56,7 @@ Generated and reviewed JSON cases may now include:
 - `check` / `uncheck`: set checkbox state (or check a radio input), without toggling blindly
 - `press`: send a supported single key to an element, such as `Enter`, `Tab` or an arrow key
 - `assert-url`: verify the exact same-origin URL, resolving relative URLs against the application base
-- `assert-count`: verify an exact number of matched DOM elements, including zero. Use explicit role/name, label or text targets (not intent); hidden matches count too
+- `assert-count`: verify an exact number of matched DOM elements, including zero. Use explicit role/name, label or text targets (not intent); no additional visibility filter is applied
 
 The **Edit fields** interface displays each action in readable language and permits its fields to be changed without editing JSON. It does not yet offer an action-type conversion menu; use generation to create new action kinds. All assertions still require reviewed provenance. Count and URL mismatches remain test failures; locator preflight is only advisory and cannot prove actions will succeed after state changes.
 
