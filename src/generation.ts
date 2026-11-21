@@ -179,6 +179,7 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "IMPORTANT: HTML listitem roles often have NO accessible name, even if they contain visible text.",
     "Do NOT use {by:'role',role:'listitem',name:'Task text'} unless the element is explicitly accessible by that name.",
     "For asserting dynamically added visible task text, prefer {by:'text',value:'Task text'} when it uniquely identifies the text.",
+    "A todo row can display text inside a child <label> but have no accessible listitem name. For a requirement like 'Verify Buy groceries appears', use assert-visible with {by:'text',value:'Buy groceries'}, NOT an assumed {by:'role',role:'listitem',name:'Buy groceries'} or form-label locator.",
     "The first step MUST navigate. Use unique IDs, at least one assertion and at most 25 steps.",
     "Assertion provenance must be 'requirements' if the requirement specifies that expected result,",
     "otherwise 'inferred'. NEVER claim 'human-confirmed'.",
