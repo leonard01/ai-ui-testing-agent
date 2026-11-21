@@ -164,6 +164,19 @@ test("two task checkboxes reject generic Complete but resolve exact intended tas
     await expect(discoverTarget(tab, {
       by: "intent", value: "Complete", role: "checkbox",
     }, "click", 250)).rejects.toThrow(/Ambiguous intent.*Complete/);
+    await expect(discoverTarget(tab, {
+      by: "intent", value: "Complete", role: "checkbox",
+    }, "click", 250)).rejects.toMatchObject({
+      ambiguity: {
+        intent: "Complete",
+        role: "checkbox",
+        total: 2,
+        candidates: [
+          { role: "checkbox", name: "Complete preparing a presentation" },
+          { role: "checkbox", name: "Complete reviewing documentation" },
+        ],
+      },
+    });
 
     const resolved = await discoverTarget(tab, {
       by: "intent", value: "Complete preparing a presentation", role: "checkbox",
