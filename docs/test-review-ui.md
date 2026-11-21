@@ -64,6 +64,14 @@ When the browser successfully finds an element but its text does not match the e
 
 For the two-task demo, `1 tasks, 1 completed` versus observed `1 task, 1 completed` is a test-expected-text mismatch due to singular grammar. However, **observed behaviour alone does not prove correctness**: when an assertion catches a genuine application bug, keep it failing and investigate the application instead. Literal text can depend on task counts, localization, user data, dynamic timestamps or application state. This workflow supports intentional human review of such dynamic values; richer assertion types (e.g. semantic or image validation) are not implemented yet.
 
+## When Groq produces invalid test JSON
+
+GroqCloud's JSON object mode helps ensure syntactically valid JSON, but it does **not** ensure that each `steps[]` entry conforms to our test schema. A common failure for longer scenarios is a mixed array containing executable objects and plain English strings, e.g. `steps[4]: expected object, received string`.
+
+The generator now explicitly instructs the model that **every** array entry must be `{id, description, action}`. If the output is invalid JSON or fails the local Zod schema, the **GroqCloud UI and CLI paths retry at most once** with safe path-specific schema feedback and the original requirements. This can result in **two hosted-model calls for one Generate click**, subject to GroqCloud limits; the UI explains this before generation and states when the retry was used.
+
+If both attempts fail, the UI displays `schema-validation`, `Attempts: 2` and concise paths such as `steps[4]`, without returning model-generated raw text or inventing missing steps. An invalid draft cannot be approved, saved or executed. Safety checks (same-origin navigation, invented `human-confirmed` provenance) still reject even a schema-valid draft without automatic retry. A correction call does not guarantee the generated test is correct or covers all requirements; the tester must review every step.
+
 ## Debugging GroqCloud HTTP 400 during generation
 
 If the GroqCloud model rejects a request, the review interface now separates:
@@ -107,7 +115,7 @@ If the test page does not expose a suitable Add User interface, an input such as
 - The UI server binds **127.0.0.1:3100 only**, does not expose CORS, requires JSON requests and checks same-origin writes; it is not suitable for a public network deployment without proper authentication and additional defences.
 - GroqCloud receives selected test instructions and bounded page data. Do not send credentials, confidential production data or sensitive records.
 - API keys are read locally from `.env` by the server and are not embedded in HTML, JSON test definitions or displayed error messages. `.env` is already ignored by Git.
-- GroqCloud is subject to provider free-tier rate and token allowances. A **Generate draft** click makes a model call; test review, saving, and deterministic execution do not.
+- GroqCloud is subject to provider free-tier rate and token allowances. A **Generate draft** click makes one model call, plus **at most one automatic correction call** when its JSON is malformed or schema-invalid. Test review, saving, and deterministic execution make no AI calls.
 - The fixture mode is entirely offline with respect to AI. CI uses this mode and never sends a real GroqCloud request.
 - No generated tests are silently executed. Initial draft approval does not automatically mark assertions as `human-confirmed`. The separate failed-assertion review explicitly marks only the revised assertion `human-confirmed` after the tester confirms it against requirements. Execution requires an explicit run request after saving.
 - Screenshot and trace files can contain sensitive application data. The local server serves them only on 127.0.0.1 using explicit run IDs, but this prototype should not be exposed beyond loopback.
