@@ -115,7 +115,8 @@ export async function generateDraft(
     // lives under a nested path or hash route. Its initial destination is
     // known from the inspected page, so preserve that exact URL in the draft.
     const firstAction = definition.steps[0]?.action;
-    if (firstAction?.kind === "navigate" && firstAction.url === "/") {
+    if (firstAction?.kind === "navigate" && firstAction.url === "/" &&
+        (base.pathname !== "/" || !!base.search || !!base.hash)) {
       firstAction.url = snapshot.url;
     }
     for (const step of definition.steps) {
