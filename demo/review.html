@@ -76,6 +76,14 @@
     .locator-option span { display:block; font-size:13px; overflow-wrap:anywhere; }
     .locator-option small { display:block; margin-top:4px; color:#52677b; }
 
+    .history-toolbar, .history-pagination { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:14px 0; }
+    .history-entry { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; border-bottom:1px solid #d5dce3; padding:13px 0; }
+    .history-entry-content { flex:1 1 300px; min-width:0; overflow-wrap:anywhere; }
+    .history-entry-content strong { display:block; font-size:15px; }
+    .history-entry-content span { display:block; margin-top:4px; font-size:13px; }
+    .history-entry button { flex:0 0 auto; margin:0; }
+    #history-site { display:block; max-width:100%; width:100%; margin-top:6px; }
+    #history-panel[hidden] { display:none; }
     .assertion-repair { background:#f5f7fa; border:1px solid #c8d3df; border-radius:9px; padding:15px; margin:14px 0 5px; }
     .assertion-repair h3 { margin:0 0 10px; font-size:14px; }
     .assertion-repair label { display:block; font-size:13px; font-weight:600; margin-top:12px; }
@@ -194,14 +202,6 @@
         <div id="suite-results"></div>
         <div id="suite-artifacts" class="artifact-links"></div>
       </div>
-      <section id="history-panel" style="margin-top:22px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
-        <h3 id="history-heading">Execution history</h3>
-        <p class="muted">Completed test runs and suites are loaded from local disk, including after restarting this server. Each report can be reopened without rerunning the test or contacting AI.</p>
-        <button type="button" id="refresh-history" class="secondary">Refresh history</button>
-        <p id="history-status" role="status" class="muted"></p>
-        <div id="history-suite-list"></div>
-        <div id="history-run-list"></div>
-      </section>
       <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
       <div id="run-results" hidden>
@@ -216,6 +216,26 @@
         <h2 style="margin-top:20px">Step-by-step execution</h2>
         <div id="run-steps"></div>
       </div>
+      <div id="history-controls" style="margin-top:28px">
+        <button type="button" id="toggle-history" class="secondary" aria-controls="history-panel" aria-expanded="false">Show History</button>
+      </div>
+      <section id="history-panel" hidden style="margin-top:12px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
+        <h3 id="history-heading">Execution history</h3>
+        <p class="muted">Choose a website test suite to see its previous executions. Individual test runs are included under their website suite, not listed separately.</p>
+        <label for="history-site">Test suite (website URL)</label>
+        <select id="history-site"><option value="">Select a website test suite</option></select>
+        <div class="history-toolbar">
+          <button type="button" id="refresh-history" class="secondary">Refresh history</button>
+          <button type="button" id="delete-all-history" class="secondary">Delete All History</button>
+        </div>
+        <p id="history-status" role="status" class="muted"></p>
+        <div id="history-suite-list"></div>
+        <div class="history-pagination">
+          <button type="button" id="history-prev" class="secondary" disabled>Previous</button>
+          <span id="history-page-info" role="status" class="muted"></span>
+          <button type="button" id="history-next" class="secondary" disabled>Next</button>
+        </div>
+      </section>
     </section>
   </main>
   <script>
@@ -1204,74 +1224,158 @@
         container.append(card);
       }
     }
+    let historyPage = 1;
+    let historySite = "";
+    let historyVersion = 0;
     async function refreshHistory() {
+      if ($("history-panel").hidden) return;
+      const version = ++historyVersion;
       const status = $("history-status");
-      status.textContent = "Loading completed runs from disk-backed history...";
+      status.textContent = "Loading website suite execution history...";
       try {
-        const history = await requestJSON("/api/history");
-        const suites = $("history-suite-list");
-        const runs = $("history-run-list");
-        suites.replaceChildren();
-        runs.replaceChildren();
-        suites.append(make("h4", "Suites (" + history.suites.length + ")"));
-        for (const suite of history.suites) {
+        const query = "?page=" + historyPage +
+          (historySite ? "&siteUrl=" + encodeURIComponent(historySite) : "");
+        const history = await requestJSON("/api/history" + query);
+        if (version !== historyVersion || $("history-panel").hidden) return;
+        historySite = history.selectedSiteUrl || "";
+        historyPage = history.page;
+        const select = $("history-site");
+        select.replaceChildren();
+        if (!history.sites.length) {
+          const option = make("option", "No saved execution history");
+          option.value = "";
+          select.append(option);
+          select.disabled = true;
+        } else {
+          select.disabled = false;
+          for (const site of history.sites) {
+            const option = make("option",
+              site.label + " (" + site.executions + " executions)");
+            option.value = site.siteUrl;
+            select.append(option);
+          }
+          select.value = historySite;
+        }
+        const list = $("history-suite-list");
+        list.replaceChildren();
+        for (const entry of history.entries) {
           const card = make("div", null, "history-entry");
-          card.append(make("strong", "Suite · " + suite.verdict.toUpperCase()));
-          card.append(make("span", " · " + new Date(suite.startedAt).toLocaleString() +
-            " · " + suite.summary.passed + " passed / " + suite.summary.failed +
-            " failed / " + suite.summary.errors + " errors", "muted"));
-          const button = make("button", "Open previous suite", "secondary");
+          const content = make("div", null, "history-entry-content");
+          const siteName = entry.siteUrl === "__legacy__"
+            ? "Older / unknown website" : entry.siteUrl;
+          content.append(make("strong", siteName + " · " + entry.verdict.toUpperCase()));
+          content.append(make("span", new Date(entry.startedAt).toLocaleString() +
+            " · " + entry.summary.total + " test script(s) · " +
+            entry.summary.passed + " passed / " +
+            entry.summary.failed + " failed / " +
+            entry.summary.errors + " errors", "muted"));
+          if (entry.kind === "single") {
+            content.append(make("span", "Script: " + entry.title, "muted"));
+          }
+          card.append(content);
+          const button = make("button", "Open results", "secondary");
           button.type = "button";
           button.addEventListener("click", async () => {
             $("suite-error").textContent = "";
+            $("run-error").textContent = "";
             try {
-              const prior = await requestJSON("/api/suites/" + encodeURIComponent(suite.id));
-              renderSuite(prior);
-              $("suite-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+              if (entry.kind === "batch") {
+                const suite = await requestJSON("/api/suites/" + encodeURIComponent(entry.id));
+                renderSuite(suite);
+                $("suite-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+              } else {
+                const previous = await requestJSON("/api/runs/" + encodeURIComponent(entry.id));
+                if (previous.state === "error") {
+                  throw new Error(previous.error || "Historical browser runner failed");
+                }
+                renderResult(previous);
+                $("run-status").textContent = "Viewing recorded result for " +
+                  siteName + ". No test was rerun.";
+                $("run-results").scrollIntoView({ behavior: "smooth", block: "start" });
+              }
             } catch (error) {
-              $("suite-error").textContent = error.message || String(error);
+              status.textContent = "Could not open saved result: " +
+                (error.message || String(error));
             }
           });
           card.append(button);
-          suites.append(card);
+          list.append(card);
         }
-        runs.append(make("h4", "Individual runs (" + history.runs.length + ")"));
-        for (const run of history.runs) {
-          const card = make("div", null, "history-entry");
-          card.append(make("strong", run.title + " · " + run.verdict.toUpperCase()));
-          card.append(make("span", " · " + new Date(run.startedAt).toLocaleString() +
-            (run.durationMs !== null ? " · " + (run.durationMs / 1000).toFixed(1) + "s" : "") +
-            (run.suiteId ? " · suite member" : ""), "muted"));
-          if (run.state === "finished") {
-            const button = make("button", "Open previous run", "secondary");
-            button.type = "button";
-            button.addEventListener("click", async () => {
-              $("run-error").textContent = "";
-              try {
-                const previous = await requestJSON("/api/runs/" + encodeURIComponent(run.id));
-                renderResult(previous);
-                $("run-status").textContent = "Viewing recorded result from " +
-                  new Date(run.startedAt).toLocaleString() + ". No test was rerun.";
-                $("run-results").scrollIntoView({ behavior: "smooth", block: "start" });
-              } catch (error) {
-                $("run-error").textContent = error.message || String(error);
-              }
-            });
-            card.append(button);
-          }
-          runs.append(card);
+        if (!history.entries.length) {
+          list.append(make("p", "No executions for this test suite.", "muted"));
         }
-        if (!history.runs.length && !history.suites.length) {
-          status.textContent = "No completed runs yet. Run an approved test or suite first.";
-        } else {
-          status.textContent = history.runs.length + " completed/failed individual runs and " +
-            history.suites.length + " completed suites available. No rerun is needed.";
-        }
+        $("history-prev").disabled = history.page <= 1;
+        $("history-next").disabled = history.page >= history.pages;
+        $("history-page-info").textContent = history.total
+          ? "Page " + history.page + " of " + history.pages +
+            " · showing " + ((history.page - 1) * 10 + 1) + "–" +
+            Math.min(history.page * 10, history.total) +
+            " of " + history.total + " executions"
+          : "No executions";
+        status.textContent = history.total
+          ? history.total + " saved executions for " +
+            (historySite === "__legacy__" ? "older / unknown websites" : historySite)
+          : "No completed execution history. Your saved test scripts are unaffected.";
       } catch (error) {
+        if (version !== historyVersion) return;
         status.textContent = "History unavailable: " + (error.message || String(error));
       }
     }
+    $("toggle-history").addEventListener("click", () => {
+      const panel = $("history-panel");
+      panel.hidden = !panel.hidden;
+      $("toggle-history").textContent = panel.hidden ? "Show History" : "Hide History";
+      $("toggle-history").setAttribute("aria-expanded", String(!panel.hidden));
+      if (!panel.hidden) void refreshHistory();
+    });
+    $("history-site").addEventListener("change", () => {
+      historySite = $("history-site").value;
+      historyPage = 1;
+      void refreshHistory();
+    });
+    $("history-prev").addEventListener("click", () => {
+      if (historyPage > 1) { historyPage--; void refreshHistory(); }
+    });
+    $("history-next").addEventListener("click", () => {
+      historyPage++;
+      void refreshHistory();
+    });
     $("refresh-history").addEventListener("click", () => { void refreshHistory(); });
+    $("delete-all-history").addEventListener("click", async () => {
+      if (running) {
+        $("history-status").textContent = "Finish the current test before deleting history.";
+        return;
+      }
+      const confirmed = window.confirm(
+        "Delete ALL execution history for ALL website test suites? " +
+        "This permanently deletes saved run reports, screenshots and traces. " +
+        "Approved test scripts will NOT be deleted. This cannot be undone.");
+      if (!confirmed) return;
+      $("delete-all-history").disabled = true;
+      $("history-status").textContent = "Deleting stored execution history...";
+      try {
+        const response = await requestJSON("/api/history/delete-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            confirmed: true, confirmationText: "DELETE ALL HISTORY",
+          }),
+        });
+        historyPage = 1;
+        historySite = "";
+        $("run-results").hidden = true;
+        $("suite-summary").textContent = "";
+        $("suite-results").replaceChildren();
+        $("suite-artifacts").replaceChildren();
+        $("run-status").textContent = response.message;
+        await refreshHistory();
+      } catch (error) {
+        $("history-status").textContent = "Could not delete history: " +
+          (error.message || String(error));
+      } finally {
+        $("delete-all-history").disabled = false;
+      }
+    });
     async function watchRun(id) {
       while (true) {
         await new Promise((done) => setTimeout(done, 600));
@@ -1528,7 +1632,7 @@
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
-    void refreshHistory();
+    // History remains collapsed and does not fetch data until requested.
 
     $("requirements-file").addEventListener("change", async (event) => {
       const file = event.target.files?.[0];
