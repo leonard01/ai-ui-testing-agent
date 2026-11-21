@@ -99,6 +99,10 @@ When a text assertion fails, the Test Builder shows **expected vs observed** and
 
 The UI no longer accumulates failed saved-test revisions. Saving a correction first writes the new test, then removes the superseded entry from the dropdown and discards its completed run artifacts from the current session. Failed saves leave the original untouched; newly generated unrelated tests remain separate.
 
+### Failed assertion DOM search (feature branch)
+
+If a visibility/text assertion uses the wrong role or locator, the failed-step UI searches the **live DOM** for the requested text. For example, `getByRole("heading", {name:"Products"})` can be repaired by selecting a verified visible `<span>Products</span>` through **Find assertion target in live DOM**. The choice updates only the selector (never the expected assertion), supersedes the failed saved version and reruns the scenario. It does not auto-pass the test and does not use a model call.
+
 ### UI-only test editing and repair (feature branch)
 
 **No manual JSON changes required.** A saved test can be reopened from **Execute and diagnose → Edit selected saved test in review form**, corrected with human-readable fields, reconfirmed and saved as a replacement. The old entry is removed only after successful saving. When an explicit locator finds no element (e.g. `getByLabel("Add")` for a button), the failed execution also offers **Choose a replacement element** from uniquely verified live DOM candidates. The tester chooses the intended element; the application saves a corrected copy and reruns. The runner never guesses or changes assertions.
