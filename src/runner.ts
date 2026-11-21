@@ -40,8 +40,13 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 function navigationURL(url: string, base: URL): string {
-  // Use the same application-aware resolver as the preflight and exporter.
-  return ensureAllowedNavigation(url, base).href;
+  // Use the same application-aware resolver as preflight and export, while
+  // retaining the established runner error for invalid/cross-origin targets.
+  try {
+    return ensureAllowedNavigation(url, base).href;
+  } catch {
+    throw new Error("Navigation must stay on the configured HTTP(S) application origin");
+  }
 }
 
 /** Validate first. Each run owns a fresh context; an injected browser remains caller-owned. */
