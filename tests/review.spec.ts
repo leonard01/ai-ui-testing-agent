@@ -217,7 +217,6 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   });
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
-  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
   await page.goto(url);
   await page.getByLabel("Approved saved test").selectOption(saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
@@ -334,6 +333,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   });
   expect(savedResponse.status(), await savedResponse.text()).toBe(200);
   const saved = await savedResponse.json();
+  const original = JSON.parse(await readFile(join(outputDir, saved.id), "utf8"));
   await page.goto(url);
   await page.getByLabel("Approved saved test").selectOption(saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
