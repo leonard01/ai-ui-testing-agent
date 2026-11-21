@@ -231,7 +231,7 @@ export async function findAssertionAlternatives(
   const query = attempted.by === "role"
     ? attempted.name || (operation === "assert-text" ? expected ?? "" : "")
     : attempted.value;
-  const normalized = (value: string) => value.replace(/\\s+/g, " ").trim().toLowerCase();
+  const normalized = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
   const request = normalized(query);
   if (!request) return { attempted, query: "", candidates: [], total: 0 };
   const terms = keywords(request);
