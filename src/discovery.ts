@@ -245,8 +245,13 @@ export async function findAssertionAlternatives(
     if (!exact && scored === null) return [];
     return [{ candidate, score: exact ? 1000 : scored ?? 0 }];
   }).sort((a, b) => b.score - a.score);
+  // An exact "Products" match is preferable to unrelated surrounding
+  // copy like "Browse products here". Only consider fuzzy candidates when
+  // there is no exact visible text match.
+  const ranked = matches.some((entry) => entry.score === 1000)
+    ? matches.filter((entry) => entry.score === 1000) : matches;
   const proposed: AssertionCandidate[] = [];
-  for (const { candidate } of matches.slice(0, 40)) {
+  for (const { candidate } of ranked.slice(0, 40)) {
     const role = candidate.role;
     let target: ExplicitTarget | undefined;
     if (role === "button" || role === "textbox" || role === "checkbox" ||
@@ -273,7 +278,7 @@ export async function findAssertionAlternatives(
     attempted, query,
     candidates: proposed.slice(0, 12),
     // If not all viable matches fit, don't permit a one-click repair.
-    total: proposed.length + (matches.length > 40 ? matches.length - 40 : 0),
+    total: proposed.length + (ranked.length > 40 ? ranked.length - 40 : 0),
   };
 }
 
