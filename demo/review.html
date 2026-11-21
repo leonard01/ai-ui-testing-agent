@@ -725,6 +725,13 @@
       } else if (website.options.length > 1) {
         website.selectedIndex = 1;
       }
+      // The selected website is the default execution URL for its suite,
+      // including when the page is freshly opened after a server restart.
+      if (selectedTest?.sourceUrl) {
+        $("base-url").value = selectedTest.sourceUrl;
+      } else if (!selectedTest && website.value && website.value !== "__legacy__") {
+        $("base-url").value = website.value + "/";
+      }
       renderWebsiteSuite(preservedSuiteSelection);
     }
     function diagnosticText(result) {
