@@ -60,6 +60,14 @@ For a failed explicit locator such as `getByLabel("Add")`, the runner now inspec
 
 The runner does not silently click or change targets. If the candidate list is incomplete or no unique candidate can be validated, use **Edit selected saved test in review form** instead. If a chosen locator fails on a later run, the error and evidence remain visible. The server rejects arbitrary candidate indexes and invalid run/step IDs.
 
+## Failed assertion locator: live DOM text search
+
+When a visibility or text assertion cannot locate its original target (for example `getByRole("heading", { name: "Products" })`), the runner searches **visible DOM elements on the page at failure time**, including spans, headings, text containers and status regions. A screenshot or the initial page snapshot is not sufficient for dynamic post-login content. The search uses the missing locator's name/text, ranks exact matches first and proposes only elements whose Playwright role/name or exact visible-text locator is unique and currently visible. It never searches input field values or blindly clicks anything.
+
+The failed step now presents **Find assertion target in live DOM**, with each candidate's tag, role, name, nearby text and the verified selector. If the shop renders `<span class="title">Products</span>` instead of a heading, the UI can offer **Visible text "Products"**. The tester chooses and clicks **Save corrected assertion target and rerun**. A validated replacement test is saved, the failed saved version is removed from the dropdown, and the test starts again at step 1. The endpoint `POST /api/repair-assertion-target` accepts **only the selected candidate recorded in a completed failing run**; arbitrary text/selector input is rejected.
+
+This changes **only the assertion's locator**; the action remains `assert-visible` or `assert-text`, and the expected text and provenance remain exactly as approved. If no matching text is actually present (e.g. a failed login), the UI does not fabricate a target or silently accept the assertion. Open **Edit selected saved test in review form** to investigate or change selectors without editing JSON. This is deterministic, no additional AI model call.
+
 ## Human-assisted locator choice
 
 When a step such as `Complete` matches both `Complete preparing a presentation` and `Complete reviewing documentation`, the failure report now includes a structured `ambiguity` array with candidates from the **live DOM**. The UI renders them as selectable options. A tester can pick the intended control and explicitly save a repaired test definition **without editing JSON**.
