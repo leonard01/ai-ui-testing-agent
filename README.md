@@ -73,13 +73,31 @@ npm run generate -- generate --provider groq --model openai/gpt-oss-20b --requir
 
 The OpenAI option remains available via `--provider openai`, but AI inference is never required to run an approved test. CI mocks all model providers and makes no real hosted-model request; it verifies tooling, not live-model quality. See [all four setup paths and limitations](docs/requirements-generation.md).
 
+### Plain-English test review UI (early MVP, feature branch only)
+
+For testers who don't want to write Markdown files and edit raw JSON, this feature branch includes a **local web interface** for natural-language test drafting and review.
+
+```bash
+# Terminal 1: demo application
+npm run demo
+
+# Terminal 2: lightweight review server, after npm run build
+npm run review
+```
+
+Open **http://127.0.0.1:3100/**. Enter an instruction such as **"Add a task called Prepare interview; verify it appears; complete it and delete it."** or import a `.txt`/`.md` file. Choose GroqCloud (hosted model) or Fixture (prewritten no-AI example). The result is a **plain-English ordered step preview** with locator details, expected outcomes and provenance. Testers can edit individual fields, verify each step and explicitly approve saving the draft JSON.
+
+**Saving doesn't execute any tests.** Use the generated command to run the case through the existing deterministic Playwright runner. The `GROQ_API_KEY` stays on the local server; the browser doesn't receive it. Real Groq model accuracy and workflows on arbitrary sites still need evaluation.
+
+[Full interface instructions, limitations, and security notes](docs/test-review-ui.md).
+
 ### Not implemented yet
 
 - Fully evaluated AI generation quality (including live GroqCloud model output), automatic approval or autonomous multi-page exploration (first generator is a review-only draft).
 - AI discovery of workflows or interpretation of browser targets.
 - Recording a user's interactions into a test case.
 - Execution speed controls, pause/resume, single-step, skip and manual takeover.
-- A test-management interface or editing existing tests by demonstration.
+- Full test management, step reordering, appending natural-language instructions to an existing case or editing by demonstration (the early draft review UI supports field edits only).
 - Exporting cases as standalone TypeScript scripts.
 - API, mobile and load testing, or additional language exporters.
 
