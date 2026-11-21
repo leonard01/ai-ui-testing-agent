@@ -1093,7 +1093,7 @@
         runs.replaceChildren();
         suites.append(make("h4", "Suites (" + history.suites.length + ")"));
         for (const suite of history.suites) {
-          const card = make("div", null, "run-step");
+          const card = make("div", null, "history-entry");
           card.append(make("strong", "Suite · " + suite.verdict.toUpperCase()));
           card.append(make("span", " · " + new Date(suite.startedAt).toLocaleString() +
             " · " + suite.summary.passed + " passed / " + suite.summary.failed +
@@ -1115,7 +1115,7 @@
         }
         runs.append(make("h4", "Individual runs (" + history.runs.length + ")"));
         for (const run of history.runs) {
-          const card = make("div", null, "run-step");
+          const card = make("div", null, "history-entry");
           card.append(make("strong", run.title + " · " + run.verdict.toUpperCase()));
           card.append(make("span", " · " + new Date(run.startedAt).toLocaleString() +
             (run.durationMs !== null ? " · " + (run.durationMs / 1000).toFixed(1) + "s" : "") +
