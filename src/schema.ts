@@ -35,6 +35,7 @@ const countTarget = z.discriminatedUnion("by", [
     name: text.optional(),
   }).strict(),
   z.object({ by: z.literal("label"), value: text }).strict(),
+  z.object({ by: z.literal("placeholder"), value: text }).strict(),
   z.object({ by: z.literal("text"), value: text }).strict(),
 ]);
 const key = z.enum(["Enter", "Tab", "Escape", "Backspace", "Delete",
