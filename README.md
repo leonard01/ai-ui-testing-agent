@@ -99,6 +99,10 @@ When a text assertion fails, the Test Builder shows **expected vs observed** and
 
 The UI no longer accumulates failed saved-test revisions. Saving a correction first writes the new test, then removes the superseded entry from the dropdown and discards its completed run artifacts from the current session. Failed saves leave the original untouched; newly generated unrelated tests remain separate.
 
+### Editable DOM search on failed assertions
+
+A failed assertion now offers a **Search visible DOM text** field alongside discovered candidates. Enter or refine a phrase, click **Search captured DOM**, inspect verified uniquely addressable matching elements, and explicitly choose the corrected selector. The app searches a bounded in-memory DOM snapshot captured at the failure, without replaying prior actions or using Groq. It does **not** change the assertion's expected result: that remains a separate explicitly reviewed operation. A saved repair replaces the failed script, rather than creating clutter.
+
 ### Full-page visible-text recovery for incorrect assertion targets
 
 An exact text assertion may find an element but find the **wrong one** (e.g. expected `Sauce Labs Backpack` while a button displays `Add to cart`). At failure time, the agent searches visible page text across regular elements such as product-name `div` blocks, verifies any suggested selector is unique and visible, and offers **Find assertion target in live DOM**. The tester can choose the correct text element through the UI; the expected result never changes automatically. Exact DOM text is required; when absent, the assertion remains failed.
