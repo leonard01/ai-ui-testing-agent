@@ -67,6 +67,15 @@
     .repair-option span { display:block; overflow-wrap:anywhere; font-size:13px; }
     .repair-option small { display:block; margin-top:4px; color:#52677b; }
     .repair-choice button { margin-top:12px; }
+    .locator-repair { margin:14px 0 5px; padding:15px; border:1px solid #bfd2e2; border-radius:9px; background:#f5f8fc; }
+    .locator-repair h3 { font-size:14px; margin:0 0 8px; }
+    .locator-repair fieldset { border:0; margin:10px 0; padding:0; }
+    .locator-repair legend { font-size:13px; font-weight:650; margin-bottom:7px; }
+    .locator-option { display:flex; gap:10px; background:white; border:1px solid #c6d4e1; border-radius:8px; padding:10px; margin:7px 0; cursor:pointer; }
+    .locator-option input { margin-top:3px; flex:none; }
+    .locator-option span { display:block; font-size:13px; overflow-wrap:anywhere; }
+    .locator-option small { display:block; margin-top:4px; color:#52677b; }
+
     .assertion-repair { background:#f5f7fa; border:1px solid #c8d3df; border-radius:9px; padding:15px; margin:14px 0 5px; }
     .assertion-repair h3 { margin:0 0 10px; font-size:14px; }
     .assertion-repair label { display:block; font-size:13px; font-weight:600; margin-top:12px; }
@@ -444,6 +453,71 @@
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
+        if (step.status === "execution-error" && step.locatorAlternatives?.candidates?.length) {
+          const evidence = step.locatorAlternatives;
+          const repair = make("div", null, "locator-repair");
+          repair.append(make("h3", "Choose a replacement element"));
+          repair.append(make("p",
+            "The original locator could not find its element. Playwright inspected " +
+            "the live page at the failure point and found these possible targets. " +
+            "Choose only the intended one; no action has been taken on these candidates."));
+          repair.append(make("p", "Failed locator: " + describeTarget(evidence.attempted), "muted"));
+          const choices = make("fieldset");
+          choices.append(make("legend", "Which element should this action use?"));
+          const save = make("button", "Save corrected locator and rerun from start");
+          save.type = "button";
+          save.disabled = true;
+          let selected = -1;
+          evidence.candidates.forEach((candidate, index) => {
+            const label = make("label", null, "locator-option");
+            const radio = make("input");
+            radio.type = "radio";
+            radio.name = "missing-" + result.id + "-" + step.id;
+            radio.value = String(index);
+            const info = make("span");
+            info.append(make("strong", candidate.role + " named " + candidate.name));
+            info.append(make("small", "<" + candidate.tag + ">"));
+            if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
+            radio.addEventListener("change", () => {
+              selected = index;
+              save.disabled = running || evidence.total !== evidence.candidates.length;
+            });
+            label.append(radio, info);
+            choices.append(label);
+          });
+          repair.append(choices);
+          if (evidence.total !== evidence.candidates.length) {
+            repair.append(make("p",
+              "Not all possible matches can be shown. Please edit the target in the review UI instead.",
+              "note"));
+          }
+          repair.append(make("p",
+            "Your original saved test and all expected results will be preserved. " +
+            "A corrected copy will run again from step 1.", "muted"));
+          save.addEventListener("click", async () => {
+            if (running || selected < 0 || evidence.total !== evidence.candidates.length) return;
+            save.disabled = true;
+            $("run-error").textContent = "";
+            try {
+              const updated = await requestJSON("/api/repair-target", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  runId: result.id, stepId: step.id, candidateIndex: selected,
+                }),
+              });
+              await refreshApprovedTests(updated.id);
+              $("run-status").textContent = "Saved corrected target for " +
+                updated.repairedStepId + ". Rerunning from step 1...";
+              await executeApproved(updated.id);
+            } catch(error) {
+              $("run-error").textContent = error.message || String(error);
+              save.disabled = false;
+            }
+          });
+          repair.append(save);
+          card.append(repair);
+        }
         if (step.ambiguity && step.ambiguity.candidates?.length) {
           const ambiguity = step.ambiguity;
           const repair = make("div", null, "repair-choice");
