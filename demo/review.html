@@ -158,6 +158,8 @@
         <button type="button" id="run-test" disabled>Run selected test</button>
       </div>
       <button type="button" id="edit-saved" class="secondary" disabled style="margin-top:10px">Edit selected saved test in review form</button>
+      <a id="export-playwright" class="secondary" hidden style="display:inline-block;margin-top:10px;margin-left:8px;padding:11px 16px;border-radius:8px;text-decoration:none;border:1px solid #205e86" download>Export Playwright (.spec.ts)</a>
+      <p class="muted">Export the selected approved test as a standalone Playwright TypeScript spec. The download does not execute tests, use AI, or modify saved cases.</p>
       <p class="muted" style="margin-top:10px">Uses the application URL entered above. Only the saved, approved JSON is executed; any later unsaved edits are excluded. One run at a time.</p>
       <div id="suite-panel" style="margin-top:22px;padding:16px;border:1px solid #d5dce3;border-radius:12px">
         <h3 style="margin:0 0 8px">Run a test suite</h3>
@@ -506,6 +508,19 @@
       selectedApprovedId = $("approved-tests").value;
       $("run-test").disabled = running || !selectedApprovedId;
       $("edit-saved").disabled = running || !selectedApprovedId;
+      const exportLink = $("export-playwright");
+      exportLink.hidden = !selectedApprovedId;
+      if (selectedApprovedId) {
+        const query = new URLSearchParams({
+          baseURL: $("base-url").value,
+          timeoutMs: $("run-timeout").value,
+        });
+        exportLink.href = "/api/tests/" + encodeURIComponent(selectedApprovedId) +
+          "/export.ts?" + query.toString();
+        exportLink.download = selectedApprovedId.replace(/\.json$/, ".spec.ts");
+      } else {
+        exportLink.removeAttribute("href");
+      }
       updateSuiteSelection();
     }
     async function refreshApprovedTests(preferredId = $("approved-tests").value) {
@@ -1049,6 +1064,8 @@
     });
     $("suite-run").addEventListener("click", () => { void executeSuite(); });
     $("approved-tests").addEventListener("change", updateRunButton);
+    $("base-url").addEventListener("input", updateRunButton);
+    $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
       if (running || !id) return;
       running = true;
