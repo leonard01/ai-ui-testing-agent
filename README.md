@@ -173,9 +173,11 @@ Counts use Playwright locator matching, without an extra visibility filter; role
 
 **Development status:** merged into `main` through PR #12.
 
+**One consolidated execution panel:** Under **3. Execute and diagnose → Run Tests**, select a website suite, then use **Run one test script** for one approved case (with timeout, edit, delete, Playwright export and requirement-matrix actions) or **Run multiple test scripts** for up to ten selected cases. Both modes are inside the same panel; there is no separate saved-test row above it. This is a UI consolidation only; execution logic and reports are unchanged.
+
 ### Sequential test-suite execution (new feature branch)
 
-In **3. Execute and diagnose → Run a test suite**, select 1–10 approved saved tests and click **Run selected suite**. The application validates **all** saved scripts and same-origin navigation targets before the first browser run. Tests execute **sequentially**, each with a new isolated browser context. An assertion or execution error in one case does **not** stop the remaining cases.
+In **3. Execute and diagnose → Run Tests**, select 1–10 approved saved tests and click **Run selected suite**. The application validates **all** saved scripts and same-origin navigation targets before the first browser run. Tests execute **sequentially**, each with a new isolated browser context. An assertion or execution error in one case does **not** stop the remaining cases.
 
 The live suite dashboard displays progress, per-test verdicts, completed counts, total passes/failures, and duration. **View details** opens the original per-step report, screenshot and trace in the existing diagnosis panel, including human-approved repair functionality. You can also open a consolidated JSON report; an additional report file is saved to `run-results/suites/<suite-id>/report.json`.
 
@@ -219,7 +221,7 @@ The expanded history includes **Delete All History** (with confirmation), which 
 
 **Terminology:** A **test suite** is the collection of saved test scripts for a website URL such as `https://www.saucedemo.com`. A **test script** is one approved test such as `Add user`. A test-suite **execution** is a particular run of selected scripts; it does not create a new saved suite.
 
-The review server now captures each newly approved script's original website URL (`sourceUrl`) and saves the JSON in `generated/sites/<website-name>/`. The **Run a test suite** dropdown lists previously saved website URLs and displays only their scripts. Scripts for the same origin (scheme + host + port) share one suite, even if their starting paths differ.
+The review server now captures each newly approved script's original website URL (`sourceUrl`) and saves the JSON in `generated/sites/<website-name>/`. The **Run Tests** website dropdown lists previously saved website URLs and displays only their scripts. Scripts for the same origin (scheme + host + port) share one suite, even if their starting paths differ.
 
 There are confirmed delete controls for an individual saved script and for an entire website suite. Deletion removes approved JSON test definitions **but retains historical run results, screenshots and traces**. No deletion is permitted during browser execution. Existing ungrouped `generated/reviewed-*.json` files remain visible under **Older / unassigned scripts**, and can be explicitly assigned to a website from the UI without being regenerated.
 

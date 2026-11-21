@@ -100,11 +100,15 @@ Other absolute same-origin URLs and relative paths continue to follow standard b
 
 Standalone Playwright exports preserve the corrected path and hash fragment, and URL assertions share the same interpretation of the bare `"/"` shorthand.
 
+### One consolidated Run Tests panel
+
+The separate **Approved saved test** controls above the test-suite box have been removed. Under **3. Execute and diagnose → Run Tests**, first choose a website suite, then use **Run one test script** to select an approved script, set the shared timeout, execute it, or edit/delete/export it and view its requirement matrix. Below, **Run multiple test scripts** offers the website's checkbox list and **Run selected suite**. The existing **Delete this website test suite** action is in the same panel. All underlying run, approval, export and repair behavior is unchanged; only the placement of controls is different.
+
 ## Website test suites and saved test scripts (prototype organization)
 
 A **test suite** now means the saved collection of test scripts for one website URL, rather than a historical execution batch. Each saved script records the application URL used when it was approved; scripts from the same website origin are stored together under `generated/sites/<website-name>/`.
 
-In **3. Execute and diagnose → Run a test suite**, choose a **Test suite (website URL)**. Only that website's saved test scripts appear, and you can select up to 10 to run in one sequential batch. Choosing an individual saved script also restores its saved source URL. Older scripts without URL metadata appear as **Older / unassigned scripts**; choose a script and use **Assign older script to website URL** to associate it explicitly with the selected URL.
+In **3. Execute and diagnose → Run Tests**, choose a **Test suite (website URL)**. Only that website's saved test scripts appear, and you can select up to 10 to run in one sequential batch. Choosing an individual saved script also restores its saved source URL. Older scripts without URL metadata appear as **Older / unassigned scripts**; choose a script and use **Assign older script to website URL** to associate it explicitly with the selected URL.
 
 **Delete selected test script** removes one approved JSON test script; **Delete this website test suite** removes all approved scripts for the selected website. Both require confirmation. Neither removes historical execution evidence, and deletion is blocked during active browser operations.
 
@@ -122,7 +126,7 @@ Indexed role locators are supported by the runner, selector preflight and standa
 
 ## Run multiple approved tests as a suite (on main)
 
-After saving at least two test definitions, use **3. Execute and diagnose → Run a test suite**:
+After saving at least two test definitions, use **3. Execute and diagnose → Run Tests**:
 
 1. Tick one or more saved tests (up to 10), or use **Select first 10**.
 2. Set the application URL and step timeout, then click **Run selected suite**.
