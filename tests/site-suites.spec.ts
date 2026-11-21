@@ -164,3 +164,30 @@ test("existing flat JSON scripts stay visible under unassigned suite and can be 
   const surviving = await list();
   expect(surviving.tests.map((item) => item.id)).toEqual([other]);
 });
+
+test("legacy script assignment needs confirmation, verifies URL and keeps original ID", async ({ page }) => {
+  const original = JSON.parse(await readFile("examples/add-task.json", "utf8")) as TestDefinition;
+  const legacyID = "reviewed-1700000000000-deadbeef.json";
+  await writeFile(join(dir, legacyID), JSON.stringify(original));
+  await page.goto(url);
+  await page.getByLabel("Approved saved test").selectOption(legacyID);
+  await expect(page.getByRole("button", { name: "Assign older script to website URL" })).toBeEnabled();
+  const denied = await post("/api/assign-site", {
+    id: legacyID, baseURL: sauce, confirmed: false,
+  });
+  expect(denied.status).toBe(400);
+  await page.locator("#base-url").fill(sauce);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Assign older script to website URL" }).click();
+  await expect(page.locator("#run-status")).toContainText("assigned to the selected website");
+  const after = await list();
+  expect(after.tests).toHaveLength(1);
+  expect(after.tests[0]).toMatchObject({ id: legacyID, siteUrl: sauce, sourceUrl: sauce + "/" });
+  expect(after.sites).toEqual([{ siteUrl: sauce, scripts: 1 }]);
+  expect((await readdir(websiteDirectory(dir, sauce)))).toContain(legacyID);
+  await expect(page.getByRole("button", { name: "Assign older script to website URL" })).toBeDisabled();
+  const repeat = await post("/api/assign-site", {
+    id: legacyID, baseURL: sauce, confirmed: true,
+  });
+  expect(repeat.status).toBe(400);
+});
