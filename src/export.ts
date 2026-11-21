@@ -167,6 +167,9 @@ function targetExpression(target: Target, operation: string): string {
   if (target.by === "label") {
     return "page.getByLabel(" + literal(target.value) + ", { exact: true })";
   }
+  if (target.by === "placeholder") {
+    return "page.getByPlaceholder(" + literal(target.value) + ", { exact: true })";
+  }
   if (target.by === "text") {
     return "page.getByText(" + literal(target.value) + ", { exact: true })";
   }
