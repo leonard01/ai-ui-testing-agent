@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft } from "./generation.js";
 import { fixtureProvider } from "./local-providers.js";
-import { groqProvider } from "./hosted-providers.js";
+import { groqProvider, GroqProviderError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { runTest } from "./runner.js";
@@ -337,7 +337,25 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               : "AI-generated draft. Verify each step and inferred assertion before approving.",
           });
         } catch (error) {
-          json(res, 422, { error: error instanceof Error ? error.message : "Generation failed" });
+          if (error instanceof GroqProviderError) {
+            // Upstream 400 is NOT invalid local user input: distinguish origins.
+            json(res, 502, {
+              source: error.source,
+              providerStatus: error.httpStatus,
+              category: error.category,
+              providerCode: error.providerCode,
+              providerType: error.providerType,
+              providerParam: error.providerParam,
+              error: error.message,
+              requirementsCharacters: input.requirements.length,
+            });
+          } else {
+            json(res, 422, {
+              source: "generator",
+              error: error instanceof Error ? error.message : "Generation failed",
+              requirementsCharacters: input.requirements.length,
+            });
+          }
         }
         return;
       }
