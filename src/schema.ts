@@ -22,6 +22,7 @@ const target = z.discriminatedUnion("by", [
     })
     .strict(),
   z.object({ by: z.literal("label"), value: text }).strict(),
+  z.object({ by: z.literal("placeholder"), value: text }).strict(),
   z.object({ by: z.literal("text"), value: text }).strict(),
   z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional() }).strict(),
 ]);
