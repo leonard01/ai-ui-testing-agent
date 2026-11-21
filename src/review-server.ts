@@ -212,6 +212,16 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
+      const savedTestPath = /^\/api\/tests\/(reviewed-\d{13}-[a-f0-9]{8}\.json)$/.exec(path);
+      if (req.method === "GET" && savedTestPath) {
+        try {
+          const definition = await readSaved(savedTestPath[1]);
+          json(res, 200, { id: savedTestPath[1], definition });
+        } catch {
+          json(res, 404, { error: "Saved test not found" });
+        }
+        return;
+      }
       const resultPath = /^\/api\/runs\/([a-f0-9-]{36})(?:\/(report\.json|failure\.png|trace\.zip))?$/.exec(path);
       if (req.method === "GET" && resultPath) {
         const id = resultPath[1];
