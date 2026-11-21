@@ -148,20 +148,31 @@ export async function runTest(
             checkingAssertion = true;
             if (action.kind === "assert-text") {
               result.expected = action.expected;
+              const expectedText = normalize(action.expected);
               const deadline = performance.now() + timeout;
-              do {
-                result.observed = normalize(
-                  (await target.textContent({
-                    timeout: Math.max(1, deadline - performance.now()),
-                  })) ?? "",
-                );
-                if (result.observed === normalize(action.expected)) break;
-                if (performance.now() >= deadline)
+              while (true) {
+                const remaining = deadline - performance.now();
+                // Never pass a nearly expired 1ms timeout to Playwright. Such
+                // calls obscure a real expected/observed assertion mismatch.
+                // A small floor permits one final DOM read before reporting.
+                if (remaining <= 0 && result.observed !== undefined) {
                   throw new Error(
                     `Text assertion failed: expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
                   );
-                await delay(50);
-              } while (true);
+                }
+                const readTimeout = Math.max(150, Math.ceil(remaining));
+                result.observed = normalize(
+                  (await target.textContent({ timeout: readTimeout })) ?? "",
+                );
+                if (result.observed === expectedText) break;
+                const timeLeft = deadline - performance.now();
+                if (timeLeft <= 0) {
+                  throw new Error(
+                    `Text assertion failed: expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
+                  );
+                }
+                await delay(Math.min(50, timeLeft));
+              }
             } else {
               result.expected = "visible";
               await target.waitFor({ state: "visible", timeout });
