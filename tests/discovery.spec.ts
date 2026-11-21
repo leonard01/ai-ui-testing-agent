@@ -123,6 +123,40 @@ test("assertion DOM search finds visible Products span, not absent heading", asy
   }
 });
 
+test("text mismatch searches visible product-name div, not the Add to cart button", async ({ browser }) => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<!doctype html><main>' +
+      '<div class="inventory_details_name large_size">Sauce Labs Backpack</div>' +
+      '<button>Add to cart</button><div class="inventory_details_price">$29.99</div>' +
+      '<div hidden>Fake Sauce Labs Backpack</div>' +
+      '</main>');
+    const alternatives = await findAssertionAlternatives(
+      page,
+      { by: "role", role: "button", name: "Add to cart" },
+      "assert-text", "Sauce Labs Backpack", true,
+    );
+    expect(alternatives).toMatchObject({
+      query: "Sauce Labs Backpack", total: 1,
+      candidates: [{
+        tag: "div", name: "Sauce Labs Backpack",
+        target: { by: "text", value: "Sauce Labs Backpack" },
+      }],
+    });
+    const incorrect = await page.getByRole("button", { name: "Add to cart" }).innerText();
+    expect(incorrect).toBe("Add to cart");
+    expect(await page.getByText("Sauce Labs Backpack", { exact: true }).innerText())
+      .toBe("Sauce Labs Backpack");
+    const notPresent = await findAssertionAlternatives(
+      page, { by: "role", role: "button", name: "Add to cart" },
+      "assert-text", "Sauce Labs Laptop", true,
+    );
+    expect(notPresent.candidates).toHaveLength(0);
+  } finally {
+    await page.close();
+  }
+});
+
 test("ambiguous intent stops safely without clicking a random button", async ({ browser }, info) => {
   const tab = await browser.newPage();
   try {
