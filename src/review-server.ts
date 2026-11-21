@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -155,6 +155,47 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     if (!SAVED_NAME.test(id)) throw new Error("Invalid approved test filename");
     const input = JSON.parse(await readFile(join(savedDir, id), "utf8")) as unknown;
     return parseTestDefinition(input);
+  }
+
+  /**
+   * A revision supersedes an approved test rather than creating another
+   * visible version. Write and validate the replacement first; only then
+   * delete the superseded saved file. Do not touch the original on errors.
+   */
+  async function saveApproved(
+    definition: TestDefinition,
+    replacesId?: string,
+  ): Promise<{ id: string; file: string; replacedId?: string }> {
+    if (replacesId) {
+      if (!SAVED_NAME.test(replacesId)) throw new Error("Invalid test to replace");
+      if ([...jobs.values()].some((job) => job.fileId === replacesId && job.state === "running")) {
+        throw new Error("Cannot replace a test while it is running");
+      }
+      await readSaved(replacesId);
+    }
+    const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
+    const file = join(savedDir, id);
+    await mkdir(savedDir, { recursive: true });
+    await writeFile(file, JSON.stringify(definition, null, 2) + "\n", { flag: "wx" });
+    if (replacesId) {
+      try {
+        await unlink(join(savedDir, replacesId));
+      } catch (error) {
+        // Never leave a new duplicate if removing the superseded test failed.
+        await unlink(file).catch(() => {});
+        throw error;
+      }
+      // Stale failing executions for the replaced script should not clutter
+      // current-session history. Remove their report/trace/screenshot files too.
+      for (const [runId, job] of jobs) {
+        if (job.fileId !== replacesId || job.state === "running") continue;
+        jobs.delete(runId);
+        await rm(job.outputDir, { recursive: true, force: true }).catch(() => {
+          // A disk cleanup error must not roll back an already saved revision.
+        });
+      }
+    }
+    return { id, file, ...(replacesId ? { replacedId: replacesId } : {}) };
   }
 
   function snapshot(job: RunJob) {
@@ -328,15 +369,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             ...(selectedRole ? { role: selectedRole } : {}),
           };
           const repaired = parseTestDefinition(definition);
-          const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
-          const file = join(savedDir, id);
-          await mkdir(savedDir, { recursive: true });
-          await writeFile(file, JSON.stringify(repaired, null, 2) + "\n", { flag: "wx" });
+          const { id, file, replacedId } = await saveApproved(repaired, job.fileId);
           json(res, 201, {
-            id, file, repairedStepId: failed.id,
+            id, file, replacedId, repairedStepId: failed.id,
             previousIntent: ambiguity.intent,
             approvedIntent: selected.name,
-            message: "Repaired copy saved. Original test and assertions remain unchanged; no test has been executed.",
+            message: "Corrected test saved and failed version removed from the list; no test has been executed.",
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid repair request" });
@@ -400,12 +438,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const previousTarget = step.action.target;
           step.action.target = { by: "role", role, name: chosen.name };
           const corrected = parseTestDefinition(definition);
-          const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
-          await mkdir(savedDir, { recursive: true });
-          await writeFile(join(savedDir, id), JSON.stringify(corrected, null, 2) + "\n", { flag: "wx" });
+          const { id, replacedId } = await saveApproved(corrected, job.fileId);
           json(res, 201, {
-            id, repairedStepId: step.id, previousTarget, approvedTarget: step.action.target,
-            message: "New corrected test saved. The original and all assertions remain unchanged; execution has not started.",
+            id, replacedId, repairedStepId: step.id,
+            previousTarget, approvedTarget: step.action.target,
+            message: "Corrected locator saved and failed test replaced; assertions remain unchanged. Execution has not started.",
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid locator repair" });
@@ -456,15 +493,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           step.action.expected = input.expected;
           step.action.provenance = "human-confirmed";
           const reviewed = parseTestDefinition(definition);
-          const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
-          const file = join(savedDir, id);
-          await mkdir(savedDir, { recursive: true });
-          await writeFile(file, JSON.stringify(reviewed, null, 2) + "\n", { flag: "wx" });
+          const { id, file, replacedId } = await saveApproved(reviewed, job.fileId);
           json(res, 201, {
-            id, file, revisedStepId: failed.id,
+            id, file, replacedId, revisedStepId: failed.id,
             previousExpected, newExpected: input.expected,
             observed: failed.observed,
-            message: "Saved human-confirmed assertion in a new test copy. Original unchanged; no run started.",
+            message: "Human-confirmed correction saved; failed test removed. No run started.",
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid assertion review" });
@@ -578,15 +612,23 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       try {
-        const data = body as { definition?: unknown; baseURL?: unknown } | null;
+        const data = body as { definition?: unknown; baseURL?: unknown; replaceId?: unknown } | null;
         const base = validatedBaseURL(data?.baseURL);
         const definition = parseTestDefinition(data?.definition);
         verifyNavigations(definition, base);
-        const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
-        const file = join(savedDir, id);
-        await mkdir(dirname(file), { recursive: true });
-        await writeFile(file, JSON.stringify(definition, null, 2) + "\n", { flag: "wx" });
-        json(res, 200, { id, file, message: "Saved approved test definition; no test has been executed." });
+        if (data?.replaceId !== undefined &&
+          (typeof data.replaceId !== "string" || !SAVED_NAME.test(data.replaceId))) {
+          throw new Error("Invalid saved test to replace");
+        }
+        const { id, file, replacedId } = await saveApproved(
+          definition, data?.replaceId as string | undefined,
+        );
+        json(res, 200, {
+          id, file, replacedId,
+          message: replacedId
+            ? "Amended test saved; previous version removed. No test has been executed."
+            : "Saved approved test definition; no test has been executed.",
+        });
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
       }
