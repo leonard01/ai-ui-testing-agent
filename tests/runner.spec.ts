@@ -54,6 +54,9 @@ test("reports incorrect expectations, skips later steps and captures failure evi
     expected: "99 tasks, 0 completed",
     observed: "0 tasks, 0 completed",
   });
+  expect(report.steps[1].error).toContain("Text assertion failed: expected");
+  expect(report.steps[1].error).toContain('observed "0 tasks, 0 completed"');
+  expect(report.steps[1].error).not.toContain("Timeout 1ms exceeded");
   expect(report.steps.slice(2).every((step) => step.status === "skipped")).toBe(
     true,
   );
@@ -62,6 +65,66 @@ test("reports incorrect expectations, skips later steps and captures failure evi
     await info.attach(file, { path: join(dir, file) });
   }
   expect(report.evidenceErrors).toEqual([]);
+});
+
+test("final task count is reported as an assertion mismatch, not a 1ms locator timeout", async ({ browser }, info) => {
+  const steps: TestDefinition["steps"] = [
+    { id: "open", description: "Open", action: { kind: "navigate", url: "/" } },
+    { id: "enter-presentation", description: "Enter presentation", action: {
+      kind: "fill", target: { by: "role", role: "textbox", name: "Task" },
+      value: "preparing a presentation",
+    } },
+    { id: "add-presentation", description: "Add presentation", action: {
+      kind: "click", target: { by: "role", role: "button", name: "Add" },
+    } },
+    { id: "enter-docs", description: "Enter docs", action: {
+      kind: "fill", target: { by: "role", role: "textbox", name: "Task" },
+      value: "reviewing documentation",
+    } },
+    { id: "add-docs", description: "Add docs", action: {
+      kind: "click", target: { by: "role", role: "button", name: "Add" },
+    } },
+    { id: "complete", description: "Complete presentation only", action: {
+      kind: "click", target: { by: "role", role: "checkbox", name: "Complete preparing a presentation" },
+    } },
+    { id: "two-tasks", description: "Two tasks, one completed", action: {
+      kind: "assert-text", target: { by: "role", role: "status" },
+      expected: "2 tasks, 1 completed", provenance: "requirements",
+    } },
+    { id: "remove-docs", description: "Delete unfinished docs", action: {
+      kind: "click", target: { by: "role", role: "button", name: "Delete reviewing documentation" },
+    } },
+    { id: "final", description: "Verify final status", action: {
+      kind: "assert-text", target: { by: "role", role: "status" },
+      expected: "1 tasks, 1 completed", provenance: "requirements",
+    } },
+  ];
+  const definition: TestDefinition = {
+    schemaVersion: 1, id: "task-final-assertion", title: "Singular status wording", version: 1,
+    steps,
+  };
+  const wrong = await runTest(definition, {
+    baseURL, outputDir: info.outputPath("wrong-final-status"), timeoutMs: 1000,
+  }, browser);
+  const final = wrong.steps.at(-1)!;
+  expect(wrong.status, JSON.stringify(wrong.steps, null, 2)).toBe("assertion-failed");
+  expect(final).toMatchObject({
+    status: "assertion-failed",
+    expected: "1 tasks, 1 completed",
+    observed: "1 task, 1 completed",
+  });
+  expect(final.error).toContain('Text assertion failed: expected "1 tasks, 1 completed"');
+  expect(final.error).not.toMatch(/locator\.textContent: Timeout 1ms exceeded/);
+
+  // Correct requirements remain authoritative: do not auto-rewrite expected values.
+  const corrected: TestDefinition = structuredClone(definition);
+  const lastAction = corrected.steps.at(-1)!.action;
+  if (lastAction.kind !== "assert-text") throw new Error("Expected a final text assertion");
+  lastAction.expected = "1 task, 1 completed";
+  const good = await runTest(corrected, {
+    baseURL, outputDir: info.outputPath("correct-final-status"), timeoutMs: 1000,
+  }, browser);
+  expect(good.status, JSON.stringify(good.steps, null, 2)).toBe("passed");
 });
 
 test("reports missing targets as execution errors", async ({
