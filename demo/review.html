@@ -24,6 +24,13 @@
     .help-inner p, .help-inner li { font-size:13px; line-height:1.65; }
     .help-inner ol, .help-inner ul { padding-left:22px; }
     .help-inner li { margin:5px 0; }
+    .help-setup { border:2px solid #246c98; background:#e8f4ff; border-radius:10px; padding:16px 18px; margin:14px 0 20px; }
+    .help-setup h3 { font-size:17px; color:#153b5c; margin:0 0 8px; }
+    .help-setup p { margin:8px 0; }
+    .help-setup pre { background:#17324e; color:#fff; border-radius:7px; padding:12px 14px; overflow-x:auto; font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .help-setup a { color:#064e84; font-weight:700; text-decoration:underline; }
+    .help-setup code { font:12px ui-monospace,SFMono-Regular,Consolas,monospace; }
+
     @media(max-width:520px) { .app-header { align-items:center; } .help-inner { padding:18px; } }
     main { max-width:1060px; margin:24px auto 50px; padding:0 20px; display:grid; gap:20px; grid-template-columns:minmax(290px, 390px) minmax(420px,1fr); align-items:start; }
     section { background:white; border:1px solid #dce3ed; border-radius:13px; padding:23px; box-shadow:0 4px 18px #16304e08; }
@@ -163,6 +170,15 @@
         <h2 id="help-title">Using the AI UI Testing Agent</h2>
         <button type="button" id="help-close" class="secondary help-close" aria-label="Close help">Close</button>
       </div>
+      <aside class="help-setup" aria-labelledby="help-setup-title">
+        <h3 id="help-setup-title">First-time setup: GroqCloud API key</h3>
+        <p><strong>Required for AI generation.</strong> Create a file named <code>.env</code> in the project root (the folder containing <code>package.json</code>). Add the following line, replacing the example with your own key:</p>
+        <pre><code>GROQ_API_KEY="gsk_your-actual-key"</code></pre>
+        <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Create or manage your GroqCloud API key</a></p>
+        <p>Save <code>.env</code> and restart the local application server. <strong>Never share or commit your key or .env file.</strong> The app reads it on the server; do not paste it into test instructions.</p>
+        <p><strong>Optional:</strong> <code>GROQ_MODEL=openai/gpt-oss-20b</code> selects the model (already the default). The required variable is <code>GROQ_API_KEY</code>, <em>not</em> <code>GROK_API_KEY</code> (Grok/xAI is a different service).</p>
+        <p>Using the prewritten demonstration and executing already approved tests does <strong>not</strong> require an API key.</p>
+      </aside>
       <p id="help-intro">This is a prototype for creating and running browser tests from plain-English instructions. You review and approve every generated step before it becomes an executable test.</p>
       <h3>Quick start</h3>
       <ol>
