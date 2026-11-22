@@ -42,6 +42,17 @@ The **structured JSON definition** is framework-neutral; **the v0.1 browser runn
 
 **Requirements:** Node.js **22+**, npm and Chromium (installed through Playwright). No API key, AI subscription or locally hosted model is needed for the Fixture demo.
 
+### Quick launch (Windows, macOS or Linux)
+
+After one-time setup (`npm ci` and `npx playwright install chromium`), run either command from the project root:
+
+| Command | What it does |
+| --- | --- |
+| `npm start` | Builds the project and runs the test review UI at **http://127.0.0.1:3100**. |
+| `npm run start:demo` | Builds once and runs **both** the demo app at **http://127.0.0.1:3000** and the test review UI at **http://127.0.0.1:3100**. |
+
+Leave the terminal running and use **Ctrl+C** to stop the server(s). The two Node servers run concurrently in the combined command, so one does not block the other. The original `npm run build`, `npm run review`, and `npm run demo` commands also remain available individually.
+
 ### 1. Install
 
 ```bash
