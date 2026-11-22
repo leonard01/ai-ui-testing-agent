@@ -20,6 +20,7 @@ export interface StepResult {
   durationMs: number;
   expected?: string;
   observed?: string;
+  textMatch?: "exact" | "contains";
   error?: string;
   resolution?: DiscoveryEvidence;
   ambiguity?: AmbiguousResolution;
