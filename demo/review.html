@@ -174,7 +174,7 @@
             <select id="edit-suite"><option value="">Select a test suite</option></select>
           </div>
           <div>
-            <label for="edit-script">Test script</label>
+            <label for="edit-script">Existing test script</label>
             <select id="edit-script" disabled><option value="">Select a suite first</option></select>
           </div>
         </div>
@@ -2000,6 +2000,11 @@
       try {
         const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
         definition = payload.definition;
+        workingDraftId = null;
+        originalInstructions = definition.sourceInstructions;
+        $("requirements").value = definition.workingInstructions ?? definition.sourceInstructions ?? "";
+        $("base-url").value = definition.sourceUrl || $("base-url").value;
+        showOriginalInstructions();
         $("test-name").value = definition.title;
         $("requirement-lines").value = (definition.requirements ?? [])
           .map((requirement) => requirement.text).join("\n");
@@ -2104,8 +2109,17 @@
           throw new Error(origin + category + attempts + inputLength + "\n" +
             (data.error || "Could not generate draft"));
         }
+        const wasEditing = Boolean(editingSavedId || workingDraftId);
         definition = data.definition;
-        $("test-name").value = "";
+        if (!wasEditing) {
+          originalInstructions = requirements;
+          $("test-name").value = "";
+          workingDraftId = null;
+          editingSavedId = null;
+        }
+        definition.sourceInstructions = originalInstructions;
+        definition.workingInstructions = requirements;
+        showOriginalInstructions();
         rememberRecentUrl(baseURL);
         renderRecentUrls();
         // Requirements are displayed as candidates only. Human reviewers
@@ -2113,7 +2127,6 @@
         $("requirement-lines").value = requirements;
         $("traceability-note").textContent =
           "Edit the input into one requirement per line, then load it to map coverage.";
-        editingSavedId = null;
         approvals = new Set();
         clearPreflight();
         selectedBaseURL = baseURL;
@@ -2133,7 +2146,7 @@
         $("generate").disabled = false;
       }
     });
-    $("save").addEventListener("click", async () => {
+    async function approveAndSave(saveAsNew = false) {
       if (!definition || approvals.size !== definition.steps.length) return;
       const testName = $("test-name").value.trim();
       if (!testName || testName.length > 200) {
@@ -2141,20 +2154,36 @@
         $("test-name").focus();
         return;
       }
+      if (saveAsNew && editingSavedId) {
+        const previous = approvedCatalog.find(item => item.id === editingSavedId);
+        if (previous && previous.title === testName) {
+          $("save-error").textContent = "Choose a different name for Save as New Test.";
+          return;
+        }
+      }
+      if (!saveAsNew && editingSavedId &&
+          !window.confirm("Replace the existing approved test? Choose Save as New Test to preserve it.")) return;
       $("save").disabled = true;
       $("save-error").textContent = "";
       $("saved").replaceChildren();
       try {
         const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ definition, testName, baseURL: selectedBaseURL,
-            ...(editingSavedId ? { replaceId: editingSavedId } : {}),
+          body: JSON.stringify({
+            definition: {
+              ...definition,
+              sourceInstructions: originalInstructions,
+              workingInstructions: $("requirements").value,
+            },
+            testName, baseURL: selectedBaseURL,
+            ...(!saveAsNew && editingSavedId ? { replaceId: editingSavedId } : {}),
           }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not save test");
         definition.title = testName;
         editingSavedId = null;
+        workingDraftId = null;
         await refreshApprovedTests(data.id);
         if (data.replacedId) {
           $("run-results").hidden = true;
@@ -2179,7 +2208,9 @@
       } finally {
         updateApproval();
       }
-    });
+    }
+    $("save").addEventListener("click", () => { void approveAndSave(false); });
+    $("save-as-new").addEventListener("click", () => { void approveAndSave(true); });
   </script>
 </body>
 </html>
