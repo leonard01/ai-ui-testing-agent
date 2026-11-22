@@ -151,3 +151,30 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await expect(page.locator("#draft-save-status")).toContainText("2/5 approved");
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
+
+test("Groq intermittent JSON-mode failure is retried once without changing saved tests", async ({ page }) => {
+  // The test server's mock provider cannot throw a GroqProviderError, so this
+  // scenario is exercised at the module boundary with an injected provider.
+  const { generateIncrementalProposal } = await import("../src/incremental-generation.js");
+  const { GroqProviderError } = await import("../src/hosted-providers.js");
+  let calls = 0;
+  const provider = async () => {
+    calls++;
+    if (calls === 1) {
+      throw new GroqProviderError(400, "json-generation", "json_validate_failed",
+        "invalid_request_error", undefined, "Retry structured generation.");
+    }
+    return JSON.stringify({ steps: [newStatus] });
+  };
+  const proposal = await generateIncrementalProposal({
+    definition: await original(),
+    baseURL, stepId: "empty", mode: "step",
+    instructions: "Verify that zero tasks are shown",
+    approvedStepIds: ["open", "empty"], model: "test-model",
+    retryMalformedOutput: true,
+  }, provider, page.context().browser() ?? undefined);
+  expect(calls).toBe(2);
+  expect(proposal.generationAttempts).toBe(2);
+  expect(proposal.preservedApprovedStepIds).toEqual(["open"]);
+  expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
+});
