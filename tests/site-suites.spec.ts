@@ -75,7 +75,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await page.goto(url);
   const suite = page.getByLabel("Test suite (website URL)");
   await suite.selectOption(sauce);
-  const single = page.getByLabel("Approved saved test");
+  const single = page.getByLabel("Test script", { exact: true });
   await expect(single.locator("option")).toHaveCount(3); // blank + two SauceDemo scripts
   await expect(single.locator('option[value="' + first + '"]')).toHaveCount(1);
   await expect(single.locator('option[value="' + second + '"]')).toHaveCount(1);
@@ -119,7 +119,7 @@ test("confirmed individual deletion only removes its approved script and preserv
   const first = await save("Add user", sauce);
   const second = await save("Remove user", sauce);
   await page.goto(url);
-  await page.getByLabel("Approved saved test").selectOption(first);
+  await page.getByLabel("Test script", { exact: true }).selectOption(first);
   const denied = await post("/api/delete-test", { id: first, confirmed: false });
   expect(denied.status).toBe(400);
   const badID = await post("/api/delete-test", { id: "../../secrets.json", confirmed: true });
@@ -183,8 +183,8 @@ test("existing flat JSON scripts stay visible under unassigned suite and can be 
   ]);
   await page.goto(url);
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
-  await expect(page.getByLabel("Approved saved test").locator("option")).toHaveCount(2);
-  await expect(page.getByLabel("Approved saved test").locator('option[value="' + other + '"]')).toHaveCount(0);
+  await expect(page.getByLabel("Test script", { exact: true }).locator("option")).toHaveCount(2);
+  await expect(page.getByLabel("Test script", { exact: true }).locator('option[value="' + other + '"]')).toHaveCount(0);
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-site-note")).toContainText("Older saved scripts");
   await expect(page.getByRole("button", { name: "Delete this website test suite" })).toBeDisabled();
@@ -199,7 +199,7 @@ test("legacy script assignment needs confirmation, verifies URL and keeps origin
   const legacyID = "reviewed-1700000000000-deadbeef.json";
   await writeFile(join(dir, legacyID), JSON.stringify(original));
   await page.goto(url);
-  await page.getByLabel("Approved saved test").selectOption(legacyID);
+  await page.getByLabel("Test script", { exact: true }).selectOption(legacyID);
   await expect(page.getByRole("button", { name: "Assign older script to website URL" })).toBeEnabled();
   const denied = await post("/api/assign-site", {
     id: legacyID, baseURL: sauce, confirmed: false,
