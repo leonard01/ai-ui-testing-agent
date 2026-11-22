@@ -66,7 +66,7 @@ test("reviewer maps requirements, sees gaps and persists only explicit links", a
   await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
-  const savedId = await page.getByLabel("Approved saved test").inputValue();
+  const savedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(dir, savedId), "utf8"));
   expect(saved.requirements).toEqual([
     { id: "R1", text: "Task creation is visible", stepIds: ["enter", "visible"] },
