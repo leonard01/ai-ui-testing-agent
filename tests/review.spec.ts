@@ -1041,7 +1041,7 @@ test("requires a human test name and offers previous application URLs", async ({
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, savedId), "utf8"));
   expect(saved.title).toBe("SD-001 — Explicit tester name");
 
-  const previous = page.getByLabel("Choose a previously used application URL");
+  const previous = page.getByLabel("Choose a previously used website");
   await expect(previous.locator("option")).toContainText(["Choose a previous URL (optional)", "http://127.0.0.1:3000/"]);
   await page.locator("#base-url").fill("http://127.0.0.1:9999");
   await previous.selectOption("http://127.0.0.1:3000/");
