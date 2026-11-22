@@ -56,7 +56,9 @@
     .skipped { color:#677689; background:#eef0f4; }
     .result-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
     #run-screenshot { max-width:100%; display:block; border:1px solid #d2dbe6; border-radius:9px; }
-    #run-summary { font-weight:700; }
+    #run-summary { font-weight:700; padding:9px 12px; border-radius:8px; border:1px solid transparent; }
+    #run-summary.run-passed { color:#17613b; background:#e7f8ee; border-color:#a5dbbc; }
+    #run-summary.run-failed { color:#9f2236; background:#feeaed; border-color:#eab3be; }
     .artifact-links { display:flex; gap:16px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
     .repair-choice { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }
     .repair-choice h3 { margin:0 0 8px; font-size:14px; }
@@ -831,11 +833,14 @@
       $("run-results").hidden = false;
       const passed = report.steps.filter((s) => s.status === "passed").length;
       const skipped = report.steps.filter((s) => s.status === "skipped").length;
-      $("run-summary").textContent = report.status === "passed"
-        ? "PASSED — " + report.title : "FAILED — " + report.title;
+      const didPass = report.status === "passed";
+      $("run-summary").textContent = (didPass ? "✓ PASSED — " : "✕ FAILED — ") + report.title;
+      $("run-summary").classList.toggle("run-passed", didPass);
+      $("run-summary").classList.toggle("run-failed", !didPass);
       $("run-totals").textContent = passed + " passed, " + skipped + " skipped; " +
         report.steps.length + " steps reported; " + (report.durationMs / 1000).toFixed(1) + " seconds";
-      $("run-diagnosis").textContent = diagnosticText(result);
+      $("run-diagnosis").hidden = didPass;
+      $("run-diagnosis").textContent = didPass ? "" : diagnosticText(result);
       const links = $("run-artifacts");
       links.replaceChildren();
       for (const [key, label] of [
