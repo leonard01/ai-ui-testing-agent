@@ -1058,3 +1058,19 @@ test("save API rejects missing or whitespace-only tester names", async ({ page }
     expect((await response.json()).error).toContain("Enter a test name");
   }
 });
+
+test("reviewer selects Contains and saved assertion preserves its explicit comparison mode", async ({ page }) => {
+  await generateFixture(page);
+  const assertion = page.locator("#step-list .step").nth(1);
+  await assertion.getByRole("button", { name: "Edit fields" }).click();
+  await assertion.getByLabel("Text comparison").selectOption("contains");
+  await assertion.getByRole("button", { name: "Apply changes" }).click();
+  for (const checkbox of await page.locator(".step input[type=checkbox]").all()) {
+    await checkbox.check();
+  }
+  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const id = await page.getByLabel("Approved saved test").inputValue();
+  const saved = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
+  expect(saved.steps[1].action.match).toBe("contains");
+});
