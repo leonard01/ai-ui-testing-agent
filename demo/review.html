@@ -2123,7 +2123,7 @@
         if (!response.ok) {
           const origin = data.source === "groqcloud"
             ? Number.isInteger(data.providerStatus)
-              ? "GroqCloud returned HTTP " + data.providerStatus + "."
+              ? "GroqCloud rejected the request (provider HTTP " + data.providerStatus + ")."
               : "GroqCloud request failed (" + (data.category || "unknown transport error") + ")."
             : data.source === "generator"
               ? "Generation/validation failed in our application."
