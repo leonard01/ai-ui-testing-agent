@@ -34,14 +34,14 @@ Open **http://127.0.0.1:3100/** in a browser.
 
 ## Use
 
-1. Set the application URL (initially `http://127.0.0.1:3000`).
+1. Set the application URL (initially `http://127.0.0.1:3000`). The **Previously used application URLs** dropdown lets you reuse URLs from saved scripts or recent successful generations in this browser. You can still enter a new URL manually.
 2. Write plain-English actions and expected results, e.g. **"Add a task called Prepare interview, check that it appears, complete it, then delete it."**
 3. Optionally import a **.txt or .md** file. Its text is appended to the textarea; you can revise it before submission. Input is capped at 12,000 characters.
 4. Select **GroqCloud** (real hosted model, using free-tier limits) or **Fixture** (prewritten nine-step test for debugging; does *not* generate new steps from the entered request).
 5. Click **Generate draft**. The server inspects the specified page in a headless Chromium session, sends the selected instructions and bounded snapshot to the chosen model, and validates the returned JSON with the existing schema.
-6. Inspect the **human-readable plan**. Each card shows the real operation, target, value or expectation and assertion provenance. Inferred assertions and suspicious named listitem locators are flagged.
+6. Enter a **Test name** in the review section (required, 1–200 characters). AI may suggest a title, but you must explicitly supply the name before approval; existing scripts retain their names when reopened for editing. Inspect the **human-readable plan**. Each card shows the real operation, target, value or expectation and assertion provenance. Inferred assertions and suspicious named listitem locators are flagged.
 7. Change fields via **Edit fields** if needed, including switching a locator between accessible role/name, form label and visible text. For example, replace an incorrect form-label locator for the **Add** button with role **button**, accessible name **Add**. Then confirm each step represents your intended behaviour, either individually or with **Add All** after reviewing the entire draft. Add All ticks all proposed-step confirmations, but it does **not** save, execute, change expectations or map requirements; editing an approved step clears that step's confirmation. Saved tests can be reopened into the editor using **Edit selected saved test in review form**; manually editing JSON files is not necessary.
-8. Click **Approve and save JSON test**. This saves an ordinary, framework-neutral file under `generated/`. It **does not execute** the test.
+8. Click **Approve and save JSON test**. Saving is disabled until all steps are confirmed **and** a non-blank name has been supplied. The server independently validates the name; it is used in saved script lists, reports and exports. This saves an ordinary, framework-neutral file under `generated/`. It **does not execute** the test.
 9. In **3. Execute and diagnose**, choose your saved test (newly saved tests are selected automatically), choose a 5/10/15-second per-step timeout, and click **Run selected test**.
 10. The local server launches headless Playwright for that explicitly saved test, with **one browser execution at a time** to reduce pressure on slower laptops.
 11. The UI polls for completion, then shows per-step results, expected and observed text, locator-discovery evidence, and the first failure's likely category. When available, click **Open failure screenshot**, **Download Playwright trace** or **View full JSON report**.
