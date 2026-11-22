@@ -218,7 +218,7 @@ test("failed UI run shows first assertion mismatch and screenshot/trace download
   await generateFixture(page);
   const initialStatus = page.locator(".step").nth(1);
   await initialStatus.getByRole("button", { name: "Edit fields" }).click();
-  await initialStatus.getByLabel("Expected exact text").fill("99 tasks, 0 completed");
+  await initialStatus.getByLabel("Expected text").fill("99 tasks, 0 completed");
   await initialStatus.getByRole("button", { name: "Apply changes" }).click();
   await approveDraft(page);
   await page.getByRole("button", { name: "Run selected test" }).click();
