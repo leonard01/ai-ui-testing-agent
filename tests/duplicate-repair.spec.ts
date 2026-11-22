@@ -71,7 +71,7 @@ for (const nth of [0, 1]) {
         ],
       };
       const savedResponse = await page.request.post(reviewURL + "/api/save", {
-        data: { definition, baseURL: websiteURL },
+        data: { testName: "Regression test", definition, baseURL: websiteURL },
       });
       expect(savedResponse.status()).toBe(200);
       const saved = await savedResponse.json();
