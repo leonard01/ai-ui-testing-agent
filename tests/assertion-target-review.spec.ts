@@ -90,7 +90,7 @@ for (const [description, wrongTarget] of [
       review = await createReviewServer(dir, browser);
       const reviewURL = await start(review);
       const saved = await page.request.post(reviewURL + "/api/save", {
-        data: { definition: definition(wrongTarget), baseURL: appURL + "/todomvc/#/" },
+        data: { testName: "Regression test", definition: definition(wrongTarget), baseURL: appURL + "/todomvc/#/" },
       });
       expect(saved.status(), await saved.text()).toBe(200);
       const id = (await saved.json()).id;
@@ -145,7 +145,7 @@ test("unverified locator still offers direct manual edit of the failing assertio
     review = await createReviewServer(dir, browser);
     const reviewURL = await start(review);
     const saved = await page.request.post(reviewURL + "/api/save", {
-      data: {
+      data: { testName: "Verify Buy groceries item",
         definition: definition({ by: "role", role: "heading", name: "Entirely absent phrase" }),
         baseURL: appURL + "/todomvc/#/",
       },

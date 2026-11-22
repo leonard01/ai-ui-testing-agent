@@ -80,7 +80,7 @@ for (const nth of [0, 1]) {
       review = await createReviewServer(dir, browser);
       const reviewURL = await listen(review);
       const approval = await page.request.post(reviewURL + "/api/save", {
-        data: { definition: definition(), baseURL },
+        data: { testName: "Regression test", definition: definition(), baseURL },
       });
       expect(approval.status()).toBe(200);
       const saved = await approval.json();

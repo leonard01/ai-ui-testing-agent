@@ -34,6 +34,7 @@ async function generateFixture(page: import("@playwright/test").Page) {
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(page.locator(".step")).toHaveCount(9);
+  await page.locator("#test-name").fill("Add, complete and delete a task");
 }
 
 test("read-only selector preflight suggests an Add button when generated label is wrong", async ({ page }) => {
@@ -156,6 +157,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
   await expect(taskStep).toContainText('element matching intent "Prepare interview"');
 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
+  await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const files = await listApprovedIds(outputDir);
@@ -168,6 +170,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 
 async function approveDraft(page: import("@playwright/test").Page) {
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
+  await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
@@ -284,7 +287,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
     ],
   };
   const savedResponse = await page.request.post(url + "/api/save", {
-    data: { definition: testDefinition, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: "Regression test", definition: testDefinition, baseURL: "http://127.0.0.1:3000" },
   });
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
@@ -360,7 +363,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   const beforeList = (await (await page.request.get(url + "/api/tests")).json()).tests;
   // A malformed replacement must never remove the source file.
   const rejected = await page.request.post(url + "/api/save", {
-    data: { definition: { ...original, schemaVersion: 17 },
+    data: { testName: "Regression test", definition: { ...original, schemaVersion: 17 },
       baseURL: "http://127.0.0.1:3000", replaceId: originalId },
   });
   expect(rejected.status()).toBe(400);
@@ -377,6 +380,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   for (const box of await page.locator(".step input[type=checkbox]").all()) {
     await box.check();
   }
+  await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("old version removed from the list");
   const revisedId = await page.getByLabel("Approved saved test").inputValue();
@@ -414,7 +418,7 @@ test("editable DOM search works with no initial suggestions and cannot silently 
       ],
     };
     const savedResponse = await page.request.post(url + "/api/save", {
-      data: { definition, baseURL },
+      data: { testName: "Regression test", definition, baseURL },
     });
     expect(savedResponse.status()).toBe(200);
     const saved = await savedResponse.json();
@@ -480,7 +484,7 @@ test("wrong existing button text assertion searches product div and repairs sele
       ],
     };
     const resp = await page.request.post(url + "/api/save", {
-      data: { definition, baseURL },
+      data: { testName: "Regression test", definition, baseURL },
     });
     expect(resp.status(), await resp.text()).toBe(200);
     const saved = await resp.json();
@@ -616,7 +620,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
       ],
     };
     const savedResponse = await page.request.post(url + "/api/save", {
-      data: { definition, baseURL },
+      data: { testName: "Regression test", definition, baseURL },
     });
     expect(savedResponse.status(), await savedResponse.text()).toBe(200);
     const saved = await savedResponse.json();
@@ -704,7 +708,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   }
   definition.steps[3].action.target = { by: "label", value: "Add" };
   const savedResponse = await page.request.post(url + "/api/save", {
-    data: { definition, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: "Regression test", definition, baseURL: "http://127.0.0.1:3000" },
   });
   expect(savedResponse.status(), await savedResponse.text()).toBe(200);
   const saved = await savedResponse.json();
@@ -804,7 +808,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
     ],
   };
   const savedResponse = await page.request.post(url + "/api/save", {
-    data: { definition: ambiguous, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: "Regression test", definition: ambiguous, baseURL: "http://127.0.0.1:3000" },
   });
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
@@ -1019,4 +1023,38 @@ test("review server rejects malformed instructions and off-origin writes", async
     }, body: JSON.stringify({}),
   });
   expect(forbidden.status).toBe(403);
+});
+
+test("requires a human test name and offers previous application URLs", async ({ page }) => {
+  await generateFixture(page);
+  const name = page.getByLabel("Test name (required before saving)");
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await name.fill("  ");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(save).toBeDisabled();
+
+  await name.fill("SD-001 — Explicit tester name");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const savedId = await page.getByLabel("Approved saved test").inputValue();
+  const saved = JSON.parse(await readFile(await approvedPath(outputDir, savedId), "utf8"));
+  expect(saved.title).toBe("SD-001 — Explicit tester name");
+
+  const previous = page.getByLabel("Choose a previously used website");
+  await expect(previous.locator("option")).toContainText(["Choose a previous URL (optional)", "http://127.0.0.1:3000/"]);
+  await page.locator("#base-url").fill("http://127.0.0.1:9999");
+  await previous.selectOption("http://127.0.0.1:3000/");
+  await expect(page.locator("#base-url")).toHaveValue("http://127.0.0.1:3000/");
+});
+
+test("save API rejects missing or whitespace-only tester names", async ({ page }) => {
+  const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  for (const testName of [undefined, "  "]) {
+    const response = await page.request.post(url + "/api/save", {
+      data: { definition, baseURL: "http://127.0.0.1:3000", testName },
+    });
+    expect(response.status()).toBe(400);
+    expect((await response.json()).error).toContain("Enter a test name");
+  }
 });

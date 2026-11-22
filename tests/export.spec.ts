@@ -184,6 +184,7 @@ test("review UI exports only approved saved tests and never creates an extra fil
     for (const checkbox of await page.locator(".step input[type=checkbox]").all()) {
       await checkbox.check();
     }
+    await page.locator("#test-name").fill("Add, complete and delete a task");
     await page.getByRole("button", { name: "Approve and save JSON test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     await expect(link).toBeVisible();

@@ -147,7 +147,7 @@ test("suite holds the shared execution lock and forbids replacing queued cases",
   expect(preflight.status).toBe(409);
   const attemptedEdit = JSON.parse(await readFile(join(outputDir, fileIds[2]), "utf8"));
   const replacement = await post("/api/save", {
-    definition: attemptedEdit, baseURL, replaceId: fileIds[2],
+    definition: attemptedEdit, testName: attemptedEdit.title, baseURL, replaceId: fileIds[2],
   });
   expect(replacement.status).toBe(400);
   expect(replacement.body.error).toContain("test suite");

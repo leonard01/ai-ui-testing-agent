@@ -125,6 +125,8 @@
       <form id="generate-form">
         <label for="base-url">Application URL</label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
+        <label for="recent-url">Recent websites</label>
+        <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
         <label for="requirements">Your test instructions</label>
         <textarea id="requirements" placeholder="Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
         <div id="instruction-help" class="muted">Plain English is fine. If the app has no user form, the AI may propose unsupported steps; review its output carefully.</div>
@@ -148,6 +150,9 @@
       <div id="placeholder" class="muted">No draft yet. Enter instructions on the left and click Generate draft.</div>
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
+        <label for="test-name">Test name (required before saving)</label>
+        <input id="test-name" type="text" maxlength="200" placeholder="e.g. SD-001 — Successful login" autocomplete="off" required>
+        <p class="muted">Enter your own name for this test. The AI's suggested title is not used automatically.</p>
         <p id="draft-hint" class="muted"></p>
         <div class="actions" style="margin:12px 0">
           <button type="button" id="review-add-all" class="secondary">Add All</button>
@@ -286,6 +291,44 @@
       if (text !== undefined && text !== null) node.textContent = String(text);
       if (cls) node.className = cls;
       return node;
+    }
+    const RECENT_URLS_KEY = "ai-ui-testing-agent.recent-application-urls";
+    function validRecentUrl(raw) {
+      try {
+        const url = new URL(raw);
+        return ["http:", "https:"].includes(url.protocol) &&
+          !url.username && !url.password && url.href.length <= 2048 ? url.href : null;
+      } catch { return null; }
+    }
+    function getRecentUrls() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(RECENT_URLS_KEY) || "[]");
+        return Array.isArray(saved) ? saved.filter((item) => typeof item === "string")
+          .map(validRecentUrl).filter(Boolean).slice(0, 20) : [];
+      } catch { return []; }
+    }
+    function rememberRecentUrl(raw) {
+      const url = validRecentUrl(raw);
+      if (!url) return;
+      const values = [url, ...getRecentUrls().filter((item) => item !== url)].slice(0, 20);
+      try { localStorage.setItem(RECENT_URLS_KEY, JSON.stringify(values)); }
+      catch { /* Browser storage may be disabled; saved script URLs still work. */ }
+    }
+    function renderRecentUrls() {
+      const choices = $("recent-url");
+      const previous = choices.value;
+      const saved = approvedCatalog.flatMap((test) => test.sourceUrl ? [test.sourceUrl] : []);
+      const urls = [...new Set([...getRecentUrls(), ...saved.map(validRecentUrl).filter(Boolean)])];
+      choices.replaceChildren();
+      const prompt = make("option", "Choose a previous URL (optional)");
+      prompt.value = "";
+      choices.append(prompt);
+      for (const url of urls) {
+        const option = make("option", url);
+        option.value = url;
+        choices.append(option);
+      }
+      if (urls.includes(previous)) choices.value = previous;
     }
     function describeTarget(target) {
       if (!target) return "unknown element";
@@ -682,9 +725,14 @@
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
-      $("save").disabled = total === 0 || approvals.size !== total;
+      $("save").disabled = total === 0 || approvals.size !== total ||
+        !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
     }
+    $("test-name").addEventListener("input", () => {
+      $("save-error").textContent = "";
+      updateApproval();
+    });
     $("review-add-all").addEventListener("click", () => {
       if (!definition?.steps.length) return;
       // Explicit bulk confirmation of the displayed draft only.
@@ -793,6 +841,7 @@
       const previousSite = $("suite-site").value;
       const payload = await requestJSON("/api/tests");
       approvedCatalog = payload.tests;
+      renderRecentUrls();
       const website = $("suite-site");
       website.replaceChildren();
       const option = make("option", "Select website suite");
@@ -1633,6 +1682,11 @@
       updateRunButton();
     });
     $("base-url").addEventListener("input", updateRunButton);
+    $("recent-url").addEventListener("change", () => {
+      if (!$("recent-url").value) return;
+      $("base-url").value = $("recent-url").value;
+      $("base-url").dispatchEvent(new Event("input", { bubbles: true }));
+    });
     $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
       if (running || !id) return;
@@ -1723,6 +1777,7 @@
       try {
         const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
         definition = payload.definition;
+        $("test-name").value = definition.title;
         $("requirement-lines").value = (definition.requirements ?? [])
           .map((requirement) => requirement.text).join("\n");
         $("traceability-note").textContent = "";
@@ -1824,6 +1879,9 @@
             (data.error || "Could not generate draft"));
         }
         definition = data.definition;
+        $("test-name").value = "";
+        rememberRecentUrl(baseURL);
+        renderRecentUrls();
         // Requirements are displayed as candidates only. Human reviewers
         // explicitly load and link them; no AI mapping becomes saved metadata.
         $("requirement-lines").value = requirements;
@@ -1851,18 +1909,25 @@
     });
     $("save").addEventListener("click", async () => {
       if (!definition || approvals.size !== definition.steps.length) return;
+      const testName = $("test-name").value.trim();
+      if (!testName || testName.length > 200) {
+        $("save-error").textContent = "Enter a test name (1–200 characters) before saving.";
+        $("test-name").focus();
+        return;
+      }
       $("save").disabled = true;
       $("save-error").textContent = "";
       $("saved").replaceChildren();
       try {
         const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ definition, baseURL: selectedBaseURL,
+          body: JSON.stringify({ definition, testName, baseURL: selectedBaseURL,
             ...(editingSavedId ? { replaceId: editingSavedId } : {}),
           }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not save test");
+        definition.title = testName;
         editingSavedId = null;
         await refreshApprovedTests(data.id);
         if (data.replacedId) {
