@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
-import { groqProvider, GroqProviderError } from "./hosted-providers.js";
+import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
 import { listDrafts, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
@@ -1555,6 +1555,13 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               providerCode: error.providerCode,
               providerType: error.providerType,
               providerParam: error.providerParam,
+              error: error.message,
+              requirementsCharacters: input.requirements.length,
+            });
+          } else if (error instanceof GroqTransportError) {
+            json(res, 502, {
+              source: error.source,
+              category: error.category,
               error: error.message,
               requirementsCharacters: input.requirements.length,
             });

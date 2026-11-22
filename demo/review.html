@@ -39,6 +39,8 @@
     label { display:block; font-size:13px; font-weight:650; margin:14px 0 6px; }
     input[type=url],textarea,select,input[type=text] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
     textarea { min-height:137px; resize:vertical; line-height:1.5; }
+    .url-source-inactive { background:#f1f4f7 !important; color:#8292a4 !important; border-color:#d7dfe8 !important; }
+    .url-source-inactive:focus { background:white !important; color:#1c304b !important; }
     input:focus, textarea:focus, select:focus { outline:2px solid #83c5d2; outline-offset:1px; }
     input[type=file] { max-width:100%; font-size:13px; }
     button { cursor:pointer; border:0; font-size:14px; font-weight:650; border-radius:8px; padding:11px 16px; background:#205e86; color:white; }
@@ -215,7 +217,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
         <label for="recent-url">Recent websites</label>
         <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
-        <label for="requirements">Working test instructions <span class="required-marker">(required)</span></label>
+        <p id="url-source-status" class="muted" role="status">Using the URL entered above. Select a recent website to switch.</p>
+        <label for="requirements">Your test instructions (working) <span class="required-marker">(required)</span></label>
         <textarea id="requirements" required placeholder="Required — Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
         <p id="working-instructions-note" class="note" hidden><strong>Amendment history, not a consolidated specification.</strong> After incremental regeneration, the working instructions contain the original description plus later amendments. Some earlier instructions may have been replaced or discarded, so this text may contradict the current steps. The reviewed steps in Test Editor are the proposed executable test. The original instructions remain unchanged below; review the complete steps before saving.</p>
         <div id="original-instructions-panel" class="note" hidden>
@@ -243,6 +246,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <h2 id="review-heading">Test Editor</h2>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <div id="placeholder">
+        <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
         <p class="muted">Choose a saved website suite and test script, or reopen an unfinished working draft. To create a new test, enter instructions on the left.</p>
         <div class="run-test-selectors">
@@ -442,6 +446,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let definition = null;
     let approvals = new Set();
     let selectedBaseURL = "";
+    let activeURLSource = "manual";
     let running = false;
     let selectedApprovedId = "";
     let approvedCatalog = [];
@@ -481,6 +486,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       try { localStorage.setItem(RECENT_URLS_KEY, JSON.stringify(values)); }
       catch { /* Browser storage may be disabled; saved script URLs still work. */ }
     }
+    function setActiveURLSource(source) {
+      activeURLSource = source;
+      const usingRecent = source === "recent" && Boolean($("recent-url").value);
+      $("base-url").classList.toggle("url-source-inactive", usingRecent);
+      $("recent-url").classList.toggle("url-source-inactive", !usingRecent);
+      $("url-source-status").textContent = usingRecent
+        ? "Using the selected recent website. Click the URL field to enter a different address."
+        : "Using the URL entered above. Select a recent website to switch.";
+    }
     function renderRecentUrls() {
       const choices = $("recent-url");
       const previous = choices.value;
@@ -495,7 +509,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         option.value = url;
         choices.append(option);
       }
-      if (urls.includes(previous)) choices.value = previous;
+      if (activeURLSource === "recent" && urls.includes(previous)) choices.value = previous;
+      setActiveURLSource(activeURLSource === "recent" && choices.value ? "recent" : "manual");
     }
     function showOriginalInstructions() {
       const panel = $("original-instructions-panel");
@@ -2230,11 +2245,25 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (selected?.sourceUrl) $("base-url").value = selected.sourceUrl;
       updateRunButton();
     });
-    $("base-url").addEventListener("input", updateRunButton);
+    $("base-url").addEventListener("focus", () => {
+      if (activeURLSource === "recent") {
+        $("recent-url").value = "";
+        setActiveURLSource("manual");
+      }
+    });
+    $("base-url").addEventListener("input", () => {
+      $("recent-url").value = "";
+      setActiveURLSource("manual");
+      updateRunButton();
+    });
     $("recent-url").addEventListener("change", () => {
-      if (!$("recent-url").value) return;
-      $("base-url").value = $("recent-url").value;
-      $("base-url").dispatchEvent(new Event("input", { bubbles: true }));
+      if ($("recent-url").value) {
+        $("base-url").value = $("recent-url").value;
+        setActiveURLSource("recent");
+      } else {
+        setActiveURLSource("manual");
+      }
+      updateRunButton();
     });
     $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
@@ -2401,8 +2430,36 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-error").textContent = "";
       event.target.value = "";
     });
+    function clearGenerationPreview() {
+      // A previous successful attempt must never masquerade as the new draft.
+      // Do NOT clear persisted approved tests, execution history or input text.
+      definition = null;
+      approvals = new Set();
+      editingSavedId = null;
+      workingDraftId = null;
+      originalInstructions = undefined;
+      selectedBaseURL = "";
+      $("draft").hidden = true;
+      $("placeholder").hidden = false;
+      $("step-list").replaceChildren();
+      $("draft-title").textContent = "";
+      $("draft-hint").textContent = "";
+      $("draft-save-status").textContent = "";
+      $("review-progress").textContent = "";
+      $("requirement-lines").value = "";
+      $("traceability-note").textContent = "";
+      $("traceability-list").replaceChildren();
+      $("traceability-summary").textContent = "";
+      $("saved").replaceChildren();
+      $("save-error").textContent = "";
+      $("generation-review-status").textContent = "No new test draft is available.";
+      showOriginalInstructions();
+      clearPreflight();
+      updateApproval();
+    }
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      clearGenerationPreview();
       $("generation-error").textContent = "";
       $("saved").replaceChildren();
       $("save-error").textContent = "";
@@ -2421,6 +2478,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generate").disabled = true;
       $("generation-status").classList.add("ai-progress");
       $("generation-status").textContent = "Generating test steps with AI… Inspecting the application and preparing a draft. No test has been modified.";
+      $("generation-review-status").textContent = "Generating a new draft; previous steps have been cleared.";
       try {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -2430,7 +2488,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const data = await response.json();
         if (!response.ok) {
           const origin = data.source === "groqcloud"
-            ? "GroqCloud rejected the request (provider HTTP " + data.providerStatus + ")."
+            ? Number.isInteger(data.providerStatus)
+              ? "GroqCloud rejected the request (provider HTTP " + data.providerStatus + ")."
+              : "GroqCloud request failed (" + (data.category || "unknown transport error") + ")."
             : data.source === "generator"
               ? "Generation/validation failed in our application."
               : "Test Builder request failed (HTTP " + response.status + ").";
@@ -2465,12 +2525,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         updateRunButton();
         $("placeholder").hidden = true;
         $("draft").hidden = false;
+        $("generation-review-status").textContent = "";
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
         $("draft-hint").textContent = data.message;
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "");
       } catch(error) {
+        clearGenerationPreview();
+        $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
       } finally {

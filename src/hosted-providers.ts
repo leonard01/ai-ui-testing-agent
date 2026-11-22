@@ -36,6 +36,23 @@ export class GroqProviderError extends Error {
   }
 }
 
+/** Request transport failed before an HTTP response was available.
+ * This does not mean that the user's test instructions are invalid.
+ * Never surface raw errors; URLs/proxy details can contain secrets.
+ */
+export class GroqTransportError extends Error {
+  readonly source = "groqcloud";
+  constructor(readonly category: "timeout" | "network" | "transport") {
+    const message = category === "timeout"
+      ? "GroqCloud did not respond within 90 seconds. The request timed out. Try again, or use a smaller test scenario."
+      : category === "network"
+        ? "The application could not establish a connection to GroqCloud. Check connectivity, DNS, proxy or firewall settings and try again."
+        : "The GroqCloud request failed before an HTTP response was received. Check the server logs and retry; the cause could not be identified.";
+    super(message);
+    this.name = "GroqTransportError";
+  }
+}
+
 function safeIdentifier(value: unknown): string | undefined {
   return typeof value === "string" && /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,79}$/.test(value)
     ? value : undefined;
@@ -124,32 +141,45 @@ export async function requestGroq(
     );
   }
 
-  let response: Response;
-  try {
-    response = await requester(GROQ_CHAT_COMPLETIONS, {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + key,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: prompt },
-        ],
-        response_format: { type: "json_object" },
-        stream: false,
-        temperature: 0.1,
-        max_completion_tokens: 5000,
-      }),
-      signal: AbortSignal.timeout(90_000),
-    });
-  } catch {
-    throw new Error(
-      "Could not reach GroqCloud. Check your internet connection and try again.",
-    );
+  // A brief retry helps with transient DNS/TLS/socket failures. Network
+  // errors are not proof that the upstream never received the POST, so
+  // limit automatic retry to ONE extra attempt to bound potential charges.
+  // Timeout/unknown errors and HTTP responses are never retried here.
+  const requestBody = JSON.stringify({
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: prompt },
+    ],
+    response_format: { type: "json_object" },
+    stream: false,
+    temperature: 0.1,
+    max_completion_tokens: 5000,
+  });
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      response = await requester(GROQ_CHAT_COMPLETIONS, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + key,
+          "Content-Type": "application/json",
+        },
+        body: requestBody,
+        signal: AbortSignal.timeout(90_000),
+      });
+      break;
+    } catch (error) {
+      const category = error instanceof Error && error.name === "TimeoutError"
+        ? "timeout" : error instanceof TypeError ? "network" : "transport";
+      if (category === "network" && attempt === 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        continue;
+      }
+      throw new GroqTransportError(category);
+    }
   }
+  if (!response) throw new GroqTransportError("transport");
   if (!response.ok) throw await classifyGroqFailure(response);
   let data: unknown;
   try {

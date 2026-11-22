@@ -16,7 +16,8 @@ test("review requires an explicit tester-entered name before save", () => {
 
 test("editing loads the saved name rather than an AI-suggested default", () => {
   assert.match(ui, /definition = payload\.definition;[\s\S]{0,800}\$\("test-name"\)\.value = definition\.title/);
-  assert.match(ui, /if \(!wasEditing\) \{[\s\S]{0,150}\$\("test-name"\)\.value = ""/);
+  assert.match(ui, /if \(!wasEditing\) \{[\s\S]{0,150}originalInstructions = requirements/);
+  assert.doesNotMatch(ui, /if \(!wasEditing\) \{[^}]*\$\("test-name"\)\.value = ""/);
 });
 
 test("previously used URL selector supports saved scripts and recent generation", () => {
