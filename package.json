@@ -1,6 +1,6 @@
 {
   "name": "ai-ui-testing-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "AI-native UI test automation with human/AI browser collaboration (early-stage scaffold)",
