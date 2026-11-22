@@ -6,6 +6,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
+import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
@@ -679,7 +680,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -1466,6 +1467,58 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           job.state = "error";
         }).finally(() => { if (activeRun === id) activeRun = null; });
         json(res, 202, snapshot(job));
+        return;
+      }
+      if (path === "/api/regenerate-steps") {
+        if (activeRun || activePreflight || activeDeletion) {
+          json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
+          return;
+        }
+        activePreflight = true;
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected incremental regeneration details");
+          }
+          const data = body as Record<string, unknown>;
+          if (data.provider !== "groq") {
+            throw new Error("Incremental AI regeneration requires the GroqCloud provider");
+          }
+          const base = validatedBaseURL(data.baseURL);
+          const definition = parseTestDefinition(data.definition);
+          verifyNavigations(definition, base);
+          if (typeof data.stepId !== "string" || typeof data.instructions !== "string" ||
+              !Array.isArray(data.approvedStepIds) ||
+              !data.approvedStepIds.every(id => typeof id === "string")) {
+            throw new Error("Select a step, provide new instructions, and include approval state");
+          }
+          const proposal = await generateIncrementalProposal({
+            definition, baseURL: base.href,
+            stepId: data.stepId,
+            mode: data.mode as "step" | "from",
+            instructions: data.instructions,
+            approvedStepIds: data.approvedStepIds as string[],
+            model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
+            retryMalformedOutput: true,
+          }, groqOverride ?? groqProvider, suppliedBrowser);
+          json(res, 200, {
+            ...proposal,
+            needsReview: true,
+            message: "Incremental AI proposal ready. Nothing has been saved or approved.",
+          });
+        } catch (error) {
+          if (error instanceof GroqProviderError) {
+            json(res, 502, {
+              source: error.source, providerStatus: error.httpStatus,
+              category: error.category, error: error.message,
+            });
+          } else {
+            json(res, 422, {
+              error: error instanceof Error ? error.message : "Incremental regeneration failed",
+            });
+          }
+        } finally {
+          activePreflight = false;
+        }
         return;
       }
       if (path === "/api/generate") {
