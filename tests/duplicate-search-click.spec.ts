@@ -85,7 +85,7 @@ for (const nth of [0, 1]) {
       expect(approval.status()).toBe(200);
       const saved = await approval.json();
       await page.goto(reviewURL);
-      await page.getByLabel("Approved saved test").selectOption(saved.id);
+      await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
       await page.getByRole("button", { name: "Run selected test" }).click();
       await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -117,7 +117,7 @@ for (const nth of [0, 1]) {
       await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("PASSED");
 
-      const updatedId = await page.getByLabel("Approved saved test").inputValue();
+      const updatedId = await page.getByLabel("Test script", { exact: true }).inputValue();
       expect(updatedId).not.toBe(saved.id);
       const corrected = JSON.parse(await readFile(await approvedPath(dir, updatedId), "utf8"));
       expect(corrected.steps[2].action.target).toEqual({
