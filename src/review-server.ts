@@ -709,22 +709,23 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             ...(data.definition as Record<string, unknown>), title: data.testName.trim(),
           });
           verifyNavigations(definition, base);
-          const proposed = draftSchema.parse({
-            draftVersion: 1, definition, baseURL: base.href,
-            sourceInstructions: data.sourceInstructions,
-            workingInstructions: data.workingInstructions,
-            approvedStepIds: data.approvedStepIds,
-            updatedAt: new Date().toISOString(),
-          });
           const existingId = data.id;
           if (existingId !== undefined && typeof existingId !== "string") {
             throw new Error("Invalid working draft ID");
           }
-          // A saved draft's original instructions cannot be overwritten during revisions.
-          if (existingId) {
-            const existing = await readDraft(savedDir, existingId);
-            proposed.sourceInstructions = existing.sourceInstructions;
-          }
+          const existing = existingId ? await readDraft(savedDir, existingId) : null;
+          // Both the original instructions and the approved source identity are
+          // immutable once this draft is created; human edits affect only working instructions.
+          const proposed = draftSchema.parse({
+            draftVersion: 1, definition, baseURL: base.href,
+            sourceInstructions: existing
+              ? existing.sourceInstructions : data.sourceInstructions,
+            workingInstructions: data.workingInstructions,
+            approvedStepIds: data.approvedStepIds,
+            sourceApprovedId: existing
+              ? existing.sourceApprovedId : data.sourceApprovedId,
+            updatedAt: new Date().toISOString(),
+          });
           const stored = await saveDraft(savedDir, proposed, existingId as string | undefined);
           json(res, 200, { id: stored.id, message: "Working draft saved. This is not a runnable test." });
         } catch (error) {
