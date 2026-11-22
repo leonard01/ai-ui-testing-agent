@@ -1155,3 +1155,24 @@ test("approval and save readiness clearly explain required name and confirmation
   await save.click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
 });
+
+test("name entered before generation survives and save-area name enables approval and JSON save", async ({ page }) => {
+  await page.goto(url);
+  const originalName = page.getByLabel("Test name (required to save)").first();
+  await originalName.fill("Name supplied before generation");
+  await page.getByLabel("Your test instructions").fill("Add a task, then verify it is visible");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(originalName).toHaveValue("Name supplied before generation");
+  const saveName = page.locator("#save-test-name");
+  await expect(saveName).toHaveValue("Name supplied before generation");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeEnabled();
+  await saveName.fill("Name edited next to save");
+  await expect(originalName).toHaveValue("Name edited next to save");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+});
