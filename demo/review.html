@@ -1414,7 +1414,7 @@
           confirmation.addEventListener("change", update);
           save.addEventListener("click", async () => {
             if (running || !confirmation.checked ||
-                (input.value === step.expected && matchSelect.value === "exact")) return;
+                (input.value === step.expected && matchSelect.value === (step.textMatch || "exact"))) return;
             save.disabled = true;
             $("run-error").textContent = "";
             try {
