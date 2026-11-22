@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { testDefinitionSchema } from "./schema.js";
-import { websiteOrigin } from "./site-storage.js";
+import { websiteOrigin, SAVED_NAME } from "./site-storage.js";
 
 const instructions = z.string().max(12_000);
 const safeURL = z.string().max(2048).refine(value => {
@@ -21,6 +21,7 @@ export const draftSchema = z.object({
   sourceInstructions: instructions.optional(),
   workingInstructions: instructions,
   approvedStepIds: z.array(z.string().min(1).max(2000)).max(100),
+  sourceApprovedId: z.string().regex(SAVED_NAME).optional(),
   updatedAt: z.string().datetime(),
 }).strict().superRefine((draft, ctx) => {
   const available = new Set(draft.definition.steps.map(step => step.id));
