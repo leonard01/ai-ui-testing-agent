@@ -1078,6 +1078,7 @@ test("reviewer selects Contains and saved assertion preserves its explicit compa
 
 test("working draft preserves partial approvals and original instructions without becoming runnable", async ({ page }) => {
   await generateFixture(page);
+  const approvedBeforeDraft = (await (await page.request.get(url + "/api/tests")).json()).tests.length;
   const original = await page.getByLabel("Your test instructions").inputValue();
   const steps = page.locator("#step-list .step");
   await steps.nth(0).locator('input[type="checkbox"]').check();
@@ -1091,7 +1092,7 @@ test("working draft preserves partial approvals and original instructions withou
   const saved = await (await page.request.get(url + "/api/drafts/" + drafts[0].id)).json();
   expect(saved.draft.sourceInstructions).toBe(original);
   expect(saved.draft.approvedStepIds).toEqual(["open", "empty"]);
-  expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(0);
+  expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(approvedBeforeDraft);
 
   await page.getByRole("button", { name: "Choose another test" }).click();
   await page.getByRole("button", { name: "Resume draft" }).click();
