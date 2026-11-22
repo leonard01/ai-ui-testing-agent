@@ -1137,3 +1137,31 @@ test("approved test retains source instructions and Save as New keeps original",
   expect(copy.definition.sourceInstructions).toBe(instructions);
   expect(copy.definition.workingInstructions).toContain("Additional notes for new version.");
 });
+
+test("new test name entered before generation survives and permits saving and execution", async ({ page }) => {
+  await page.goto(url);
+  const name = page.getByLabel("Test name (required to save)");
+  await name.fill("New test from instructions");
+  await page.getByLabel("Your test instructions").fill(
+    "Open the task page. Check that the initial status contains zero tasks.",
+  );
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(name).toHaveValue("New test from instructions");
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeDisabled();
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(save).toBeEnabled();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const script = page.getByLabel("Test script", { exact: true });
+  await expect(script).not.toHaveValue("");
+  await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
+  const id = await script.inputValue();
+  const persisted = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
+  expect(persisted.title).toBe("New test from instructions");
+  expect(persisted.sourceInstructions).toContain("initial status");
+});
