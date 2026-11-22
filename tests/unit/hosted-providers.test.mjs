@@ -165,3 +165,54 @@ test("Groq request failures distinguish timeout, network and unknown transport",
     else process.env.GROQ_API_KEY = old;
   }
 });
+
+test("Groq retries a transient fetch network failure once, using identical request content", async () => {
+  const previous = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "gsk_test_fake_not_real";
+  try {
+    let attempts = 0;
+    const bodies = [];
+    const result = await requestGroq(request, async (_url, init) => {
+      attempts++;
+      bodies.push(String(init.body));
+      if (attempts === 1) throw new TypeError("socket reset with sensitive metadata");
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }));
+    });
+    assert.equal(result, '{"ok":true}');
+    assert.equal(attempts, 2);
+    assert.equal(bodies[0], bodies[1]);
+  } finally {
+    if (previous === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = previous;
+  }
+});
+
+test("Groq bounds network retries and never automatically retries HTTP, timeout or other errors", async () => {
+  const previous = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "gsk_test_fake_not_real";
+  try {
+    let attempts = 0;
+    await assert.rejects(requestGroq(request, async () => {
+      attempts++;
+      throw new TypeError("transient network");
+    }), (error) => error instanceof GroqTransportError && error.category === "network");
+    assert.equal(attempts, 2);
+
+    attempts = 0;
+    await assert.rejects(requestGroq(request, async () => {
+      attempts++;
+      throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
+    }), (error) => error instanceof GroqTransportError && error.category === "timeout");
+    assert.equal(attempts, 1);
+
+    attempts = 0;
+    await assert.rejects(requestGroq(request, async () => {
+      attempts++;
+      return new Response("temporary outage", { status: 503 });
+    }), (error) => error instanceof GroqProviderError && error.httpStatus === 503);
+    assert.equal(attempts, 1);
+  } finally {
+    if (previous === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = previous;
+  }
+});
