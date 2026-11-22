@@ -1109,13 +1109,13 @@
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
       const missing = [
         ...(missingName ? ["enter a Test name above"] : []),
-        ...(remaining ? ["confirm " + remaining + " remaining step" +
+        ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
           (remaining === 1 ? "" : "s")] : []),
       ];
       $("save-readiness").textContent = total === 0
         ? "Generate a test to begin review."
         : missing.length
-          ? "Before saving, " + missing.join(" and ") +
+          ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
             ". Save Working Draft to continue later once a name is entered."
           : "Ready to save. The test will then appear in Run Tests for execution.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
