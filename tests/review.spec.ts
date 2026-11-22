@@ -1137,3 +1137,21 @@ test("approved test retains source instructions and Save as New keeps original",
   expect(copy.definition.sourceInstructions).toBe(instructions);
   expect(copy.definition.workingInstructions).toContain("Additional notes for new version.");
 });
+
+test("approval and save readiness clearly explain required name and confirmations", async ({ page }) => {
+  await page.goto(url);
+  await page.getByLabel("Your test instructions").fill("Add a task and verify it is listed");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeDisabled();
+  await expect(page.locator("#save-readiness")).toContainText("Enter a Test name");
+  await page.locator("#test-name").fill("Approval regression check");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+});
