@@ -919,6 +919,9 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
     expect(prompts[1]).toContain("COMPLETE test definition");
     await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    temporary.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       temporary.close((err) => err ? reject(err) : resolve()));
   }
@@ -953,6 +956,9 @@ test("two malformed responses stop after one bounded retry with safe step diagno
     expect(calls).toBe(2);
     await expect(page.locator("#draft")).toBeHidden();
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    temporary.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       temporary.close((err) => err ? reject(err) : resolve()));
   }
@@ -1005,6 +1011,9 @@ test("Test 1 Groq upstream 400 is identified correctly in the generator UI witho
       requirementsCharacters: testOneInstructions.length,
     });
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    tempServer.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       tempServer.close((error) => error ? reject(error) : resolve()));
   }
