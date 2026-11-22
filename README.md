@@ -1,10 +1,62 @@
 # AI UI Testing Agent
 
-**v0.1 prototype · AI-assisted requirements-to-test execution · Human-reviewed · Playwright-powered**
+**v0.2 release candidate · AI-assisted browser test creation, review and execution · Playwright-powered**
 
-Turn plain-English test instructions and a live web page into reviewable test steps, save them as structured test scripts, run them in a browser, diagnose failures, and approve corrections—all from a local web interface. The aim is to make the complete QA workflow demonstrable while keeping expectations and test changes under human control.
+**Describe a test in plain English, generate proposed browser steps, review or edit them, and execute the approved test.** No test automation code is needed for the primary web UI workflow.
 
-**Status:** v0.1 functionality is implemented on `main`. This is a **working prototype / release candidate**, not a production-ready autonomous tester. A formal GitHub release/tag and final manual acceptance check are separate steps.
+> **Release status:** v0.2 functionality is on `main`, but no `v0.2.0` release has been published. This is a local QA prototype, not a production-ready autonomous test platform. `package.json` is still version `0.1.0`.
+
+## Current functionality — implemented on `main`
+
+| Capability | What you can do now |
+| --- | --- |
+| **Plain-English test creation** | Enter the website URL and natural-language instructions; GroqCloud uses a bounded initial-page snapshot to propose steps. **Fixture** mode works without AI. |
+| **Human review** | Inspect and edit steps, locators and expectations. Approve individually or use **Add All**; nothing saves or executes without an explicit action. |
+| **Incremental regeneration (v0.2)** | Use **Reinterpret with AI** on a selected step to replace only that step, or that step and all subsequent steps. Preview the proposal and reapprove changes while retaining unaffected approvals. |
+| **Working drafts and test editing (v0.2)** | Save partly approved drafts, resume them later, preserve original and amended instructions, and edit existing tests or **Save as New Test**. |
+| **Website suites and execution** | Organise saved scripts by website. Run one script or up to **10** sequentially in isolated Chromium contexts, with **5/10/15-second** step timeout options. |
+| **Diagnostics and repair** | Review per-step results, timing, actual vs expected values, screenshots/traces when available, selector preflight and human-approved locator/assertion repairs. |
+| **Application memory proof of concept (v0.2)** | Learn only limited per-website evidence of a successful shopping flow following login, and suggest login as an **unverified** prerequisite on later relevant tests. Opt-out supported; credentials are not stored in this memory. |
+| **Requirements traceability** | Manually map requirements to test actions/assertions, see gaps and export a read-only coverage matrix. |
+| **Portable Playwright export** | Export an approved script as standalone Playwright `.spec.ts`; later execution does not require the AI provider. |
+| **Run history and developer tools** | Review historic executions by site; use CLI generation, execution and export; access Help and `.env.example` onboarding instructions. |
+
+**Start here:** [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
+
+## Quick start
+
+Requires Node.js **22+**, npm and Playwright Chromium. Run these commands in a terminal:
+
+```bash
+git clone https://github.com/leonard01/ai-ui-testing-agent.git
+cd ai-ui-testing-agent
+npm ci
+npx playwright install chromium
+npm run start:demo
+```
+
+Open the **test builder** at **http://127.0.0.1:3100**. The sample website is at **http://127.0.0.1:3000**.
+
+Enter a **test name**, the sample URL and an instruction such as *“Add a task called Prepare interview, verify it appears, complete it, then delete it and verify the list is empty.”* Choose **Fixture** to avoid AI calls, click **Generate draft**, review/approve the steps, save the script, then select the website under **Run Tests** and execute.
+
+For existing clones, use `git switch main` and `git pull --ff-only`. Your local `.env` will not be overwritten.
+
+## GroqCloud API setup
+
+To generate real AI test steps, obtain an API key at [GroqCloud API Keys](https://console.groq.com/keys), then copy the repository template:
+
+```bash
+cp .env.example .env
+```
+
+Add your own key in `.env`:
+
+```dotenv
+GROQ_API_KEY=gsk_your_actual_key
+GROQ_MODEL=openai/gpt-oss-20b
+```
+
+`GROQ_MODEL` is optional. Restart the server after editing. **Do not commit `.env` or share credentials.** GroqCloud quota limits apply; Fixture mode and running already approved tests do not require Groq requests.
 
 ## Watch the demo (73 seconds)
 
@@ -14,15 +66,11 @@ Turn plain-English test instructions and a live web page into reviewable test st
 
 This recording shows the sample application, a plain-English test description, AI-generated steps, human approval, browser execution and the final passing result. No test automation code is written during the demonstration.
 
-**Jump to:** [Current functionality](#current-functionality) · [Quick start](#quick-start) · [Example workflow](#example-workflow) · [CLI and automation](#cli-and-automation) · [Limitations](#limitations-and-v01-scope) · [Detailed docs](#documentation)
+## Feature details
 
-**v0.2 development:** [Planned phases and acceptance criteria](docs/v0.2-plan.md). The first increment consolidates the **Run Tests** selectors and timeout control; development is occurring in a feature branch pending CI and merge.
+The table above summarises the current capabilities; the following gives more operational detail.
 
-## Current functionality
-
-Everything in this table is **implemented on `main`**, not a proposed feature.
-
-| Area | What works in v0.1 |
+| Area | Implementation details |
 | --- | --- |
 | **AI-assisted test design** | Enter plain-English requirements and an application URL. Inspect a bounded snapshot of the live page and generate a structured test draft with **GroqCloud**. Use **Fixture** mode for a completely offline, prewritten demonstration (no AI). |
 | **Human review and editing** | Read every proposed step in plain English, edit its action/locator/value/expectation, confirm steps individually or use **Add All**, then explicitly **Approve and save JSON test**. Generation and Add All never save or execute automatically. |
@@ -38,11 +86,11 @@ Everything in this table is **implemented on `main`**, not a proposed feature.
 
 **Important terminology:** A **test suite** is a website's collection of saved **test scripts**. A **suite execution** is one occasion on which you run one script or a selected batch. A test can fail without stopping other scripts in the same batch.
 
-The **structured JSON definition** is framework-neutral; **the v0.1 browser runner itself uses Playwright**. A framework-free execution backend is a future goal, not a current capability.
+The **structured JSON definition** is framework-neutral; **the current browser runner uses Playwright**. A framework-free execution backend is a future goal, not a current capability.
 
-## Quick start
+## Setup and usage reference
 
-**Requirements:** Node.js **22+**, npm and Chromium (installed through Playwright). No API key, AI subscription or locally hosted model is needed for the Fixture demo.
+The [Quick start](#quick-start) above is the shortest setup path. The details below cover alternative launch methods.
 
 ### Quick launch (Windows, macOS or Linux)
 
@@ -118,7 +166,7 @@ Human-approved locator/expectation correction → rerun
 Reopen execution history or export standalone Playwright spec
 ```
 
-**Real AI generation:** In the UI choose **GroqCloud**. Copy `.env.example` to `.env` in the repository root (`cp .env.example .env`), then set `GROQ_API_KEY` to your key from https://console.groq.com/keys. The optional `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Restart the app after editing `.env`; your local `.env` is gitignored and won't be overwritten by pulls. Alternatively, set `GROQ_API_KEY` in your environment. Groq's free tier has provider-imposed limits; availability and quotas can change. The key remains in the local server and should **never** be committed. In the CLI, you can also explicitly choose **Ollama** (local model) or **OpenAI** (usage may incur charges). No cloud provider is selected automatically.
+**Real AI generation:** See [GroqCloud API setup](#groqcloud-api-setup) at the top. In the UI choose **GroqCloud**. Copy `.env.example` to `.env` in the repository root (`cp .env.example .env`), then set `GROQ_API_KEY` to your key from https://console.groq.com/keys. The optional `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Restart the app after editing `.env`; your local `.env` is gitignored and won't be overwritten by pulls. Alternatively, set `GROQ_API_KEY` in your environment. Groq's free tier has provider-imposed limits; availability and quotas can change. The key remains in the local server and should **never** be committed. In the CLI, you can also explicitly choose **Ollama** (local model) or **OpenAI** (usage may incur charges). No cloud provider is selected automatically.
 
 ## CLI and automation
 
@@ -148,11 +196,11 @@ Run results are saved under `run-results/` by default. Successful runs report `p
 
 Run a saved trace with `npx playwright show-trace path/to/trace.zip`. The browser test suite uses its own isolated fixtures and can start the local demo automatically.
 
-**CI:** GitHub Actions runs type-checking, the build, unit tests and Playwright integration tests. The [v0.1 polish PR](https://github.com/leonard01/ai-ui-testing-agent/pull/26) passed **80 browser tests** before merging; see [GitHub Actions](https://github.com/leonard01/ai-ui-testing-agent/actions) for the latest verification.
+**CI:** GitHub Actions runs type-checking, build, unit/schema validation and Playwright browser tests. [PR #48](https://github.com/leonard01/ai-ui-testing-agent/pull/48) passed **105 tests** before merge; see [GitHub Actions](https://github.com/leonard01/ai-ui-testing-agent/actions) for the latest `main` verification.
 
-## Limitations and v0.1 scope
+## Limitations and known gaps
 
-This release is meant to **demonstrate an end-to-end QA workflow**, not replace mature testing frameworks yet.
+This prototype is meant to **demonstrate an end-to-end QA workflow**, not replace mature testing frameworks yet.
 
 - **Playwright-backed execution only.** Additional runner backends, framework integrations and exporters beyond Playwright are not yet implemented.
 - **Human oversight is required.** AI-generated steps and expectations can be incorrect. `Add All` is a bulk reviewer action, not independent validation. A green execution does not prove that requirements were specified correctly.
@@ -163,7 +211,7 @@ This release is meant to **demonstrate an end-to-end QA workflow**, not replace 
 - **Execution history is operational, not an immutable audit log.** Replacing a saved test may remove the superseded test and some related evidence. Removing an approved website suite does **not** automatically erase its history; **Delete All History** is a separate, global action.
 - **Single browser execution at a time.** Suite runs are serial and use isolated contexts, intentionally reducing pressure on less powerful machines. The UI is a local development tool, not a hosted multi-user service.
 
-**v0.1 release criterion:** Merge the final polish, complete a real-model generation → review → save → execution smoke test, and publish a `v0.1.0` GitHub release with known limitations. The package is versioned `0.1.0`, but a GitHub release/tag is **not implied** by this README.
+**v0.2 release status:** A final release/tag, package version bump and manual end-to-end smoke check are separate steps. A second hosted AI provider and generalized cross-workflow memory remain future work. Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps.
 
 ## Documentation
 
