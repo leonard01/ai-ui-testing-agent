@@ -1223,3 +1223,43 @@ test("invalid new instructions also clear an earlier successful generation", asy
   await expect(page.locator("#step-list .step")).toHaveCount(0);
   await expect(page.locator("#save")).toBeDisabled();
 });
+
+test("URL input and recent website selector visually indicate only one active source", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("ai-ui-testing-agent.recent-application-urls", JSON.stringify([
+      "https://www.saucedemo.com/",
+      "https://example.test/catalog",
+    ]));
+  });
+  await page.goto(url);
+
+  const field = page.locator("#base-url");
+  const recent = page.locator("#recent-url");
+  await expect(field).not.toHaveClass(/url-source-inactive/);
+  await expect(recent).toHaveClass(/url-source-inactive/);
+  await expect(page.locator("#url-source-status")).toContainText("Using the URL entered above");
+
+  await recent.selectOption("https://www.saucedemo.com/");
+  await expect(field).toHaveValue("https://www.saucedemo.com/");
+  await expect(field).toHaveClass(/url-source-inactive/);
+  await expect(recent).not.toHaveClass(/url-source-inactive/);
+  await expect(page.locator("#url-source-status")).toContainText("Using the selected recent website");
+
+  // The muted field must still be clickable, allowing a new URL without
+  // needing to find a separate reset button.
+  await field.click();
+  await field.fill("https://another.example.test/app");
+  await expect(recent).toHaveValue("");
+  await expect(field).not.toHaveClass(/url-source-inactive/);
+  await expect(recent).toHaveClass(/url-source-inactive/);
+  await expect(page.locator("#url-source-status")).toContainText("Using the URL entered above");
+
+  // Users can always switch back to recent URLs.
+  await recent.selectOption("https://example.test/catalog");
+  await expect(field).toHaveValue("https://example.test/catalog");
+  await expect(field).toHaveClass(/url-source-inactive/);
+  await expect(recent).not.toHaveClass(/url-source-inactive/);
+  await recent.selectOption("");
+  await expect(field).not.toHaveClass(/url-source-inactive/);
+  await expect(recent).toHaveClass(/url-source-inactive/);
+});
