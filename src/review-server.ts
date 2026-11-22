@@ -1448,7 +1448,15 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       try {
         const data = body as { definition?: unknown; baseURL?: unknown; replaceId?: unknown } | null;
         const base = validatedBaseURL(data?.baseURL);
-        const definition = parseTestDefinition(data?.definition);
+        const rawName = (data as Record<string, unknown> | null)?.testName;
+        if (typeof rawName !== "string" || !rawName.trim() || rawName.trim().length > 200) {
+          throw new Error("Enter a test name (1–200 characters) before saving");
+        }
+        // The human-entered name is authoritative; never accept the AI's proposed title at save.
+        const definition = parseTestDefinition({
+          ...(data?.definition as Record<string, unknown>),
+          title: rawName.trim(),
+        });
         verifyNavigations(definition, base);
         if (data?.replaceId !== undefined &&
           (typeof data.replaceId !== "string" || !SAVED_NAME.test(data.replaceId))) {
