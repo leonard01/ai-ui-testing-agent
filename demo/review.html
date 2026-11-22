@@ -144,12 +144,13 @@
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
         <label for="recent-url">Recent websites</label>
         <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
-        <label for="requirements">Your test instructions <span class="required-marker">(required)</span></label>
+        <label for="requirements">Working test instructions <span class="required-marker">(required)</span></label>
         <textarea id="requirements" required placeholder="Required — Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
+        <p id="working-instructions-note" class="note" hidden><strong>Amendment history, not a consolidated specification.</strong> After incremental regeneration, the working instructions contain the original description plus later amendments. Some earlier instructions may have been replaced or discarded, so this text may contradict the current steps. The reviewed steps in Test Editor are the proposed executable test. The original instructions remain unchanged below; review the complete steps before saving.</p>
         <div id="original-instructions-panel" class="note" hidden>
           <strong>Original test instructions (read-only)</strong>
           <pre id="original-instructions" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
-          <p>Modify the editable instructions above to create a new interpretation; your original instructions stay preserved.</p>
+          <p>This preserves your initial intent as written, including steps later superseded by amendments. It is not necessarily the current executable test.</p>
         </div>
         <div id="instruction-help" class="muted">Plain English is fine. If the app has no user form, the AI may propose unsupported steps; review its output carefully.</div>
         <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
@@ -212,6 +213,7 @@
           <label for="incremental-instructions">New plain-English instructions for replacement steps <span class="required-marker">(required)</span></label>
           <textarea id="incremental-instructions" rows="4" maxlength="12000" placeholder="Required — describe what should happen from this point onwards."></textarea>
           <p class="muted">GroqCloud is used only when you click Generate replacement. Earlier approved steps stay unchanged. No test steps run during regeneration.</p>
+          <p class="note">Applying a replacement appends an amendment to Working test instructions; it does not erase superseded wording. The reviewed steps, not the combined prose, define what will execute.</p>
           <div class="actions">
             <button type="button" id="incremental-generate">Generate replacement</button>
             <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
@@ -956,6 +958,7 @@
       const current = $("requirements").value;
       $("requirements").value = [current, amendment].filter(Boolean).join("\n\n");
       definition.workingInstructions = $("requirements").value;
+      $("working-instructions-note").hidden = false;
       clearPreflight();
       renderSteps();
       $("draft-hint").textContent = "AI replacement applied as unapproved steps. " +
