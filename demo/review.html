@@ -349,7 +349,7 @@
       if (action.kind === "uncheck") return "Uncheck " + describeTarget(action.target);
       if (action.kind === "select-option") return 'Select option value "' + action.value + '" in ' + describeTarget(action.target);
       if (action.kind === "press") return 'Press ' + action.key + " on " + describeTarget(action.target);
-      if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + ' equals "' + action.expected + '"';
+      if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + (action.match === "contains" ? ' contains "' : ' equals "') + action.expected + '"';
       if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
       if (action.kind === "assert-count") return "Verify " + describeTarget(action.target) + " matches " + action.expected + " elements";
       if (action.kind === "assert-url") return 'Verify current URL equals "' + action.expected + '"';
@@ -501,7 +501,18 @@
           edits.append(label);
         }
         if (clone.action.kind === "assert-text") {
-          labeledInput(edits, "Expected exact text", clone.action.expected, (v) => { clone.action.expected = v; });
+          labeledInput(edits, "Expected text", clone.action.expected, (v) => { clone.action.expected = v; });
+          const comparison = make("label", "Text comparison");
+          const mode = make("select");
+          for (const [value, label] of [["exact", "Exact match"], ["contains", "Contains text"]]) {
+            const option = make("option", label);
+            option.value = value;
+            mode.append(option);
+          }
+          mode.value = clone.action.match || "exact";
+          mode.addEventListener("change", () => { clone.action.match = mode.value; });
+          comparison.append(mode);
+          edits.append(comparison);
         }
         if (clone.action.kind === "assert-count") {
           const label = make("label", "Expected element count");
@@ -991,7 +1002,11 @@
               label.append(radio, info);
               radio.addEventListener("change", () => {
                 selected = index;
-                save.disabled = running || evidence.total !== candidates.length;
+                const unchanged = JSON.stringify(candidate.target) ===
+                  JSON.stringify(evidence.attempted);
+                save.disabled = running || unchanged || evidence.total !== candidates.length;
+                if (unchanged) searchStatus.textContent =
+                  "This is already the assertion target. Changing it cannot fix an exact-text mismatch. Use Review failed text assertion below to change the expectation or choose Contains.";
               });
               choices.append(label);
             });
@@ -1046,8 +1061,8 @@
             }
           });
           repair.append(make("p",
-            "Only the selected locator changes. The assertion's expected result " +
-            "and provenance remain unchanged. The failed saved version is replaced " +
+            "This is a locator-only repair. Selecting an element does NOT replace expected text with what the page displays. " +
+            "To change the expected text or compare with Contains, use Review failed text assertion below. The failed saved version is replaced " +
             "after a successful save; the corrected test reruns from step 1.", "muted"));
           save.addEventListener("click", async () => {
             if (running || selected < 0 || !activeEvidence ||
@@ -1342,6 +1357,7 @@
             (step.assertionAlternatives?.candidates?.length
               ? "The expected text is visible elsewhere. Consider repairing the locator above before changing the expected result."
               : "Only revise this assertion if you have verified what the requirement actually specifies.")));
+          review.append(make("p", "Original comparison: Exact" + " (unless explicitly configured otherwise)", "muted"));
           review.append(make("p", "Original expected: " + step.expected, "muted"));
           review.append(make("p", "Observed from run: " + step.observed, "muted"));
           const field = make("label", "New expected text");
@@ -1350,6 +1366,16 @@
           input.maxLength = 10000;
           field.append(input);
           review.append(field);
+          const comparisonField = make("label", "Text comparison");
+          const matchSelect = make("select");
+          for (const [value, label] of [["exact", "Exact match"], ["contains", "Contains text"]]) {
+            const option = make("option", label);
+            option.value = value;
+            matchSelect.append(option);
+          }
+          matchSelect.value = "exact";
+          comparisonField.append(matchSelect);
+          review.append(comparisonField);
           const confirmLabel = make("label", null, "confirm-label");
           const confirmation = make("input");
           confirmation.type = "checkbox";
@@ -1365,7 +1391,8 @@
           save.disabled = true;
           const update = () => {
             save.disabled = running || !confirmation.checked ||
-              input.value === step.expected || input.value.length > 10000;
+              (input.value === step.expected && matchSelect.value === "exact") ||
+              input.value.length > 10000;
           };
           const edit = (value) => {
             input.value = value;
@@ -1380,9 +1407,14 @@
             confirmation.checked = false;
             update();
           });
+          matchSelect.addEventListener("change", () => {
+            confirmation.checked = false;
+            update();
+          });
           confirmation.addEventListener("change", update);
           save.addEventListener("click", async () => {
-            if (running || !confirmation.checked || input.value === step.expected) return;
+            if (running || !confirmation.checked ||
+                (input.value === step.expected && matchSelect.value === "exact")) return;
             save.disabled = true;
             $("run-error").textContent = "";
             try {
@@ -1391,7 +1423,7 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   runId: result.id, stepId: step.id,
-                  expected: input.value, confirmed: true,
+                  expected: input.value, match: matchSelect.value, confirmed: true,
                 }),
               });
               await refreshApprovedTests(revised.id);
