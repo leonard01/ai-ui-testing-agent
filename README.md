@@ -42,6 +42,15 @@ The **structured JSON definition** is framework-neutral; **the v0.1 browser runn
 
 **Requirements:** Node.js **22+**, npm and Chromium (installed through Playwright). No API key, AI subscription or locally hosted model is needed for the Fixture demo.
 
+### Windows quick launch
+
+After completing the one-time installation below, you can double-click either script in the repository root:
+
+- `start-review.cmd` — builds the project and opens the testing UI at http://127.0.0.1:3100 (no demo app).
+- `start-review-and-demo.cmd` — builds the project once, starts the demo site at http://127.0.0.1:3000 in a separate terminal window, then starts the testing UI at http://127.0.0.1:3100.
+
+Leave the terminal windows open while testing. Close them or press **Ctrl+C** to stop the servers. If Node dependencies are not installed yet, run `npm ci` first; the launchers intentionally do not install packages.
+
 ### 1. Install
 
 ```bash
