@@ -185,3 +185,61 @@ test("Groq intermittent JSON-mode failure is retried once without changing saved
   expect(proposal.preservedApprovedStepIds).toEqual(["open"]);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
+
+
+test("delete a named task uses a valid item-specific click and preserves approved prefix", async () => {
+  mockSteps = [
+    { id: "remove-eggs", description: "Delete Eggs", action: {
+      kind: "click", target: { by: "intent", value: "Delete Eggs", role: "button" },
+    }},
+    { id: "verify-eggs", description: "Verify Eggs is removed", action: {
+      kind: "assert-count", target: { by: "text", value: "Eggs" },
+      expected: 0, provenance: "requirements",
+    }},
+  ];
+  const res = await regenerate({
+    mode: "from", stepId: "enter", instructions: "Delete Eggs",
+    approvedStepIds: ["open", "empty"],
+  });
+  expect(res.status).toBe(200);
+  const data = await res.json();
+  expect(data.replacement[0].action).toMatchObject({
+    kind: "click", target: { by: "intent", value: "Delete Eggs", role: "button" },
+  });
+  expect(data.preservedApprovedStepIds).toEqual(["open", "empty"]);
+  expect(prompts[0]).toContain("Delete Eggs");
+  expect(prompts[0]).toContain("Never put 'expected' on a click");
+});
+
+test("malformed click action is rejected with actionable explanation, no changes saved", async () => {
+  mockSteps = [{
+    id: "bad-delete", description: "Delete Eggs", action: {
+      kind: "click", target: { by: "intent", value: "Delete Eggs", role: "button" },
+      expected: "Eggs is gone",
+    },
+  }];
+  const res = await regenerate({ instructions: "Delete Eggs" });
+  expect(res.status).toBe(422);
+  const data = await res.json();
+  expect(data.error).toContain("could not produce valid replacement test steps");
+  expect(data.error).toContain("Your existing steps were not changed");
+  expect(data.error).toContain("step 1");
+  expect(mockCalls).toBe(2);
+  expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
+});
+
+test("incremental panel shows clear progress and then hides it after output", async ({page}) => {
+  await page.goto(url);
+  await page.getByLabel("Your test instructions").fill("Add and verify a task");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#step-list .step").nth(2)
+    .getByRole("button", { name: "Reinterpret with AI" }).click();
+  await page.getByLabel("New plain-English instructions for replacement steps")
+    .fill("Delete Eggs");
+  await page.getByRole("button", { name: "Generate replacement" }).click();
+  await expect(page.locator("#incremental-progress")).toBeHidden();
+  await expect(page.locator("#incremental-status")).toBeVisible();
+  await expect(page.locator("#incremental-status")).toContainText("Proposal ready");
+});
