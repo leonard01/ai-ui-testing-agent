@@ -166,6 +166,7 @@
       <h2 id="review-heading">Test Editor</h2>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <div id="placeholder">
+        <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
         <p class="muted">Choose a saved website suite and test script, or reopen an unfinished working draft. To create a new test, enter instructions on the left.</p>
         <div class="run-test-selectors">
@@ -2099,8 +2100,36 @@
       $("generation-error").textContent = "";
       event.target.value = "";
     });
+    function clearGenerationPreview() {
+      // A previous successful attempt must never masquerade as the new draft.
+      // Do NOT clear persisted approved tests, execution history or input text.
+      definition = null;
+      approvals = new Set();
+      editingSavedId = null;
+      workingDraftId = null;
+      originalInstructions = undefined;
+      selectedBaseURL = "";
+      $("draft").hidden = true;
+      $("placeholder").hidden = false;
+      $("step-list").replaceChildren();
+      $("draft-title").textContent = "";
+      $("draft-hint").textContent = "";
+      $("draft-save-status").textContent = "";
+      $("review-progress").textContent = "";
+      $("requirement-lines").value = "";
+      $("traceability-note").textContent = "";
+      $("traceability-list").replaceChildren();
+      $("traceability-summary").textContent = "";
+      $("saved").replaceChildren();
+      $("save-error").textContent = "";
+      $("generation-review-status").textContent = "No new test draft is available.";
+      showOriginalInstructions();
+      clearPreflight();
+      updateApproval();
+    }
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      clearGenerationPreview();
       $("generation-error").textContent = "";
       $("saved").replaceChildren();
       $("save-error").textContent = "";
@@ -2113,6 +2142,7 @@
       const provider = $("provider").value;
       $("generate").disabled = true;
       $("generation-status").textContent = "Inspecting page and generating draft...";
+      $("generation-review-status").textContent = "Generating a new draft; previous steps have been cleared.";
       try {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -2161,12 +2191,15 @@
         updateRunButton();
         $("placeholder").hidden = true;
         $("draft").hidden = false;
+        $("generation-review-status").textContent = "";
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
         $("draft-hint").textContent = data.message;
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "");
       } catch(error) {
+        clearGenerationPreview();
+        $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
       } finally {

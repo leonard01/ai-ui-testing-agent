@@ -919,6 +919,9 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
     expect(prompts[1]).toContain("COMPLETE test definition");
     await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    temporary.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       temporary.close((err) => err ? reject(err) : resolve()));
   }
@@ -953,6 +956,9 @@ test("two malformed responses stop after one bounded retry with safe step diagno
     expect(calls).toBe(2);
     await expect(page.locator("#draft")).toBeHidden();
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    temporary.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       temporary.close((err) => err ? reject(err) : resolve()));
   }
@@ -1005,6 +1011,9 @@ test("Test 1 Groq upstream 400 is identified correctly in the generator UI witho
       requirementsCharacters: testOneInstructions.length,
     });
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    tempServer.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       tempServer.close((error) => error ? reject(error) : resolve()));
   }
@@ -1164,4 +1173,53 @@ test("new test name entered before generation survives and permits saving and ex
   const persisted = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
   expect(persisted.title).toBe("New test from instructions");
   expect(persisted.sourceInstructions).toContain("initial status");
+});
+
+test("failed regeneration removes prior successful draft and disables saving stale steps", async ({ page }) => {
+  await generateFixture(page);
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+
+  await page.route("**/api/generate", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        source: "groqcloud", category: "timeout",
+        error: "GroqCloud did not respond within 90 seconds.",
+      }),
+    });
+  });
+  await page.getByLabel("Your test instructions").fill("Add several items to basket.");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+
+  await expect(page.locator("#generation-error")).toContainText("GroqCloud request failed (timeout)");
+  await expect(page.locator("#generation-review-status")).toContainText(
+    "Generation failed. No draft steps are available from this attempt.");
+  await expect(page.locator("#draft")).toBeHidden();
+  await expect(page.locator("#step-list .step")).toHaveCount(0);
+  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.locator("#save-draft")).toBeDisabled();
+  await expect(page.locator("#generation-status")).toBeEmpty();
+  // The tester's latest instructions remain available to correct and retry.
+  await expect(page.getByLabel("Your test instructions")).toHaveValue("Add several items to basket.");
+  await page.unroute("**/api/generate");
+
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await expect(page.locator("#generation-error")).toBeEmpty();
+  await expect(page.locator("#generation-review-status")).toBeEmpty();
+});
+
+test("invalid new instructions also clear an earlier successful generation", async ({ page }) => {
+  await generateFixture(page);
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.getByLabel("Your test instructions").fill("");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-error")).toContainText("Enter 1–12,000 characters");
+  await expect(page.locator("#draft")).toBeHidden();
+  await expect(page.locator("#step-list .step")).toHaveCount(0);
+  await expect(page.locator("#save")).toBeDisabled();
 });
