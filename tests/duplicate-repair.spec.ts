@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -77,7 +78,7 @@ for (const nth of [0, 1]) {
       const saved = await savedResponse.json();
 
       await page.goto(reviewURL);
-      await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+      await selectSavedScript(page, saved.id);
       await expect(page.locator("#base-url")).toHaveValue(websiteURL + "/");
       await page.getByRole("button", { name: "Run selected test" }).click();
       await expect(page.locator("#run-status"))
