@@ -131,8 +131,10 @@
   </header>
   <main>
     <section aria-labelledby="instructions-heading">
-      <h2 id="instructions-heading">1. Describe the test</h2>
+      <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
+      <label for="test-name">Test name (required to save)</label>
+      <input id="test-name" type="text" maxlength="200" placeholder="e.g. SD-001 — Successful login" autocomplete="off">
       <form id="generate-form">
         <label for="base-url">Application URL</label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
@@ -140,6 +142,11 @@
         <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
         <label for="requirements">Your test instructions</label>
         <textarea id="requirements" placeholder="Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
+        <div id="original-instructions-panel" class="note" hidden>
+          <strong>Original test instructions (read-only)</strong>
+          <pre id="original-instructions" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+          <p>Modify the editable instructions above to create a new interpretation; your original instructions stay preserved.</p>
+        </div>
         <div id="instruction-help" class="muted">Plain English is fine. If the app has no user form, the AI may propose unsupported steps; review its output carefully.</div>
         <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
         <input id="requirements-file" type="file" accept=".txt,.md,text/plain,text/markdown">
@@ -156,14 +163,33 @@
       <div class="error" id="generation-error" role="alert"></div>
     </section>
     <section aria-labelledby="review-heading">
-      <h2 id="review-heading">2. Review proposed steps</h2>
+      <h2 id="review-heading">Test Editor</h2>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
-      <div id="placeholder" class="muted">No draft yet. Enter instructions on the left and click Generate draft.</div>
+      <div id="placeholder">
+        <h3>Edit Existing Test</h3>
+        <p class="muted">Choose a saved website suite and test script, or reopen an unfinished working draft. To create a new test, enter instructions on the left.</p>
+        <div class="run-test-selectors">
+          <div>
+            <label for="edit-suite">Test suite</label>
+            <select id="edit-suite"><option value="">Select a test suite</option></select>
+          </div>
+          <div>
+            <label for="edit-script">Test script</label>
+            <select id="edit-script" disabled><option value="">Select a suite first</option></select>
+          </div>
+        </div>
+        <div class="actions"><button type="button" id="edit-load" class="secondary" disabled>Load selected test</button></div>
+        <label for="draft-select">Saved working drafts</label>
+        <select id="draft-select"><option value="">Select a working draft</option></select>
+        <div class="actions">
+          <button type="button" id="draft-load" class="secondary" disabled>Resume draft</button>
+          <button type="button" id="draft-refresh" class="secondary">Refresh drafts</button>
+        </div>
+        <p id="draft-list-status" class="muted" role="status"></p>
+      </div>
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
-        <label for="test-name">Test name (required before saving)</label>
-        <input id="test-name" type="text" maxlength="200" placeholder="e.g. SD-001 — Successful login" autocomplete="off" required>
-        <p class="muted">Enter your own name for this test. The AI's suggested title is not used automatically.</p>
+        <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
         <div class="actions" style="margin:12px 0">
           <button type="button" id="review-add-all" class="secondary">Add All</button>
@@ -187,13 +213,19 @@
           <p id="selector-preflight-status" class="status" role="status"></p>
           <div id="selector-preflight-results"></div>
         </div>
+        <div class="actions">
+          <button type="button" id="save-draft" class="secondary" disabled>Save Working Draft</button>
+          <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
+          <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
+        </div>
         <button id="save" disabled style="width:100%">Approve and save JSON test</button>
+        <p id="draft-save-status" role="status" class="muted"></p>
         <div id="saved" class="success" style="margin-top:12px"></div>
         <div id="save-error" class="error" style="margin-top:12px"></div>
       </div>
     </section>
     <section id="execution-panel" style="grid-column:1/-1" aria-labelledby="execution-heading">
-      <h2 id="execution-heading">3. Execute and diagnose</h2>
+      <h2 id="execution-heading">Execute and diagnose</h2>
       <p class="sub">Select an approved, saved test and run it in headless Playwright. Review every step and failure artifact here, without opening a terminal.</p>
       <div id="suite-panel" class="run-tests-panel">
         <h3 style="margin:0 0 8px">Run Tests</h3>
@@ -299,6 +331,8 @@
     let selectedApprovedId = "";
     let approvedCatalog = [];
     let editingSavedId = null;
+    let workingDraftId = null;
+    let originalInstructions = undefined;
     let preflightRevision = 0;
 
     function make(tag, text, cls) {
@@ -754,6 +788,9 @@
       $("save").disabled = total === 0 || approvals.size !== total ||
         !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
+      $("save-draft").disabled = total === 0 || !$("test-name").value.trim();
+      $("save-as-new").disabled = total === 0 || approvals.size !== total ||
+        !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
       $("save-error").textContent = "";
