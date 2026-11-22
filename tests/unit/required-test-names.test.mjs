@@ -9,14 +9,14 @@ test("review requires an explicit tester-entered name before save", () => {
   assert.match(ui, /id="test-name"[^>]*maxlength="200"[^>]*required/);
   assert.match(ui, /\$\("save"\)\.disabled = [\s\S]*?!\$\("test-name"\)\.value\.trim\(\)/);
   assert.match(ui, /const testName = \$\("test-name"\)\.value\.trim\(\)/);
-  assert.match(ui, /JSON\.stringify\(\{ definition, testName, baseURL:/);
+  assert.match(ui, /testName, baseURL: selectedBaseURL/);
   assert.match(server, /typeof rawName !== "string" \|\| !rawName\.trim\(\)/);
   assert.match(server, /title: rawName\.trim\(\)/);
 });
 
 test("editing loads the saved name rather than an AI-suggested default", () => {
-  assert.match(ui, /definition = payload\.definition;\s*\$\("test-name"\)\.value = definition\.title/);
-  assert.match(ui, /definition = data\.definition;\s*\$\("test-name"\)\.value = ""/);
+  assert.match(ui, /definition = payload\.definition;[\s\S]{0,800}\$\("test-name"\)\.value = definition\.title/);
+  assert.match(ui, /if \(!wasEditing\) \{[\s\S]{0,150}\$\("test-name"\)\.value = ""/);
 });
 
 test("previously used URL selector supports saved scripts and recent generation", () => {

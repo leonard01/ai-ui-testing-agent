@@ -89,6 +89,10 @@ export const testDefinitionSchema = z
           !url.username && !url.password;
       } catch { return false; }
     }, "sourceUrl must be an HTTP(S) URL without credentials").optional(),
+    // Original user-provided instructions are preserved independently of generated steps.
+    // Legacy scripts may omit these fields.
+    sourceInstructions: z.string().max(12_000).optional(),
+    workingInstructions: z.string().max(12_000).optional(),
     requirements: z.array(requirement).max(40).optional(),
     steps: z
       .array(z.object({ id: text, description: text, action }).strict())

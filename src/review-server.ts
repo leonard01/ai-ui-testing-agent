@@ -9,6 +9,7 @@ import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
+import { listDrafts, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
@@ -566,6 +567,21 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
+      if (req.method === "GET" && path === "/api/drafts") {
+        try { json(res, 200, { drafts: await listDrafts(savedDir) }); }
+        catch { json(res, 500, { error: "Could not list working drafts" }); }
+        return;
+      }
+      const workingDraftPath = /^\/api\/drafts\/(draft-[a-f0-9-]{36}\.json)$/.exec(path);
+      if (req.method === "GET" && workingDraftPath) {
+        try {
+          json(res, 200, { id: workingDraftPath[1],
+            draft: await readDraft(savedDir, workingDraftPath[1]) });
+        } catch {
+          json(res, 404, { error: "Working draft not found or invalid" });
+        }
+        return;
+      }
       if (req.method === "GET" && path === "/api/tests") {
         try {
           const tests = await listApproved();
@@ -663,7 +679,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -676,6 +692,59 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         body = await readJSON(req);
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/drafts/save") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            throw new Error("Expected a working draft");
+          }
+          const data = body as Record<string, unknown>;
+          if (typeof data.testName !== "string" || !data.testName.trim() ||
+              data.testName.trim().length > 200) {
+            throw new Error("Enter a test name (1–200 characters) before saving a draft");
+          }
+          const base = validatedBaseURL(data.baseURL);
+          const definition = parseTestDefinition({
+            ...(data.definition as Record<string, unknown>), title: data.testName.trim(),
+          });
+          verifyNavigations(definition, base);
+          const existingId = data.id;
+          if (existingId !== undefined && typeof existingId !== "string") {
+            throw new Error("Invalid working draft ID");
+          }
+          const existing = existingId ? await readDraft(savedDir, existingId) : null;
+          // Both the original instructions and the approved source identity are
+          // immutable once this draft is created; human edits affect only working instructions.
+          const proposed = draftSchema.parse({
+            draftVersion: 1, definition, baseURL: base.href,
+            sourceInstructions: existing
+              ? existing.sourceInstructions : data.sourceInstructions,
+            workingInstructions: data.workingInstructions,
+            approvedStepIds: data.approvedStepIds,
+            sourceApprovedId: existing
+              ? existing.sourceApprovedId : data.sourceApprovedId,
+            updatedAt: new Date().toISOString(),
+          });
+          const stored = await saveDraft(savedDir, proposed, existingId as string | undefined);
+          json(res, 200, { id: stored.id, message: "Working draft saved. This is not a runnable test." });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid working draft" });
+        }
+        return;
+      }
+      if (path === "/api/drafts/delete") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Expected draft ID");
+          const data = body as Record<string, unknown>;
+          if (data.confirmed !== true || typeof data.id !== "string") {
+            throw new Error("Explicit confirmation and valid draft ID are required");
+          }
+          await deleteDraft(savedDir, data.id);
+          json(res, 200, { deletedId: data.id });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Cannot delete draft" });
+        }
         return;
       }
       if (path === "/api/history/delete-all") {
@@ -1463,9 +1532,15 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           throw new Error("Enter a test name (1–200 characters) before saving");
         }
         // The human-entered name is authoritative; never accept the AI's proposed title at save.
+        const replacement = data?.replaceId === undefined ? null :
+          await readSaved(data.replaceId as string);
+        const submitted = (data?.definition as Record<string, unknown> | undefined) ?? {};
         const definition = parseTestDefinition({
-          ...(data?.definition as Record<string, unknown>),
-          title: rawName.trim(),
+          ...submitted, title: rawName.trim(),
+          sourceInstructions: replacement?.sourceInstructions ??
+            (typeof submitted.sourceInstructions === "string" ? submitted.sourceInstructions : undefined),
+          workingInstructions: typeof submitted.workingInstructions === "string"
+            ? submitted.workingInstructions : replacement?.workingInstructions,
         });
         verifyNavigations(definition, base);
         if (data?.replaceId !== undefined &&
