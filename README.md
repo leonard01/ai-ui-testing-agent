@@ -1,10 +1,10 @@
 # AI UI Testing Agent
 
-**v0.2 release candidate · AI-assisted browser test creation, review and execution · Playwright-powered**
+**v0.2.0 release preparation · AI-assisted browser test creation, review and execution · Playwright-powered**
 
 **Describe a test in plain English, generate proposed browser steps, review or edit them, and execute the approved test.** No test automation code is needed for the primary web UI workflow.
 
-> **Release status:** v0.2 functionality is on `main`, but no `v0.2.0` release has been published. This is a local QA prototype, not a production-ready autonomous test platform. `package.json` is still version `0.1.0`.
+> **Release status:** v0.2.0 is prepared but not yet tagged or published. The current package version is `0.2.0`. The tool remains a local QA prototype, not a production-ready autonomous testing platform. Publishing is separate from preparation.
 
 ## Current functionality — implemented on `main`
 
@@ -21,7 +21,16 @@
 | **Portable Playwright export** | Export an approved script as standalone Playwright `.spec.ts`; later execution does not require the AI provider. |
 | **Run history and developer tools** | Review historic executions by site; use CLI generation, execution and export; access Help and `.env.example` onboarding instructions. |
 
-**Start here:** [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
+**Start here:** [Release history](#release-history) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
+
+## Release history
+
+| Version | Scope | State |
+| --- | --- | --- |
+| **v0.2.0** | Incremental AI reinterpretation; working drafts and existing-test editing; per-website login-prerequisite memory proof of concept; Run Tests UI improvements; Help and `.env.example`; regression fixes | **Prepared for release** — tag and GitHub release pending |
+| **v0.1.0** | Baseline prototype: plain-English to reviewed JSON tests, Playwright execution, repair assistance, suites, history, traceability and standalone export | Baseline functionality; check [GitHub Releases](https://github.com/leonard01/ai-ui-testing-agent/releases) for published versions |
+
+**Release approach:** Small incremental versions (for example, `0.2.1` and `0.2.2`) will carry focused improvements with their own tests and documentation. The second hosted AI provider, broader memory, and advanced assertion capabilities are **not** part of v0.2.0. See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Quick start
 
@@ -211,7 +220,7 @@ This prototype is meant to **demonstrate an end-to-end QA workflow**, not replac
 - **Execution history is operational, not an immutable audit log.** Replacing a saved test may remove the superseded test and some related evidence. Removing an approved website suite does **not** automatically erase its history; **Delete All History** is a separate, global action.
 - **Single browser execution at a time.** Suite runs are serial and use isolated contexts, intentionally reducing pressure on less powerful machines. The UI is a local development tool, not a hosted multi-user service.
 
-**v0.2 release status:** A final release/tag, package version bump and manual end-to-end smoke check are separate steps. A second hosted AI provider and generalized cross-workflow memory remain future work. Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps.
+**v0.2 release status:** The package version is 0.2.0. Publishing the release/tag and completing manual end-to-end acceptance are separate steps. A second hosted AI provider and generalized cross-workflow memory remain future work. Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps.
 
 ## Documentation
 
