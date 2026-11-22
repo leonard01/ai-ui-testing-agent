@@ -245,6 +245,8 @@
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
+        <label for="save-test-name">Test name (required to save)</label>
+        <input id="save-test-name" type="text" maxlength="200" placeholder="e.g. Add two tasks" autocomplete="off">
         <button id="save" disabled style="width:100%">Approve and save JSON test</button>
         <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
@@ -1091,11 +1093,14 @@
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
       const missingName = !$("test-name").value.trim();
+      if ($("save-test-name").value !== $("test-name").value) {
+        $("save-test-name").value = $("test-name").value;
+      }
       const remaining = Math.max(0, total - approvals.size);
       $("save-readiness").textContent = total === 0
         ? "Generate a test to begin review."
         : missingName
-          ? "Enter a Test name in Test Instructions to enable saving."
+          ? "Enter a Test name above to enable saving."
           : remaining
             ? "Confirm " + remaining + " remaining step" + (remaining === 1 ? "" : "s") +
               " to enable saving and execution. Save Working Draft to continue later."
@@ -1108,6 +1113,11 @@
         !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
+      $("save-error").textContent = "";
+      updateApproval();
+    });
+    $("save-test-name").addEventListener("input", () => {
+      $("test-name").value = $("save-test-name").value;
       $("save-error").textContent = "";
       updateApproval();
     });
@@ -2293,7 +2303,6 @@
         definition = data.definition;
         if (!wasEditing) {
           originalInstructions = requirements;
-          $("test-name").value = "";
           workingDraftId = null;
           editingSavedId = null;
         }
