@@ -160,7 +160,7 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "When PAGE SNAPSHOT controls include a placeholder attribute, use {by:'placeholder',value:'exact placeholder'} for filling and pressing keys on that field. Example: a textbox with placeholder 'What needs to be done?' MUST use {by:'placeholder',value:'What needs to be done?'}, NOT {by:'label',value:'What needs to be done?'}.",
     "When entering a new TodoMVC item, target the SAME placeholder-based input for BOTH fill and press Enter.",
     "If you do use explicit locators, only use accessible role/name for buttons and checkboxes when the initial snapshot supports them. Never infer a label from button text.",
-    "Assert-text action: {kind:'assert-text',target:TARGET,expected:string,provenance:string}.",
+    "Assert-text action: {kind:'assert-text',target:TARGET,expected:string,match?:'exact'|'contains',provenance:string}. Omit match for exact; use contains only when requirements allow surrounding or dynamic text, never to conceal unexpected text.",
     "Assert-visible action: {kind:'assert-visible',target:TARGET,provenance:string}.",
     "Assert-url action: {kind:'assert-url',expected:'/same-origin-path',provenance:string}; exact URL including path/query/hash, origin must remain the configured app origin.",
     "Assert-count action: {kind:'assert-count',target:EXPLICIT_TARGET,expected:nonNegativeInteger,provenance:string}; counts all matched DOM elements, including hidden.",
