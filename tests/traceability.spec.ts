@@ -63,6 +63,7 @@ test("reviewer maps requirements, sees gaps and persists only explicit links", a
   for (const checkbox of await page.locator(".step input[type=checkbox]").all()) {
     await checkbox.check();
   }
+  await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const savedId = await page.getByLabel("Approved saved test").inputValue();
@@ -113,11 +114,11 @@ test("saved API rejects forged links and never treats legacy tests as covered", 
     { id: "R1", text: "Invented coverage", stepIds: ["missing-step"] },
   ];
   const rejected = await page.request.post(url + "/api/save", {
-    data: { definition: invalid, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: "Regression test", definition: invalid, baseURL: "http://127.0.0.1:3000" },
   });
   expect(rejected.status()).toBe(400);
   const response = await page.request.post(url + "/api/save", {
-    data: { definition: original, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: "Regression test", definition: original, baseURL: "http://127.0.0.1:3000" },
   });
   expect(response.status()).toBe(200);
   const result = await response.json();
