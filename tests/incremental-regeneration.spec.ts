@@ -147,8 +147,15 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await expect(page.locator("#step-list .step")).toHaveCount(5);
   await expect(page.locator("#review-progress")).toContainText("2 of 5");
   await expect(page.locator("#requirements")).toHaveValue(/Incremental amendment/);
+  await expect(page.locator("#working-instructions-note")).toBeVisible();
+  await expect(page.locator("#working-instructions-note")).toContainText("superseded");
+  await expect(page.locator("#original-instructions")).toHaveText("Add and verify a task");
   await page.getByRole("button", { name: "Save Working Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/5 approved");
+  await page.getByRole("button", { name: "Choose another test" }).click();
+  await page.getByRole("button", { name: "Resume draft" }).click();
+  await expect(page.locator("#working-instructions-note")).toBeVisible();
+  await expect(page.locator("#requirements")).toHaveValue(/Incremental amendment/);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
 
