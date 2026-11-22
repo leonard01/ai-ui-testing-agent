@@ -196,6 +196,33 @@
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
         </div>
         <div id="step-list"></div>
+        <section id="incremental-panel" class="repair-choice" hidden aria-labelledby="incremental-heading">
+          <h3 id="incremental-heading">Reinterpret steps with AI</h3>
+          <p id="incremental-context" class="muted"></p>
+          <label for="incremental-mode">Scope of changes</label>
+          <select id="incremental-mode">
+            <option value="step">Replace this step only</option>
+            <option value="from">Replace this step and all following steps</option>
+          </select>
+          <label for="incremental-instructions">New plain-English instructions for replacement steps</label>
+          <textarea id="incremental-instructions" rows="4" maxlength="12000" placeholder="Describe what should happen from this point onwards."></textarea>
+          <p class="muted">GroqCloud is used only when you click Generate replacement. Earlier approved steps stay unchanged. No test steps run during regeneration.</p>
+          <div class="actions">
+            <button type="button" id="incremental-generate">Generate replacement</button>
+            <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
+          </div>
+          <p id="incremental-status" role="status" class="muted"></p>
+          <div id="incremental-preview" hidden>
+            <h4>Review proposed replacement</h4>
+            <p id="incremental-diff" class="muted"></p>
+            <div id="incremental-proposed-steps"></div>
+            <div id="incremental-warnings" class="note"></div>
+            <div class="actions">
+              <button type="button" id="incremental-apply">Apply proposed steps (unapproved)</button>
+              <button type="button" id="incremental-discard" class="secondary">Discard proposal</button>
+            </div>
+          </div>
+        </section>
         <p id="review-progress" class="muted"></p>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
           <h3 id="traceability-heading">Requirements traceability (optional)</h3>
@@ -333,6 +360,9 @@
     let editingSavedId = null;
     let workingDraftId = null;
     let originalInstructions = undefined;
+    let incrementalSelectedId = null;
+    let incrementalPending = null;
+    let incrementalRevision = 0;
     let preflightRevision = 0;
 
     function make(tag, text, cls) {
@@ -745,6 +775,10 @@
       card.append(edits);
     }
     function renderSteps() {
+      incrementalRevision++;
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      $("incremental-panel").hidden = true;
       const list = $("step-list");
       list.replaceChildren();
       for (const [index, step] of definition.steps.entries()) {
@@ -780,6 +814,22 @@
         edit.type = "button";
         edit.onclick = () => { edit.disabled = true; beginEdit(card, step, index); };
         card.append(edit);
+        if (index > 0) {
+          const reinterpret = make("button", "Reinterpret with AI", "textbtn");
+          reinterpret.type = "button";
+          reinterpret.addEventListener("click", () => {
+            incrementalSelectedId = step.id;
+            incrementalPending = null;
+            $("incremental-instructions").value = "";
+            $("incremental-preview").hidden = true;
+            $("incremental-status").textContent = "";
+            $("incremental-context").textContent = "Starting at step " + (index + 1) +
+              ": " + step.description;
+            $("incremental-panel").hidden = false;
+            $("incremental-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+          card.append(reinterpret);
+        }
         const label = make("label");
         const check = make("input");
         check.type = "checkbox";
@@ -795,6 +845,94 @@
       updateApproval();
       if (definition) renderTraceability();
     }
+    function closeIncremental() {
+      incrementalRevision++;
+      incrementalPending = null;
+      incrementalSelectedId = null;
+      $("incremental-panel").hidden = true;
+      $("incremental-preview").hidden = true;
+      $("incremental-status").textContent = "";
+    }
+    $("incremental-cancel").addEventListener("click", closeIncremental);
+    $("incremental-discard").addEventListener("click", () => {
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      $("incremental-status").textContent = "Proposed changes discarded. No steps were modified.";
+    });
+    $("incremental-generate").addEventListener("click", async () => {
+      if (!definition || !incrementalSelectedId || running) return;
+      const instructions = $("incremental-instructions").value.trim();
+      if (!instructions || instructions.length > 12000) {
+        $("incremental-status").textContent = "Enter instructions (up to 12,000 characters).";
+        return;
+      }
+      if ($("provider").value !== "groq") {
+        $("incremental-status").textContent =
+          "Choose GroqCloud under Generate with before using incremental AI generation.";
+        return;
+      }
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      const revision = ++incrementalRevision;
+      const stepId = incrementalSelectedId;
+      const mode = $("incremental-mode").value;
+      $("incremental-generate").disabled = true;
+      $("incremental-status").textContent = "Generating replacement proposal; approved steps remain unchanged...";
+      try {
+        const result = await requestJSON("/api/regenerate-steps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            definition, baseURL: selectedBaseURL,
+            stepId, mode, instructions, provider: "groq",
+            approvedStepIds: [...approvals].map(index => definition.steps[index].id),
+          }),
+        });
+        if (revision !== incrementalRevision) return;
+        incrementalPending = { result, instructions };
+        const box = $("incremental-proposed-steps");
+        box.replaceChildren();
+        for (const [index, step] of result.replacement.entries()) {
+          const item = make("div", null, "run-step");
+          item.append(make("strong", "New step " + (index + 1) + ": " + step.description));
+          item.append(make("div", describeAction(step.action), "action"));
+          box.append(item);
+        }
+        $("incremental-diff").textContent = "Replacing " + result.removed.length +
+          " step(s) with " + result.replacement.length + " proposed step(s). " +
+          result.preservedApprovedStepIds.length + " previously approved step(s) preserved.";
+        $("incremental-warnings").textContent = result.warnings.join(" ");
+        $("incremental-preview").hidden = false;
+        $("incremental-status").textContent =
+          "Proposal ready for review. No test has been changed, saved, or executed.";
+      } catch (error) {
+        if (revision === incrementalRevision) {
+          $("incremental-status").textContent = error.message || String(error);
+        }
+      } finally {
+        $("incremental-generate").disabled = false;
+      }
+    });
+    $("incremental-apply").addEventListener("click", () => {
+      if (!incrementalPending || !definition) return;
+      const { result, instructions } = incrementalPending;
+      const preserved = new Set(result.preservedApprovedStepIds);
+      definition = result.definition;
+      approvals = new Set(definition.steps.flatMap((step, index) =>
+        preserved.has(step.id) ? [index] : []));
+      // Preserve the original request untouched; working instructions retain
+      // the tester's later amendments for future review and full regeneration.
+      const mode = $("incremental-mode").value === "step" ? "one step" : "remaining steps";
+      const amendment = "Incremental amendment (" + mode + "): " + instructions;
+      const current = $("requirements").value;
+      $("requirements").value = [current, amendment].filter(Boolean).join("\n\n");
+      definition.workingInstructions = $("requirements").value;
+      clearPreflight();
+      renderSteps();
+      $("draft-hint").textContent = "AI replacement applied as unapproved steps. " +
+        "Review new assertions and save a working draft, or approve all intended steps to save a runnable test.";
+      $("draft-save-status").textContent = "Unsaved incremental changes. Use Save Working Draft to preserve them.";
+    });
     function clearPreflight() {
       preflightRevision++;
       $("selector-preflight-status").textContent = "";
