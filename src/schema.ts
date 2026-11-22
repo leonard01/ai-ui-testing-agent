@@ -64,6 +64,7 @@ const action = z.discriminatedUnion("kind", [
       kind: z.literal("assert-text"),
       target,
       expected: z.string().max(10000),
+      match: z.enum(["exact", "contains"]).optional(),
       provenance,
     })
     .strict(),
