@@ -81,17 +81,26 @@
     .run-tests-panel { margin-top:14px; padding:16px; border:1px solid #d5dce3; border-radius:12px; }
     .run-tests-group { margin-top:18px; padding-top:15px; border-top:1px solid #dce3ed; }
     .run-tests-group h4 { margin:0 0 8px; font-size:14px; }
-    .run-test-controls { display:grid; grid-template-columns:minmax(190px,2fr) minmax(130px,1fr) auto; gap:12px; align-items:end; }
-    .run-test-controls label { margin-top:4px; }
-    .run-test-controls button { white-space:nowrap; }
+    .run-test-selectors { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:end; }
+    .run-test-selectors > div { min-width:0; }
+    .run-test-selectors label { margin-top:4px; }
+    .run-single-group { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+    .run-single-group > p { flex:1 1 220px; margin:0; }
+    .run-split-controls { display:inline-flex; align-items:stretch; max-width:100%; }
+    .run-split-controls #run-test { border-radius:8px 0 0 8px; margin:0; white-space:nowrap; }
+    .run-timeout-wrap { display:flex; align-items:center; border:1px solid #b6c9d9; border-left:0; border-radius:0 8px 8px 0; background:#f1f6fa; overflow:hidden; }
+    .run-timeout-wrap label { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    .run-timeout-wrap select { width:98px; min-width:0; padding:9px 8px; margin:0; border:0; border-radius:0; background:transparent; font-size:13px; font-weight:600; color:#153451; cursor:pointer; }
     .run-script-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
     .run-script-actions button, .run-script-actions a { margin:0; max-width:100%; }
     .run-script-actions a.secondary { display:inline-block; padding:11px 16px; border:1px solid #a3bace; border-radius:8px; text-decoration:none; font-size:14px; }
     .run-script-actions a[hidden] { display:none; }
     .run-suite-management { margin-top:18px; padding-top:16px; border-top:1px solid #dce3ed; }
     @media (max-width:760px) {
-      .run-test-controls { grid-template-columns:1fr; }
-      .run-test-controls button { width:100%; }
+      .run-test-selectors { grid-template-columns:1fr; }
+      .run-split-controls { width:100%; }
+      .run-split-controls #run-test { flex:1 1 auto; }
+      .run-timeout-wrap select { width:88px; }
     }
     .history-toolbar, .history-pagination { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:14px 0; }
     .history-entry { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; border-bottom:1px solid #d5dce3; padding:13px 0; }
@@ -189,27 +198,31 @@
       <div id="suite-panel" class="run-tests-panel">
         <h3 style="margin:0 0 8px">Run Tests</h3>
         <p class="muted">Choose a website test suite, then run one saved script or a selection of scripts. All scripts run from their approved, saved JSON.</p>
-        <label for="suite-site">Test suite (website URL)</label>
-        <select id="suite-site"><option value="">Choose a website suite</option></select>
+        <div class="run-test-selectors">
+          <div>
+            <label for="suite-site">Test suite (website URL)</label>
+            <select id="suite-site"><option value="">Select a test suite</option></select>
+          </div>
+          <div>
+            <label for="approved-tests">Test script</label>
+            <select id="approved-tests" disabled><option value="">Select a test suite first</option></select>
+          </div>
+        </div>
         <p id="suite-site-note" class="muted"></p>
 
-        <div class="run-tests-group">
-          <h4>Run one test script</h4>
-          <div class="run-test-controls">
-            <div>
-              <label for="approved-tests">Approved saved test</label>
-              <select id="approved-tests"><option value="">Select a saved test</option></select>
-            </div>
-            <div>
-              <label for="run-timeout">Step timeout (both run modes)</label>
-              <select id="run-timeout">
-                <option value="5000">5 seconds</option>
-                <option value="10000">10 seconds</option>
-                <option value="15000">15 seconds</option>
+        <div class="run-tests-group run-single-group">
+          <div class="run-split-controls" role="group" aria-label="Run selected test with step timeout">
+            <button type="button" id="run-test" disabled>Run selected test</button>
+            <div class="run-timeout-wrap">
+              <label for="run-timeout">Step timeout</label>
+              <select id="run-timeout" aria-label="Step timeout (also used for batch runs)">
+                <option value="5000">5 sec</option>
+                <option value="10000">10 sec</option>
+                <option value="15000">15 sec</option>
               </select>
             </div>
-            <button type="button" id="run-test" disabled>Run selected test</button>
           </div>
+          <p class="muted">Timeout defaults to 5 seconds per step and also applies to batch runs.</p>
           <div class="run-script-actions">
             <button type="button" id="edit-saved" class="secondary" disabled>Edit selected saved test in review form</button>
             <button type="button" id="delete-script" class="secondary" disabled>Delete selected test script</button>
@@ -775,6 +788,7 @@
     function updateRunButton() {
       selectedApprovedId = $("approved-tests").value;
       $("run-test").disabled = running || !selectedApprovedId;
+      $("approved-tests").disabled = running || !$("suite-site").value;
       $("edit-saved").disabled = running || !selectedApprovedId;
       $("delete-script").disabled = running || !selectedApprovedId;
       const approved = approvedCatalog.find((item) => item.id === selectedApprovedId);
@@ -810,9 +824,10 @@
       // The one-script dropdown must never expose cases from other websites.
       const single = $("approved-tests");
       single.replaceChildren();
-      const blank = make("option", "Select a saved test script");
+      const blank = make("option", current ? "Select a test script" : "Select a test suite first");
       blank.value = "";
       single.append(blank);
+      single.disabled = !current || running;
       const matching = approvedCatalog.filter((test) =>
         (test.siteUrl || "__legacy__") === current);
       for (const test of matching) {
@@ -870,8 +885,6 @@
       const chosen = selectedTest?.siteUrl || (selectedTest ? "__legacy__" : previousSite);
       if (chosen && [...website.options].some((item) => item.value === chosen)) {
         website.value = chosen;
-      } else if (website.options.length > 1) {
-        website.selectedIndex = 1;
       }
       // The selected website is the default execution URL for its suite,
       // including when the page is freshly opened after a server restart.
@@ -1710,7 +1723,7 @@
     $("suite-site").addEventListener("change", () => {
       const site = $("suite-site").value;
       if (site && site !== "__legacy__") $("base-url").value = site + "/";
-      renderWebsiteSuite();
+      renderWebsiteSuite(new Set(), "");
     });
     $("approved-tests").addEventListener("change", () => {
       const selected = approvedCatalog.find((test) => test.id === $("approved-tests").value);

@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 import { createReviewServer } from "../src/review-server.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -156,6 +157,7 @@ test("suite holds the shared execution lock and forbids replacing queued cases",
 
 test("suite UI selects saved cases and drills into failure evidence", async ({ page }) => {
   await page.goto(url);
+  await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const list = page.locator("#suite-test-list input[type=checkbox]");
   await expect(list).toHaveCount(3);
   await list.nth(0).check();
@@ -178,6 +180,7 @@ test("suite UI selects saved cases and drills into failure evidence", async ({ p
 
 test("Run Tests panel contains both one-script tools and multi-script execution without a separate upper selector", async ({ page }) => {
   await page.goto(url);
+  await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const panel = page.locator("#suite-panel");
   await expect(panel.getByRole("heading", { name: "Run Tests", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Run a test suite" })).toHaveCount(0);
@@ -191,7 +194,7 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await expect(page.locator("#execution-panel > #approved-tests")).toHaveCount(0);
   await expect(panel.locator("#suite-test-list input[type=checkbox]")).toHaveCount(3);
 
-  await panel.getByLabel("Approved saved test").selectOption(fileIds[0]);
+  await selectSavedScript(page, fileIds[0]);
   await expect(panel.getByRole("button", { name: "Run selected test" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "Delete selected test script" })).toBeEnabled();

@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 // The app runner owns traces for its test contexts; avoid harness tracing twice.
 test.use({ trace: "off" });
@@ -292,7 +293,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
   await page.goto(url);
-  await page.getByLabel("Approved saved test").selectOption(saved.id);
+  await selectSavedScript(page, saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
   await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -331,7 +332,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   await reviseButton.click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
-  const revisedId = await page.getByLabel("Approved saved test").inputValue();
+  const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(revisedId).not.toBe(saved.id);
   expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
   await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
@@ -356,7 +357,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
 test("saved test can be loaded, edited and resaved entirely via the review UI", async ({ page }) => {
   await generateFixture(page);
   await approveDraft(page);
-  const originalId = await page.getByLabel("Approved saved test").inputValue();
+  const originalId = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(originalId).toMatch(/^reviewed-/);
   await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
   const original = JSON.parse(await readFile(await approvedPath(outputDir, originalId), "utf8"));
@@ -383,7 +384,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("old version removed from the list");
-  const revisedId = await page.getByLabel("Approved saved test").inputValue();
+  const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(revisedId).not.toBe(originalId);
   await expect(page.locator("#approved-tests option[value='" + originalId + "']")).toHaveCount(0);
   await expect(page.locator("#approved-tests option[value='" + revisedId + "']")).toHaveCount(1);
@@ -426,7 +427,7 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     // The one-script dropdown is intentionally scoped to the chosen website.
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
-    await page.getByLabel("Approved saved test").selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -442,11 +443,11 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     await picker.locator('input[type="radio"]').check();
     await picker.getByRole("button", { name: "Save corrected assertion target and rerun" }).click();
     await expect.poll(async () =>
-      page.getByLabel("Approved saved test").inputValue(), { timeout: 30000 },
+      page.getByLabel("Test script", { exact: true }).inputValue(), { timeout: 30000 },
     ).not.toBe(saved.id);
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
-    const currentId = await page.getByLabel("Approved saved test").inputValue();
+    const currentId = await page.getByLabel("Test script", { exact: true }).inputValue();
     expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
     const amended = JSON.parse(await readFile(await approvedPath(outputDir, currentId), "utf8"));
     expect(amended.steps[1].action).toEqual({
@@ -493,7 +494,7 @@ test("wrong existing button text assertion searches product div and repairs sele
     // The one-script dropdown is intentionally scoped to the chosen website.
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
-    await page.getByLabel("Approved saved test").selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -570,7 +571,7 @@ test("wrong existing button text assertion searches product div and repairs sele
     await button.click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("PASSED");
-    const revisedId = await page.getByLabel("Approved saved test").inputValue();
+    const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
     expect(revisedId).not.toBe(saved.id);
     expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
     const revised = JSON.parse(await readFile(await approvedPath(outputDir, revisedId), "utf8"));
@@ -629,7 +630,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     // The one-script dropdown is intentionally scoped to the chosen website.
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
-    await page.getByLabel("Approved saved test").selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -670,7 +671,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     await action.click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
     await expect(page.locator("#run-summary")).toContainText("PASSED");
-    const correctedId = await page.getByLabel("Approved saved test").inputValue();
+    const correctedId = await page.getByLabel("Test script", { exact: true }).inputValue();
     expect(correctedId).not.toBe(saved.id);
     const amended = JSON.parse(await readFile(await approvedPath(outputDir, correctedId), "utf8"));
     expect(original.steps[1].action.target).toEqual({
@@ -714,7 +715,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   const saved = await savedResponse.json();
   const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
   await page.goto(url);
-  await page.getByLabel("Approved saved test").selectOption(saved.id);
+  await selectSavedScript(page, saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
   await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -750,7 +751,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   await save.click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
-  const correctedId = await page.getByLabel("Approved saved test").inputValue();
+  const correctedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(correctedId).not.toBe(saved.id);
   expect((await listApprovedIds(outputDir)).includes(saved.id)).toBe(false);
   await expect(page.locator("#approved-tests option[value='" + saved.id + "']")).toHaveCount(0);
@@ -813,7 +814,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
   await page.goto(url);
-  await page.getByLabel("Approved saved test").selectOption(saved.id);
+  await selectSavedScript(page, saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
   await expect(page.locator(".repair-choice")).toBeVisible();
@@ -840,7 +841,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   await page.getByRole("button", { name: "Save corrected copy and rerun from start" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
-  const newFile = await page.getByLabel("Approved saved test").inputValue();
+  const newFile = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(newFile).not.toBe(saved.id);
   const files = await listApprovedIds(outputDir);
   const repaired = JSON.parse(await readFile(await approvedPath(outputDir, newFile), "utf8"));
@@ -1037,7 +1038,7 @@ test("requires a human test name and offers previous application URLs", async ({
   await expect(save).toBeEnabled();
   await save.click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
-  const savedId = await page.getByLabel("Approved saved test").inputValue();
+  const savedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, savedId), "utf8"));
   expect(saved.title).toBe("SD-001 — Explicit tester name");
 
@@ -1070,7 +1071,7 @@ test("reviewer selects Contains and saved assertion preserves its explicit compa
   }
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
-  const id = await page.getByLabel("Approved saved test").inputValue();
+  const id = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
   expect(saved.steps[1].action.match).toBe("contains");
 });

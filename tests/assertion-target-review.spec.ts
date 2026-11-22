@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -95,7 +96,7 @@ for (const [description, wrongTarget] of [
       expect(saved.status(), await saved.text()).toBe(200);
       const id = (await saved.json()).id;
       await page.goto(reviewURL);
-      await page.getByLabel("Approved saved test").selectOption(id);
+      await selectSavedScript(page, id);
       await page.getByRole("button", { name: "Run selected test" }).click();
       await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -117,7 +118,7 @@ for (const [description, wrongTarget] of [
       await failed.getByRole("button", { name: "Save corrected assertion target and rerun" }).click();
       await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("PASSED");
-      const updated = await page.getByLabel("Approved saved test").inputValue();
+      const updated = await page.getByLabel("Test script", { exact: true }).inputValue();
       const amended = JSON.parse(await readFile(await approvedPath(dir, updated), "utf8"));
       expect(amended.steps[3].action).toEqual({
         kind: "assert-visible", target: { by: "text", value: "Buy groceries" },
@@ -153,7 +154,7 @@ test("unverified locator still offers direct manual edit of the failing assertio
     expect(saved.status()).toBe(200);
     const id = (await saved.json()).id;
     await page.goto(reviewURL);
-    await page.getByLabel("Approved saved test").selectOption(id);
+    await selectSavedScript(page, id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
     const failed = page.locator("#run-steps .run-step").nth(3);

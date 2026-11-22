@@ -16,6 +16,8 @@ This recording shows the sample application, a plain-English test description, A
 
 **Jump to:** [Current functionality](#current-functionality) · [Quick start](#quick-start) · [Example workflow](#example-workflow) · [CLI and automation](#cli-and-automation) · [Limitations](#limitations-and-v01-scope) · [Detailed docs](#documentation)
 
+**v0.2 development:** [Planned phases and acceptance criteria](docs/v0.2-plan.md). The first increment consolidates the **Run Tests** selectors and timeout control; development is occurring in a feature branch pending CI and merge.
+
 ## Current functionality
 
 Everything in this table is **implemented on `main`**, not a proposed feature.
