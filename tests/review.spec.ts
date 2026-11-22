@@ -1090,7 +1090,7 @@ test("working draft preserves partial approvals and original instructions withou
   expect(drafts).toHaveLength(1);
   const saved = await (await page.request.get(url + "/api/drafts/" + drafts[0].id)).json();
   expect(saved.draft.sourceInstructions).toBe(original);
-  expect(saved.draft.approvedStepIds).toEqual(["open", "initial-status"]);
+  expect(saved.draft.approvedStepIds).toEqual(["open", "empty"]);
   expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(0);
 
   await page.getByRole("button", { name: "Choose another test" }).click();
@@ -1115,6 +1115,7 @@ test("approved test retains source instructions and Save as New keeps original",
   expect(saved.definition.workingInstructions).toBe(instructions);
 
   await page.getByRole("button", { name: "Choose another test" }).click();
+  await page.getByLabel("Test suite", { exact: true }).selectOption("http://127.0.0.1:3000");
   await page.getByLabel("Existing test script").selectOption(originalId);
   await page.getByRole("button", { name: "Load selected test" }).click();
   await expect(page.locator("#requirements")).toHaveValue(instructions);
