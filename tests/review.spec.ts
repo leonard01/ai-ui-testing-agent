@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 // The app runner owns traces for its test contexts; avoid harness tracing twice.
 test.use({ trace: "off" });
@@ -292,7 +293,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
   await page.goto(url);
-  await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+  await selectSavedScript(page, saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
   await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -426,7 +427,7 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     // The one-script dropdown is intentionally scoped to the chosen website.
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
-    await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -493,7 +494,7 @@ test("wrong existing button text assertion searches product div and repairs sele
     // The one-script dropdown is intentionally scoped to the chosen website.
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
-    await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -629,7 +630,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     // The one-script dropdown is intentionally scoped to the chosen website.
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
     await page.getByLabel("Application URL").fill(baseURL);
-    await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -714,7 +715,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   const saved = await savedResponse.json();
   const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
   await page.goto(url);
-  await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+  await selectSavedScript(page, saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
   await expect(page.locator("#run-summary")).toContainText("FAILED");
@@ -813,7 +814,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
   await page.goto(url);
-  await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+  await selectSavedScript(page, saved.id);
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
   await expect(page.locator(".repair-choice")).toBeVisible();
