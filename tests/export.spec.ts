@@ -210,6 +210,9 @@ test("review UI exports only approved saved tests and never creates an extra fil
     const files = await readdir(dir);
     expect(files.filter((name) => name.endsWith(".spec.ts"))).toHaveLength(0);
   } finally {
+    // Browser pages may leave keep-alive HTTP connections open; close them so
+    // the temporary test server does not hang until the Playwright timeout.
+    server.closeAllConnections();
     await new Promise<void>((done, reject) => server.close((err) => err ? reject(err) : done()));
     await rm(dir, { force: true, recursive: true });
   }
