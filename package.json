@@ -16,7 +16,9 @@
     "demo": "node dist/demo/server.js",
     "agent": "node dist/cli.js",
     "generate": "node dist/generate-cli.js",
-    "review": "node dist/review-server.js"
+    "review": "node dist/review-server.js",
+    "start": "npm run build && npm run review",
+    "start:demo": "npm run build && node scripts/start-demo-and-review.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
