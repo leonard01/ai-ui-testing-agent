@@ -251,6 +251,11 @@ test("Help dialog explains the workflow and limitations without generating AI re
   await expect(help).toBeHidden();
   await page.getByRole("button", { name: "? Help" }).click();
   await expect(help).toBeVisible();
+  await expect(help.locator("#help-setup-title")).toHaveText("First-time setup: GroqCloud API key");
+  await expect(help).toContainText('GROQ_API_KEY="gsk_your-actual-key"');
+  await expect(help).toContainText("GROQ_MODEL=openai/gpt-oss-20b");
+  await expect(help.getByRole("link", { name: "Create or manage your GroqCloud API key" }))
+    .toHaveAttribute("href", "https://console.groq.com/keys");
   await expect(help).toContainText("Quick start");
   await expect(help).toContainText("non-deterministic");
   await expect(help).toContainText("initial page snapshot");
