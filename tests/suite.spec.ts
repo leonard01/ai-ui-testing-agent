@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 import { createReviewServer } from "../src/review-server.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -191,7 +192,7 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await expect(page.locator("#execution-panel > #approved-tests")).toHaveCount(0);
   await expect(panel.locator("#suite-test-list input[type=checkbox]")).toHaveCount(3);
 
-  await panel.getByLabel("Test script", { exact: true }).selectOption(fileIds[0]);
+  await selectSavedScript(page, fileIds[0]);
   await expect(panel.getByRole("button", { name: "Run selected test" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "Delete selected test script" })).toBeEnabled();
