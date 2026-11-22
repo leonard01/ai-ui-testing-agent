@@ -570,10 +570,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/api/application-memory") {
         try {
-          const site = url.searchParams.get("baseURL");
+          const query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams;
+          const site = query.get("baseURL");
           if (!site) throw new Error("Application URL is required");
           const memory = await getApplicationMemory(savedDir, site);
-          const instructions = (url.searchParams.get("instructions") ?? "").slice(0, MAX_REQUIREMENTS_CHARS);
+          const instructions = (query.get("instructions") ?? "").slice(0, MAX_REQUIREMENTS_CHARS);
           json(res, 200, {
             siteOrigin: websiteOrigin(site),
             suggestions: getMemorySuggestions(memory, instructions),
