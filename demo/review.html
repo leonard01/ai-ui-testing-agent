@@ -18,6 +18,8 @@
     label { display:block; font-size:13px; font-weight:650; margin:14px 0 6px; }
     input[type=url],textarea,select,input[type=text] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
     textarea { min-height:137px; resize:vertical; line-height:1.5; }
+    .url-source-inactive { background:#f1f4f7 !important; color:#8292a4 !important; border-color:#d7dfe8 !important; }
+    .url-source-inactive:focus { background:white !important; color:#1c304b !important; }
     input:focus, textarea:focus, select:focus { outline:2px solid #83c5d2; outline-offset:1px; }
     input[type=file] { max-width:100%; font-size:13px; }
     button { cursor:pointer; border:0; font-size:14px; font-weight:650; border-radius:8px; padding:11px 16px; background:#205e86; color:white; }
@@ -140,6 +142,7 @@
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
         <label for="recent-url">Recent websites</label>
         <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
+        <p id="url-source-status" class="muted" role="status">Using the URL entered above. Select a recent website to switch.</p>
         <label for="requirements">Your test instructions</label>
         <textarea id="requirements" placeholder="Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
         <div id="original-instructions-panel" class="note" hidden>
@@ -329,6 +332,7 @@
     let definition = null;
     let approvals = new Set();
     let selectedBaseURL = "";
+    let activeURLSource = "manual";
     let running = false;
     let selectedApprovedId = "";
     let approvedCatalog = [];
@@ -365,6 +369,15 @@
       try { localStorage.setItem(RECENT_URLS_KEY, JSON.stringify(values)); }
       catch { /* Browser storage may be disabled; saved script URLs still work. */ }
     }
+    function setActiveURLSource(source) {
+      activeURLSource = source;
+      const usingRecent = source === "recent" && Boolean($("recent-url").value);
+      $("base-url").classList.toggle("url-source-inactive", usingRecent);
+      $("recent-url").classList.toggle("url-source-inactive", !usingRecent);
+      $("url-source-status").textContent = usingRecent
+        ? "Using the selected recent website. Click the URL field to enter a different address."
+        : "Using the URL entered above. Select a recent website to switch.";
+    }
     function renderRecentUrls() {
       const choices = $("recent-url");
       const previous = choices.value;
@@ -379,7 +392,8 @@
         option.value = url;
         choices.append(option);
       }
-      if (urls.includes(previous)) choices.value = previous;
+      if (activeURLSource === "recent" && urls.includes(previous)) choices.value = previous;
+      setActiveURLSource(activeURLSource === "recent" && choices.value ? "recent" : "manual");
     }
     function showOriginalInstructions() {
       const panel = $("original-instructions-panel");
@@ -1929,11 +1943,25 @@
       if (selected?.sourceUrl) $("base-url").value = selected.sourceUrl;
       updateRunButton();
     });
-    $("base-url").addEventListener("input", updateRunButton);
+    $("base-url").addEventListener("focus", () => {
+      if (activeURLSource === "recent") {
+        $("recent-url").value = "";
+        setActiveURLSource("manual");
+      }
+    });
+    $("base-url").addEventListener("input", () => {
+      $("recent-url").value = "";
+      setActiveURLSource("manual");
+      updateRunButton();
+    });
     $("recent-url").addEventListener("change", () => {
-      if (!$("recent-url").value) return;
-      $("base-url").value = $("recent-url").value;
-      $("base-url").dispatchEvent(new Event("input", { bubbles: true }));
+      if ($("recent-url").value) {
+        $("base-url").value = $("recent-url").value;
+        setActiveURLSource("recent");
+      } else {
+        setActiveURLSource("manual");
+      }
+      updateRunButton();
     });
     $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
