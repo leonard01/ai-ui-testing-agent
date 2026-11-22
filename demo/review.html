@@ -217,8 +217,6 @@
             <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
           </div>
           <p id="incremental-readiness" class="field-readiness" role="status"></p>
-          <div hidden id="incremental-unused">
-          </div>
           <p id="incremental-status" role="status" class="muted"></p>
           <div id="incremental-preview" hidden>
             <h4>Review proposed replacement</h4>
@@ -1109,14 +1107,18 @@
       const remaining = Math.max(0, total - approvals.size);
       $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
+      const missing = [
+        ...(missingName ? ["enter a Test name above"] : []),
+        ...(remaining ? ["confirm " + remaining + " remaining step" +
+          (remaining === 1 ? "" : "s")] : []),
+      ];
       $("save-readiness").textContent = total === 0
         ? "Generate a test to begin review."
-        : missingName
-          ? "Enter a Test name above to enable saving."
-          : remaining
-            ? "Confirm " + remaining + " remaining step" + (remaining === 1 ? "" : "s") +
-              " to enable saving and execution. Save Working Draft to continue later."
-            : "Ready to save. The test will then appear in Run Tests for execution.";
+        : missing.length
+          ? "Before saving, " + missing.join(" and ") +
+            ". Save Working Draft to continue later once a name is entered."
+          : "Ready to save. The test will then appear in Run Tests for execution.";
+      $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       $("save").disabled = total === 0 || approvals.size !== total ||
         !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
