@@ -77,7 +77,7 @@ for (const nth of [0, 1]) {
       const saved = await savedResponse.json();
 
       await page.goto(reviewURL);
-      await page.getByLabel("Approved saved test").selectOption(saved.id);
+      await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
       await expect(page.locator("#base-url")).toHaveValue(websiteURL + "/");
       await page.getByRole("button", { name: "Run selected test" }).click();
       await expect(page.locator("#run-status"))
@@ -110,7 +110,7 @@ for (const nth of [0, 1]) {
         .toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("PASSED");
 
-      const revisedId = await page.getByLabel("Approved saved test").inputValue();
+      const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
       expect(revisedId).not.toBe(saved.id);
       const corrected = JSON.parse(await readFile(await approvedPath(dir, revisedId), "utf8"));
       expect(corrected.steps[4].action.target).toEqual({
