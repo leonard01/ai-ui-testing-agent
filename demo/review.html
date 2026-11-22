@@ -151,6 +151,15 @@
         <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
         <input id="requirements-file" type="file" accept=".txt,.md,text/plain,text/markdown">
         <p id="import-note" class="muted">File contents will be added to the instructions above. Max 12,000 characters total.</p>
+        <div class="note" style="margin-top:12px">
+          <label style="margin:0;display:flex;align-items:center;gap:8px" for="use-application-memory">
+            <input id="use-application-memory" type="checkbox" checked>
+            Use successful-test knowledge from this website
+          </label>
+          <p class="muted">Only generic prerequisites from previous passing executions are remembered. No passwords, form values or DOM snapshots are stored. Any suggested login still needs your approval.</p>
+          <button type="button" id="check-application-memory" class="secondary">Check known prerequisites</button>
+          <p id="application-memory-status" class="muted" role="status"></p>
+        </div>
         <label for="provider">Generate with</label>
         <select id="provider">
           <option value="groq">GroqCloud · hosted AI (free tier)</option>
@@ -2099,6 +2108,26 @@
       $("generation-error").textContent = "";
       event.target.value = "";
     });
+    $("check-application-memory").addEventListener("click", async () => {
+      const status = $("application-memory-status");
+      if (!$("use-application-memory").checked) {
+        status.textContent = "Website knowledge is disabled for this draft.";
+        return;
+      }
+      status.textContent = "Checking this website's saved successful workflows...";
+      try {
+        const query = new URLSearchParams({
+          baseURL: $("base-url").value,
+          instructions: $("requirements").value,
+        });
+        const result = await requestJSON("/api/application-memory?" + query);
+        status.textContent = result.suggestions?.length
+          ? result.suggestions.map(item => item.text).join(" ")
+          : "No matching prerequisite has been learned from successful tests on this website.";
+      } catch (error) {
+        status.textContent = error.message || String(error);
+      }
+    });
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       $("generation-error").textContent = "";
@@ -2117,7 +2146,10 @@
         const response = await fetch("/api/generate", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ baseURL, requirements, provider }),
+          body: JSON.stringify({
+            baseURL, requirements, provider,
+            useApplicationMemory: $("use-application-memory").checked,
+          }),
         });
         const data = await response.json();
         if (!response.ok) {
@@ -2163,6 +2195,10 @@
         $("draft").hidden = false;
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
         $("draft-hint").textContent = data.message;
+        const memoryHints = $("use-application-memory").checked ? data.memorySuggestions ?? [] : [];
+        $("application-memory-status").textContent = memoryHints.length
+          ? memoryHints.map(item => item.text).join(" ")
+          : "No relevant verified prerequisite memory was used for this generation.";
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "");
