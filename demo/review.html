@@ -24,6 +24,10 @@
     button:disabled { cursor:not-allowed; opacity:.42; }
     .secondary { color:#205e86; border:1px solid #a3bace; background:#f7fafc; }
     .textbtn { border:0; padding:5px 8px; background:transparent; color:#1b668e; font-size:12px; }
+    .required-marker { color:#a22b3b; font-weight:700; }
+    .field-readiness { margin:8px 0 0; font-size:12px; color:#8a3441; line-height:1.5; }
+    .field-readiness.ready { color:#216745; }
+    .missing-field { border-color:#b44959 !important; }
     .muted { font-size:12px; color:#64748b; line-height:1.5; }
     .tip { padding:12px; border-radius:8px; background:#eff7f8; color:#2c5762; font-size:12px; margin-top:17px; }
     .note { padding:12px; border-radius:8px; background:#f8f4e8; color:#705c2f; font-size:12px; line-height:1.5; margin:10px 0; }
@@ -133,15 +137,15 @@
     <section aria-labelledby="instructions-heading">
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
-      <label for="test-name">Test name (required to save)</label>
-      <input id="test-name" type="text" maxlength="200" placeholder="e.g. SD-001 — Successful login" autocomplete="off" required>
+      <label for="test-name">Test name <span class="required-marker">(required to save)</span></label>
+      <input id="test-name" type="text" maxlength="200" placeholder="Required for saving — e.g. SD-001 — Successful login" autocomplete="off" required>
       <form id="generate-form">
-        <label for="base-url">Application URL</label>
+        <label for="base-url">Application URL <span class="required-marker">(required)</span></label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
         <label for="recent-url">Recent websites</label>
         <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
-        <label for="requirements">Your test instructions</label>
-        <textarea id="requirements" placeholder="Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
+        <label for="requirements">Your test instructions <span class="required-marker">(required)</span></label>
+        <textarea id="requirements" required placeholder="Required — Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
         <div id="original-instructions-panel" class="note" hidden>
           <strong>Original test instructions (read-only)</strong>
           <pre id="original-instructions" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
@@ -158,6 +162,7 @@
         </select>
         <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. If a draft fails schema validation, the generator makes at most one extra Groq model call to correct it (two calls maximum). The API key stays on your computer's local server.</div>
         <button type="submit" id="generate" style="margin-top:20px;width:100%">Generate draft</button>
+        <p id="generate-readiness" class="field-readiness" role="status"></p>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
@@ -204,12 +209,15 @@
             <option value="step">Replace this step only</option>
             <option value="from">Replace this step and all following steps</option>
           </select>
-          <label for="incremental-instructions">New plain-English instructions for replacement steps</label>
-          <textarea id="incremental-instructions" rows="4" maxlength="12000" placeholder="Describe what should happen from this point onwards."></textarea>
+          <label for="incremental-instructions">New plain-English instructions for replacement steps <span class="required-marker">(required)</span></label>
+          <textarea id="incremental-instructions" rows="4" maxlength="12000" placeholder="Required — describe what should happen from this point onwards."></textarea>
           <p class="muted">GroqCloud is used only when you click Generate replacement. Earlier approved steps stay unchanged. No test steps run during regeneration.</p>
           <div class="actions">
             <button type="button" id="incremental-generate">Generate replacement</button>
             <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
+          </div>
+          <p id="incremental-readiness" class="field-readiness" role="status"></p>
+          <div hidden id="incremental-unused">
           </div>
           <p id="incremental-status" role="status" class="muted"></p>
           <div id="incremental-preview" hidden>
@@ -245,8 +253,8 @@
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
-        <label for="save-test-name">Test name (required to save)</label>
-        <input id="save-test-name" type="text" maxlength="200" placeholder="e.g. Add two tasks" autocomplete="off">
+        <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
+        <input id="save-test-name" type="text" maxlength="200" placeholder="Required — e.g. Add two tasks" autocomplete="off">
         <button id="save" disabled style="width:100%">Approve and save JSON test</button>
         <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
@@ -830,6 +838,7 @@
             $("incremental-context").textContent = "Starting at step " + (index + 1) +
               ": " + step.description;
             $("incremental-panel").hidden = false;
+            updateIncrementalReadiness();
             $("incremental-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
           });
           card.append(reinterpret);
@@ -875,6 +884,7 @@
     $("incremental-generate").addEventListener("click", async () => {
       if (!definition || !incrementalSelectedId || running) return;
       const instructions = $("incremental-instructions").value.trim();
+      updateIncrementalReadiness();
       if (!instructions || instructions.length > 12000) {
         $("incremental-status").textContent = "Enter instructions (up to 12,000 characters).";
         return;
@@ -1097,6 +1107,8 @@
         $("save-test-name").value = $("test-name").value;
       }
       const remaining = Math.max(0, total - approvals.size);
+      $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
+      $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
       $("save-readiness").textContent = total === 0
         ? "Generate a test to begin review."
         : missingName
@@ -1116,6 +1128,38 @@
       $("save-error").textContent = "";
       updateApproval();
     });
+    function updateGenerateReadiness() {
+      const missing = [];
+      if (!validRecentUrl($("base-url").value)) missing.push("a valid Application URL");
+      const instructions = $("requirements").value.trim();
+      if (!instructions || instructions.length > 12000) missing.push("test instructions (1–12,000 characters)");
+      $("generate-readiness").textContent = missing.length
+        ? "Before generating, enter " + missing.join(" and ") + "."
+        : "Required generation fields complete.";
+      $("generate-readiness").classList.toggle("ready", !missing.length);
+      for (const id of ["base-url", "requirements"]) {
+        const invalid = id === "base-url" ? !validRecentUrl($("base-url").value) :
+          !instructions || instructions.length > 12000;
+        $(id).classList.toggle("missing-field", invalid);
+        $(id).setAttribute("aria-invalid", String(invalid));
+      }
+    }
+    function updateIncrementalReadiness() {
+      const instructions = $("incremental-instructions").value.trim();
+      const missing = !instructions || instructions.length > 12000;
+      $("incremental-readiness").textContent = missing
+        ? "Required before Generate replacement: enter replacement instructions (1–12,000 characters)."
+        : "Required replacement instructions complete.";
+      $("incremental-readiness").classList.toggle("ready", !missing);
+      $("incremental-instructions").classList.toggle("missing-field", missing);
+      $("incremental-instructions").setAttribute("aria-invalid", String(missing));
+    }
+    for (const id of ["base-url", "requirements"]) {
+      $(id).addEventListener("input", updateGenerateReadiness);
+    }
+    $("incremental-instructions").addEventListener("input", updateIncrementalReadiness);
+    updateGenerateReadiness();
+    updateIncrementalReadiness();
     $("save-test-name").addEventListener("input", () => {
       $("test-name").value = $("save-test-name").value;
       $("save-error").textContent = "";
@@ -2271,11 +2315,16 @@
       $("saved").replaceChildren();
       $("save-error").textContent = "";
       const requirements = $("requirements").value.trim();
+      updateGenerateReadiness();
       if (!requirements || requirements.length > 12_000) {
         $("generation-error").textContent = "Enter 1–12,000 characters of test instructions.";
         return;
       }
       const baseURL = $("base-url").value;
+      if (!validRecentUrl(baseURL)) {
+        $("generation-error").textContent = "Enter a valid Application URL before generating.";
+        return;
+      }
       const provider = $("provider").value;
       $("generate").disabled = true;
       $("generation-status").textContent = "Inspecting page and generating draft...";
