@@ -1156,6 +1156,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("Saved assertion differs from the failing run; rerun before repairing");
           }
           const target = selected.target;
+          if (JSON.stringify(target) === JSON.stringify(step.action.target)) {
+            throw new Error("Selected element uses the existing locator. No locator change is possible; review the expected text or comparison mode instead.");
+          }
           if (target.by !== "text" && target.by !== "role") {
             throw new Error("Only verified role and visible-text locators are accepted");
           }
@@ -1217,20 +1220,27 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               step.action.expected !== failed.expected) {
             throw new Error("Saved assertion differs from the failed run; rerun before reviewing");
           }
-          if (input.expected === step.action.expected) {
-            throw new Error("The new expected text is unchanged");
+          if (input.match !== undefined && input.match !== "exact" && input.match !== "contains") {
+            throw new Error("Text comparison must be Exact or Contains");
+          }
+          const newMatch = input.match ?? (step.action.match ?? "exact");
+          if (input.expected === step.action.expected &&
+              newMatch === (step.action.match ?? "exact")) {
+            throw new Error("Expected text and comparison mode are unchanged");
           }
           // The page's observed value is evidence, never an automatically
           // accepted oracle. Only explicit human confirmation can change it.
           const previousExpected = step.action.expected;
+          const previousMatch = step.action.match ?? "exact";
           step.action.expected = input.expected;
+          step.action.match = newMatch;
           step.action.provenance = "human-confirmed";
           const reviewed = parseTestDefinition(definition);
           const { id, file, replacedId } = await saveApproved(reviewed, job.fileId);
           json(res, 201, {
             id, file, replacedId, revisedStepId: failed.id,
             previousExpected, newExpected: input.expected,
-            observed: failed.observed,
+            previousMatch, newMatch, observed: failed.observed,
             message: "Human-confirmed correction saved; failed test removed. No run started.",
           });
         } catch (error) {
