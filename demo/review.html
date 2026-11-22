@@ -219,6 +219,7 @@
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
         <button id="save" disabled style="width:100%">Approve and save JSON test</button>
+        <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
         <div id="saved" class="success" style="margin-top:12px"></div>
         <div id="save-error" class="error" style="margin-top:12px"></div>
@@ -933,6 +934,16 @@
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
+      const missingName = !$("test-name").value.trim();
+      const remaining = Math.max(0, total - approvals.size);
+      $("save-readiness").textContent = total === 0
+        ? "Generate a test to begin review."
+        : missingName
+          ? "Enter a Test name in Test Instructions to enable saving."
+          : remaining
+            ? "Confirm " + remaining + " remaining step" + (remaining === 1 ? "" : "s") +
+              " to enable saving and execution. Save Working Draft to continue later."
+            : "Ready to save. The test will then appear in Run Tests for execution.";
       $("save").disabled = total === 0 || approvals.size !== total ||
         !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
@@ -2126,7 +2137,8 @@
         definition = data.definition;
         if (!wasEditing) {
           originalInstructions = requirements;
-          $("test-name").value = "";
+          // The test name is entered ABOVE the generation form; do not erase
+          // the user's name after generating a new test.
           workingDraftId = null;
           editingSavedId = null;
         }
