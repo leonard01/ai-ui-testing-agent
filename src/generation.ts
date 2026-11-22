@@ -173,6 +173,11 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "The runner resolves intent from the live DOM at EACH step, including after actions that change the page.",
     "Use concise but DISTINCTIVE grounded intent descriptions: e.g. {by:'intent',value:'Add',role:'button'} for a unique button, {by:'intent',value:'Username',role:'textbox'} for a unique input.",
     "CRITICAL: For repeated row controls (checkboxes and Delete/Edit buttons), include the exact item identity stated in requirements; NEVER target only 'Complete', 'Delete', 'Edit' or 'Remove' when more than one item exists.",
+    "Infer necessary UI actions from the requested outcome and known controls; users need not describe each intermediate click.",
+    "To delete a named item, click its specific accessible Delete button. On the demo task list: {kind:'click',target:{by:'intent',value:'Delete Eggs',role:'button'}}.",
+    "Do not invent a preceding row-selection click if the application directly exposes a Delete button.",
+    "Click actions must contain only kind and target, never expected. Follow a delete click with a separate assertion if removal is requested.",
+
     "Example: when asked to complete 'preparing a presentation' but leave 'reviewing documentation' unfinished, use {by:'intent',value:'Complete preparing a presentation',role:'checkbox'}, NOT {by:'intent',value:'Complete',role:'checkbox'}.",
     "For deleting the documentation task in that scenario, use {by:'intent',value:'Delete reviewing documentation',role:'button'}; do not use {by:'intent',value:'Delete',role:'button'}.",
     "When a task or user is created dynamically, carry its identifier through subsequent fill, complete, delete and verification steps.",

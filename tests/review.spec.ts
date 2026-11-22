@@ -1147,6 +1147,65 @@ test("approved test retains source instructions and Save as New keeps original",
   expect(copy.definition.workingInstructions).toContain("Additional notes for new version.");
 });
 
+test("approval and save readiness clearly explain required name and confirmations", async ({ page }) => {
+  await page.goto(url);
+  await page.getByLabel("Your test instructions").fill("Add a task and verify it is listed");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeDisabled();
+  await expect(page.locator("#save-readiness")).toContainText("Enter a Test name");
+  await page.locator("#test-name").fill("Approval regression check");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+});
+
+test("name entered before generation survives and save-area name enables approval and JSON save", async ({ page }) => {
+  await page.goto(url);
+  const originalName = page.getByLabel("Test name (required to save)").first();
+  await originalName.fill("Name supplied before generation");
+  await page.getByLabel("Your test instructions").fill("Add a task, then verify it is visible");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(originalName).toHaveValue("Name supplied before generation");
+  const saveName = page.locator("#save-test-name");
+  await expect(saveName).toHaveValue("Name supplied before generation");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeEnabled();
+  await saveName.fill("Name edited next to save");
+  await expect(originalName).toHaveValue("Name edited next to save");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+});
+
+test("required inputs and missing-field guidance update beside generation and save actions", async ({ page }) => {
+  await page.goto(url);
+  await expect(page.getByLabel("Application URL")).toHaveAttribute("required", "");
+  await expect(page.locator("#requirements")).toHaveAttribute("required", "");
+  await expect(page.locator("#generate-readiness")).toContainText("test instructions");
+  await expect(page.locator("#requirements")).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("Your test instructions").fill("Add a task and verify it appears");
+  await expect(page.locator("#generate-readiness")).toContainText("Required generation fields complete");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
+  await expect(page.locator("#save-readiness")).toContainText("confirm 9 remaining steps");
+  await page.locator("#save-test-name").fill("Task flow");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+});
+
 test("new test name entered before generation survives and permits saving and execution", async ({ page }) => {
   await page.goto(url);
   const name = page.getByLabel("Test name (required to save)");
