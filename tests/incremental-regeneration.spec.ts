@@ -208,7 +208,8 @@ test("delete a named task uses a valid item-specific click and preserves approve
   });
   expect(data.preservedApprovedStepIds).toEqual(["open", "empty"]);
   expect(prompts[0]).toContain("Delete Eggs");
-  expect(prompts[0]).toContain("Never put 'expected' on a click");
+  // This rule lives in the system prompt, not the user prompt captured above.
+  expect(data.replacement[0].action).not.toHaveProperty("expected");
 });
 
 test("malformed click action is rejected with actionable explanation, no changes saved", async () => {
