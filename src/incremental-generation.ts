@@ -75,6 +75,13 @@ export async function generateIncrementalProposal(
     "Every steps array entry MUST be an object with exactly id, description and action, never a string.",
     "Example: {\"steps\":[{\"id\":\"new-fill\",\"description\":\"Enter Buy bread\",\"action\":{\"kind\":\"fill\",\"target\":{\"by\":\"label\",\"value\":\"Task\"},\"value\":\"Buy bread\"}}]}",
     "Every action MUST contain all mandatory fields for its kind, and no additional fields.",
+    "A user request describes WHAT to accomplish; infer routine UI interaction steps from the available controls, without requiring users to name each click.",
+    "To delete a named task, use a click action: {kind:'click',target:{by:'intent',value:'Delete Eggs',role:'button'}} (with the actual requested item name).",
+    "The demo task list renders one accessible Delete <name> button per created task. No preceding click to select the row is necessary.",
+    "When the task already exists due to preserved preceding steps, do not recreate it before deletion.",
+    "If the task does not exist in the preserved state, do not invent the missing state; present only the steps supported by the known scenario.",
+    "Never put 'expected' on a click, fill, or other interaction action; 'expected' is only for assert-text, assert-url and assert-count.",
+    "Click action is exactly {kind:'click',target:TARGET}, without expected/provenance.",
     "Prefer {by:'intent',value:'Complete Buy bread',role:'checkbox'} for dynamically created, repeated task controls; do not invent a selector.",
     "Use precisely the same action and locator structures as the supplied existing steps.",
     "An assertion must use provenance 'requirements' or 'inferred', NEVER 'human-confirmed'.",
@@ -168,12 +175,16 @@ export async function generateIncrementalProposal(
       };
     } catch (error) {
       problem = error instanceof ZodError
-        ? error.issues.slice(0, 6).map(issue =>
-          issue.path.join(".") + ": " + issue.code).join("; ")
+        ? error.issues.slice(0, 6).map(issue => {
+          const step = typeof issue.path[1] === "number" ? "step " + (issue.path[1] + 1) : "test";
+          const field = issue.path.slice(2).join(".") || issue.path.slice(0, 2).join(".");
+          return step + " " + field + " (" + issue.code + ")";
+        }).join("; ")
         : error instanceof Error ? error.message.slice(0, 300) : "invalid patch";
       if (attempt === attempts) throw new Error(
-        "AI returned an invalid incremental patch after " + attempts +
-        " attempt(s): " + problem);
+        "The AI could not produce valid replacement test steps after " + attempts +
+        " attempts. Your existing steps were not changed. Please retry or adjust the replacement instructions. " +
+        "Technical detail: " + problem);
     }
   }
   throw new Error("Incremental generation failed");
