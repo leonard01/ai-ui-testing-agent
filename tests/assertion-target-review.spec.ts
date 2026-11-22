@@ -145,7 +145,7 @@ test("unverified locator still offers direct manual edit of the failing assertio
     review = await createReviewServer(dir, browser);
     const reviewURL = await start(review);
     const saved = await page.request.post(reviewURL + "/api/save", {
-      data: { testName: "Regression test",
+      data: { testName: "Verify Buy groceries item",
         definition: definition({ by: "role", role: "heading", name: "Entirely absent phrase" }),
         baseURL: appURL + "/todomvc/#/",
       },
