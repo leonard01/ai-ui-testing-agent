@@ -1024,3 +1024,37 @@ test("review server rejects malformed instructions and off-origin writes", async
   });
   expect(forbidden.status).toBe(403);
 });
+
+test("requires a human test name and offers previous application URLs", async ({ page }) => {
+  await generateFixture(page);
+  const name = page.getByLabel("Test name (required before saving)");
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await name.fill("  ");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(save).toBeDisabled();
+
+  await name.fill("SD-001 — Explicit tester name");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const savedId = await page.getByLabel("Approved saved test").inputValue();
+  const saved = JSON.parse(await readFile(await approvedPath(outputDir, savedId), "utf8"));
+  expect(saved.title).toBe("SD-001 — Explicit tester name");
+
+  const previous = page.getByLabel("Choose a previously used application URL");
+  await expect(previous.locator("option")).toContainText(["Choose a previous URL (optional)", "http://127.0.0.1:3000/"]);
+  await page.locator("#base-url").fill("http://127.0.0.1:9999");
+  await previous.selectOption("http://127.0.0.1:3000/");
+  await expect(page.locator("#base-url")).toHaveValue("http://127.0.0.1:3000/");
+});
+
+test("save API rejects missing or whitespace-only tester names", async ({ page }) => {
+  const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  for (const testName of [undefined, "  "]) {
+    const response = await page.request.post(url + "/api/save", {
+      data: { definition, baseURL: "http://127.0.0.1:3000", testName },
+    });
+    expect(response.status()).toBe(400);
+    expect((await response.json()).error).toContain("Enter a test name");
+  }
+});
