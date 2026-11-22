@@ -36,6 +36,23 @@ export class GroqProviderError extends Error {
   }
 }
 
+/** Request transport failed before an HTTP response was available.
+ * This does not mean that the user's test instructions are invalid.
+ * Never surface raw errors; URLs/proxy details can contain secrets.
+ */
+export class GroqTransportError extends Error {
+  readonly source = "groqcloud";
+  constructor(readonly category: "timeout" | "network" | "transport") {
+    const message = category === "timeout"
+      ? "GroqCloud did not respond within 90 seconds. The request timed out. Try again, or use a smaller test scenario."
+      : category === "network"
+        ? "The application could not establish a connection to GroqCloud. Check connectivity, DNS, proxy or firewall settings and try again."
+        : "The GroqCloud request failed before an HTTP response was received. Check the server logs and retry; the cause could not be identified.";
+    super(message);
+    this.name = "GroqTransportError";
+  }
+}
+
 function safeIdentifier(value: unknown): string | undefined {
   return typeof value === "string" && /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,79}$/.test(value)
     ? value : undefined;
@@ -145,10 +162,13 @@ export async function requestGroq(
       }),
       signal: AbortSignal.timeout(90_000),
     });
-  } catch {
-    throw new Error(
-      "Could not reach GroqCloud. Check your internet connection and try again.",
-    );
+  } catch (error) {
+    // AbortSignal.timeout() rejects with TimeoutError. A fetch TypeError
+    // generally indicates a transport failure, but doesn't prove the user's
+    // internet connection is down. Keep other failures distinct.
+    const category = error instanceof Error && error.name === "TimeoutError"
+      ? "timeout" : error instanceof TypeError ? "network" : "transport";
+    throw new GroqTransportError(category);
   }
   if (!response.ok) throw await classifyGroqFailure(response);
   let data: unknown;
