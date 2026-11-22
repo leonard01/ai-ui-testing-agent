@@ -1391,7 +1391,7 @@
           save.disabled = true;
           const update = () => {
             save.disabled = running || !confirmation.checked ||
-              (input.value === step.expected && matchSelect.value === "exact") ||
+              (input.value === step.expected && matchSelect.value === (step.textMatch || "exact")) ||
               input.value.length > 10000;
           };
           const edit = (value) => {
