@@ -572,7 +572,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         catch { json(res, 500, { error: "Could not list working drafts" }); }
         return;
       }
-      const workingDraftPath = /^\\/api\\/drafts\\/(draft-[a-f0-9-]{36}\\.json)$/.exec(path);
+      const workingDraftPath = /^\/api\/drafts\/(draft-[a-f0-9-]{36}\.json)$/.exec(path);
       if (req.method === "GET" && workingDraftPath) {
         try {
           json(res, 200, { id: workingDraftPath[1],
