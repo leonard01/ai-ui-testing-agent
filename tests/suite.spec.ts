@@ -54,6 +54,9 @@ test.beforeEach(async ({ browser }) => {
   url = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
 });
 test.afterEach(async () => {
+  // The browser and API clients can keep idle connections alive after the
+  // assertions finish, so terminate them before closing the test server.
+  server.closeAllConnections();
   await new Promise<void>((resolve, reject) =>
     server.close((error) => error ? reject(error) : resolve()));
   await rm(outputDir, { force: true, recursive: true });
