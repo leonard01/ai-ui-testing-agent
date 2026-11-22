@@ -207,6 +207,7 @@ export async function runTest(
             checkingAssertion = true;
             if (action.kind === "assert-text") {
               result.expected = action.expected;
+              result.textMatch = action.match ?? "exact";
               const expectedText = normalize(action.expected);
               const deadline = performance.now() + timeout;
               while (true) {
