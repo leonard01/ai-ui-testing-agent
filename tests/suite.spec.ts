@@ -191,7 +191,7 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await expect(page.locator("#execution-panel > #approved-tests")).toHaveCount(0);
   await expect(panel.locator("#suite-test-list input[type=checkbox]")).toHaveCount(3);
 
-  await panel.getByLabel("Approved saved test").selectOption(fileIds[0]);
+  await panel.getByLabel("Test script", { exact: true }).selectOption(fileIds[0]);
   await expect(panel.getByRole("button", { name: "Run selected test" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
   await expect(panel.getByRole("button", { name: "Delete selected test script" })).toBeEnabled();
