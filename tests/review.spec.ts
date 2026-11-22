@@ -1109,8 +1109,8 @@ test("approved test retains source instructions and Save as New keeps original",
   await page.getByRole("button", { name: "Approve and save JSON test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const before = await (await page.request.get(url + "/api/tests")).json();
-  expect(before.tests).toHaveLength(1);
-  const originalId = before.tests[0].id;
+  const originalId = await page.getByLabel("Test script", { exact: true }).inputValue();
+  expect(before.tests.some((test: { id: string }) => test.id === originalId)).toBe(true);
   const saved = await (await page.request.get(url + "/api/tests/" + originalId)).json();
   expect(saved.definition.sourceInstructions).toBe(instructions);
   expect(saved.definition.workingInstructions).toBe(instructions);
@@ -1127,9 +1127,11 @@ test("approved test retains source instructions and Save as New keeps original",
   await page.getByRole("button", { name: "Save as New Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const after = await (await page.request.get(url + "/api/tests")).json();
-  expect(after.tests).toHaveLength(2);
+  expect(after.tests).toHaveLength(before.tests.length + 1);
   expect(after.tests.map((test: {id: string}) => test.id)).toContain(originalId);
-  const newer = after.tests.find((test: {id: string}) => test.id !== originalId);
+  const beforeIds = new Set(before.tests.map((test: { id: string }) => test.id));
+  const newer = after.tests.find((test: { id: string }) => !beforeIds.has(test.id));
+  expect(newer).toBeDefined();
   const copy = await (await page.request.get(url + "/api/tests/" + newer.id)).json();
   expect(copy.definition.title).toBe("Alternative test copy");
   expect(copy.definition.sourceInstructions).toBe(instructions);
