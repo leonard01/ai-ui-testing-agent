@@ -214,3 +214,16 @@ test("review UI exports only approved saved tests and never creates an extra fil
     await rm(dir, { force: true, recursive: true });
   }
 });
+
+test("portable export uses toContainText only when comparison mode is contains", async () => {
+  const definition = await example();
+  const action = definition.steps[1].action;
+  if (action.kind !== "assert-text") throw new Error("Text assertion fixture required");
+  action.expected = "tasks, 0 completed";
+  action.match = "contains";
+  const contains = generatePlaywrightSpec(definition, { baseURL, timeoutMs: 1500 });
+  expect(contains).toContain('await expect(target).toContainText("tasks, 0 completed"');
+  action.match = "exact";
+  const exact = generatePlaywrightSpec(definition, { baseURL, timeoutMs: 1500 });
+  expect(exact).toContain('await expect(target).toHaveText("tasks, 0 completed"');
+});

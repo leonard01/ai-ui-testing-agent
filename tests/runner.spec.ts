@@ -188,3 +188,35 @@ test("CLI returns exit one for an assertion failure", async ({}, info) => {
     JSON.parse(await readFile(join(dir, "report.json"), "utf8")).status,
   ).toBe("assertion-failed");
 });
+
+test("contains text assertion accepts dynamic prefix while exact remains strict", async ({ browser }, info) => {
+  const original = await example();
+  const expected = "tasks, 0 completed";
+  const definition = structuredClone(original);
+  const assertion = definition.steps[1].action;
+  if (assertion.kind !== "assert-text") throw new Error("Expected text assertion fixture");
+  assertion.expected = expected;
+  assertion.match = "contains";
+  const contains = await runTest(definition, {
+    baseURL, outputDir: info.outputPath("contains-positive"), timeoutMs: 500,
+  }, browser);
+  expect(contains.status).toBe("passed");
+  expect(contains.steps[1]).toMatchObject({ status: "passed", textMatch: "contains" });
+
+  assertion.match = "exact";
+  const exact = await runTest(definition, {
+    baseURL, outputDir: info.outputPath("exact-negative"), timeoutMs: 500,
+  }, browser);
+  expect(exact.status).toBe("assertion-failed");
+  expect(exact.steps[1]).toMatchObject({
+    status: "assertion-failed", textMatch: "exact", observed: "0 tasks, 0 completed",
+  });
+
+  assertion.match = "contains";
+  assertion.expected = "1 tasks, 0 completed";
+  const absent = await runTest(definition, {
+    baseURL, outputDir: info.outputPath("contains-negative"), timeoutMs: 500,
+  }, browser);
+  expect(absent.status).toBe("assertion-failed");
+  expect(absent.steps[1].error).toContain("Text assertion failed (contains)");
+});

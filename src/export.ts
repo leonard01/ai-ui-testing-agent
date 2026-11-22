@@ -216,7 +216,7 @@ function exportAction(action: TestAction, base: URL): string[] {
   } else if (action.kind === "assert-text") {
     lines.push("// Assertion provenance: " + action.provenance);
     lines.push("await expect(target).toHaveCount(1, { timeout: STEP_TIMEOUT });");
-    lines.push("await expect(target).toHaveText(" + literal(action.expected) +
+    lines.push("await expect(target)." + (action.match === "contains" ? "toContainText(" : "toHaveText(") + literal(action.expected) +
       ", { timeout: STEP_TIMEOUT });");
   } else if (action.kind === "assert-visible") {
     lines.push("// Assertion provenance: " + action.provenance);
