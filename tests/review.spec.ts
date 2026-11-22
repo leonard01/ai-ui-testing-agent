@@ -1028,7 +1028,7 @@ test("review server rejects malformed instructions and off-origin writes", async
 
 test("requires a human test name and offers previous application URLs", async ({ page }) => {
   await generateFixture(page);
-  const name = page.getByLabel("Test name (required before saving)");
+  const name = page.getByLabel("Test name (required to save)");
   const save = page.getByRole("button", { name: "Approve and save JSON test" });
   await name.fill("  ");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
@@ -1074,4 +1074,62 @@ test("reviewer selects Contains and saved assertion preserves its explicit compa
   const id = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
   expect(saved.steps[1].action.match).toBe("contains");
+});
+
+test("working draft preserves partial approvals and original instructions without becoming runnable", async ({ page }) => {
+  await generateFixture(page);
+  const original = await page.getByLabel("Your test instructions").inputValue();
+  const steps = page.locator("#step-list .step");
+  await steps.nth(0).locator('input[type="checkbox"]').check();
+  await steps.nth(1).locator('input[type="checkbox"]').check();
+  await page.getByRole("button", { name: "Save Working Draft" }).click();
+  await expect(page.locator("#draft-save-status")).toContainText("2/9 approved");
+  await expect(page.locator("#draft-select option")).toHaveCount(2);
+  const list = await page.request.get(url + "/api/drafts");
+  const drafts = (await list.json()).drafts;
+  expect(drafts).toHaveLength(1);
+  const saved = await (await page.request.get(url + "/api/drafts/" + drafts[0].id)).json();
+  expect(saved.draft.sourceInstructions).toBe(original);
+  expect(saved.draft.approvedStepIds).toEqual(["open", "initial-status"]);
+  expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(0);
+
+  await page.getByRole("button", { name: "Choose another test" }).click();
+  await page.getByRole("button", { name: "Resume draft" }).click();
+  await expect(page.locator("#review-progress")).toContainText("2 of 9 steps confirmed");
+  await expect(page.locator("#original-instructions")).toHaveText(original);
+  await expect(page.locator("#requirements")).toHaveValue(original);
+  await expect(page.locator("#test-name")).toHaveValue("Add, complete and delete a task");
+});
+
+test("approved test retains source instructions and Save as New keeps original", async ({ page }) => {
+  await generateFixture(page);
+  const instructions = await page.getByLabel("Your test instructions").inputValue();
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const before = await (await page.request.get(url + "/api/tests")).json();
+  expect(before.tests).toHaveLength(1);
+  const originalId = before.tests[0].id;
+  const saved = await (await page.request.get(url + "/api/tests/" + originalId)).json();
+  expect(saved.definition.sourceInstructions).toBe(instructions);
+  expect(saved.definition.workingInstructions).toBe(instructions);
+
+  await page.getByRole("button", { name: "Choose another test" }).click();
+  await page.getByLabel("Existing test script").selectOption(originalId);
+  await page.getByRole("button", { name: "Load selected test" }).click();
+  await expect(page.locator("#requirements")).toHaveValue(instructions);
+  await expect(page.locator("#original-instructions")).toHaveText(instructions);
+  await page.getByLabel("Your test instructions").fill(instructions + "\\nAdditional notes for new version.");
+  await page.locator("#test-name").fill("Alternative test copy");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await page.getByRole("button", { name: "Save as New Test" }).click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  const after = await (await page.request.get(url + "/api/tests")).json();
+  expect(after.tests).toHaveLength(2);
+  expect(after.tests.map((test: {id: string}) => test.id)).toContain(originalId);
+  const newer = after.tests.find((test: {id: string}) => test.id !== originalId);
+  const copy = await (await page.request.get(url + "/api/tests/" + newer.id)).json();
+  expect(copy.definition.title).toBe("Alternative test copy");
+  expect(copy.definition.sourceInstructions).toBe(instructions);
+  expect(copy.definition.workingInstructions).toContain("Additional notes for new version.");
 });
