@@ -28,7 +28,7 @@ async function save(title: string, baseURL: string) {
   const definition = structuredClone(original);
   definition.title = title;
   definition.id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const response = await post("/api/save", { definition, baseURL });
+  const response = await post("/api/save", { definition, baseURL, testName: title });
   expect(response.status, JSON.stringify(response.body)).toBe(200);
   return response.body.id as string;
 }
