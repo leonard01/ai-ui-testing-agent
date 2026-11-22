@@ -11,6 +11,20 @@
     header { background:#153655; color:#fff; padding:22px max(calc((100% - 1060px)/2),24px); }
     header h1 { margin:0 0 5px; font-size:22px; letter-spacing:-.02em; }
     header p { margin:0; color:#d6e2ed; font-size:14px; }
+    .app-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    #help-open { background:#fff; color:#153655; border:1px solid #cbd9e5; white-space:nowrap; }
+    #help-open:hover, #help-open:focus-visible { background:#e8f3fc; }
+    #help-dialog { width:min(620px,calc(100vw - 32px)); max-height:85vh; overflow:auto; border:1px solid #b8cbdc; border-radius:12px; padding:0; box-shadow:0 18px 50px #10253b55; color:#1c304b; }
+    #help-dialog::backdrop { background:#10243ca8; }
+    .help-inner { padding:25px 27px; }
+    .help-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .help-head h2 { font-size:21px; margin:0 0 10px; }
+    .help-close { flex:none; }
+    .help-inner h3 { font-size:15px; margin:20px 0 8px; }
+    .help-inner p, .help-inner li { font-size:13px; line-height:1.65; }
+    .help-inner ol, .help-inner ul { padding-left:22px; }
+    .help-inner li { margin:5px 0; }
+    @media(max-width:520px) { .app-header { align-items:center; } .help-inner { padding:18px; } }
     main { max-width:1060px; margin:24px auto 50px; padding:0 20px; display:grid; gap:20px; grid-template-columns:minmax(290px, 390px) minmax(420px,1fr); align-items:start; }
     section { background:white; border:1px solid #dce3ed; border-radius:13px; padding:23px; box-shadow:0 4px 18px #16304e08; }
     h2 { font-size:17px; margin:0 0 6px; }
@@ -135,9 +149,42 @@
 </head>
 <body>
   <header>
-    <h1>AI UI Testing Agent · Test Draft Builder</h1>
-    <p>Describe a workflow in plain English, review proposed steps, then save a runnable test.</p>
+    <div class="app-header">
+      <div>
+        <h1>AI UI Testing Agent · Test Draft Builder</h1>
+        <p>Describe a workflow in plain English, review proposed steps, then save a runnable test.</p>
+      </div>
+      <button type="button" id="help-open" aria-haspopup="dialog" aria-controls="help-dialog">? Help</button>
+    </div>
   </header>
+  <dialog id="help-dialog" aria-labelledby="help-title" aria-describedby="help-intro">
+    <div class="help-inner">
+      <div class="help-head">
+        <h2 id="help-title">Using the AI UI Testing Agent</h2>
+        <button type="button" id="help-close" class="secondary help-close" aria-label="Close help">Close</button>
+      </div>
+      <p id="help-intro">This is a prototype for creating and running browser tests from plain-English instructions. You review and approve every generated step before it becomes an executable test.</p>
+      <h3>Quick start</h3>
+      <ol>
+        <li>Enter a test name, the application URL, and the actions and checks you want performed.</li>
+        <li>Choose GroqCloud to generate a draft with AI, or the prewritten demonstration to explore the review workflow without an AI call.</li>
+        <li>Inspect the proposed actions, targets, and assertions. Edit incorrect steps and confirm each step before saving.</li>
+        <li>Save the approved JSON test; select it under Run Tests to execute with Playwright and review results and failure evidence.</li>
+      </ol>
+      <h3>Editing and incremental regeneration</h3>
+      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI can replace one step or the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
+      <h3>Important limitations</h3>
+      <ul>
+        <li><strong>AI is non-deterministic.</strong> The same instructions may produce different actions or occasionally invalid output. Review steps and execution results rather than assuming they are correct.</li>
+        <li><strong>Selectors and expectations can be wrong.</strong> A successful AI response does not prove the test represents your intent; complex or dynamic sites may need manual edits or selector repair.</li>
+        <li><strong>Incremental regeneration sees the initial page snapshot, not the live page after preceding steps.</strong> Later-page controls may be missing from its context.</li>
+        <li><strong>Working instructions are an amendment history.</strong> Previous wording may remain even after steps are replaced. The reviewed steps determine what is executed.</li>
+        <li><strong>GroqCloud requires a configured API key and has rate/token limits.</strong> AI requests can fail, but manual review and execution of saved tests do not require a Groq call.</li>
+        <li><strong>Memory is experimental.</strong> Do not assume every previous interaction, site, or deployment has reusable verified memory.</li>
+      </ul>
+      <p class="muted">This prototype is intended for local development and evaluation. Only run tests against applications you are authorized to test.</p>
+    </div>
+  </dialog>
   <main>
     <section aria-labelledby="instructions-heading">
       <h2 id="instructions-heading">Test Instructions</h2>
@@ -368,6 +415,11 @@
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
+    $("help-open").addEventListener("click", () => $("help-dialog").showModal());
+    $("help-close").addEventListener("click", () => $("help-dialog").close());
+    $("help-dialog").addEventListener("click", (event) => {
+      if (event.target === $("help-dialog")) $("help-dialog").close();
+    });
     let definition = null;
     let approvals = new Set();
     let selectedBaseURL = "";
