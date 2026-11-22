@@ -243,3 +243,22 @@ test("incremental panel shows clear progress and then hides it after output", as
   await expect(page.locator("#incremental-status")).toBeVisible();
   await expect(page.locator("#incremental-status")).toContainText("Proposal ready");
 });
+
+
+test("Help dialog explains the workflow and limitations without generating AI requests", async ({ page }) => {
+  await page.goto(url);
+  const help = page.getByRole("dialog", { name: "Using the AI UI Testing Agent" });
+  await expect(help).toBeHidden();
+  await page.getByRole("button", { name: "? Help" }).click();
+  await expect(help).toBeVisible();
+  await expect(help).toContainText("Quick start");
+  await expect(help).toContainText("non-deterministic");
+  await expect(help).toContainText("initial page snapshot");
+  await expect(help).toContainText("amendment history");
+  expect(mockCalls).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(help).toBeHidden();
+  await page.getByRole("button", { name: "? Help" }).click();
+  await help.getByRole("button", { name: "Close help" }).click();
+  await expect(help).toBeHidden();
+});
