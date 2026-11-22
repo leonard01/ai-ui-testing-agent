@@ -26,6 +26,11 @@
     .textbtn { border:0; padding:5px 8px; background:transparent; color:#1b668e; font-size:12px; }
     .required-marker { color:#a22b3b; font-weight:700; }
     .field-readiness { margin:8px 0 0; font-size:12px; color:#8a3441; line-height:1.5; }
+    .ai-progress { margin-top:14px; padding:14px 16px; border:2px solid #205e86; border-radius:9px; background:#e8f3fc; color:#153c60; font-size:14px; font-weight:700; line-height:1.5; }
+    .ai-progress[hidden] { display:none; }
+    .ai-progress::before { content:"◌ "; font-weight:900; }
+    .ai-feedback { margin-top:12px; padding:12px 14px; border:1px solid #c9d9e6; border-radius:8px; background:#f7fafc; color:#24425c; font-size:13px; line-height:1.5; white-space:pre-wrap; }
+    .ai-feedback[hidden] { display:none; }
     .field-readiness.ready { color:#216745; }
     .missing-field { border-color:#b44959 !important; }
     .muted { font-size:12px; color:#64748b; line-height:1.5; }
@@ -219,7 +224,8 @@
             <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
           </div>
           <p id="incremental-readiness" class="field-readiness" role="status"></p>
-          <p id="incremental-status" role="status" class="muted"></p>
+          <p id="incremental-progress" class="ai-progress" role="status" aria-live="polite" hidden>Generating replacement steps with AI… This can take up to 90 seconds per attempt. Your existing steps remain unchanged.</p>
+          <p id="incremental-status" role="status" class="ai-feedback" hidden></p>
           <div id="incremental-preview" hidden>
             <h4>Review proposed replacement</h4>
             <p id="incremental-diff" class="muted"></p>
@@ -837,6 +843,7 @@
             $("incremental-instructions").value = "";
             $("incremental-preview").hidden = true;
             $("incremental-status").textContent = "";
+            $("incremental-status").hidden = true;
             $("incremental-context").textContent = "Starting at step " + (index + 1) +
               ": " + step.description;
             $("incremental-panel").hidden = false;
@@ -903,7 +910,10 @@
       const mode = $("incremental-mode").value;
       const sourceSignature = JSON.stringify({ definition, approvals: [...approvals].sort() });
       $("incremental-generate").disabled = true;
-      $("incremental-status").textContent = "Generating replacement proposal; approved steps remain unchanged...";
+      $("incremental-progress").hidden = false;
+      $("incremental-status").hidden = true;
+      $("incremental-status").textContent = "";
+      $("incremental-generate").textContent = "Generating replacement…";
       try {
         const result = await requestJSON("/api/regenerate-steps", {
           method: "POST",
@@ -929,13 +939,17 @@
           result.preservedApprovedStepIds.length + " previously approved step(s) preserved.";
         $("incremental-warnings").textContent = result.warnings.join(" ");
         $("incremental-preview").hidden = false;
+        $("incremental-status").hidden = false;
         $("incremental-status").textContent =
           "Proposal ready for review. No test has been changed, saved, or executed.";
       } catch (error) {
         if (revision === incrementalRevision) {
+          $("incremental-status").hidden = false;
           $("incremental-status").textContent = error.message || String(error);
         }
       } finally {
+        $("incremental-progress").hidden = true;
+        $("incremental-generate").textContent = "Generate replacement";
         $("incremental-generate").disabled = false;
       }
     });
