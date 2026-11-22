@@ -157,6 +157,7 @@ test("suite holds the shared execution lock and forbids replacing queued cases",
 
 test("suite UI selects saved cases and drills into failure evidence", async ({ page }) => {
   await page.goto(url);
+  await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const list = page.locator("#suite-test-list input[type=checkbox]");
   await expect(list).toHaveCount(3);
   await list.nth(0).check();
@@ -179,6 +180,7 @@ test("suite UI selects saved cases and drills into failure evidence", async ({ p
 
 test("Run Tests panel contains both one-script tools and multi-script execution without a separate upper selector", async ({ page }) => {
   await page.goto(url);
+  await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const panel = page.locator("#suite-panel");
   await expect(panel.getByRole("heading", { name: "Run Tests", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Run a test suite" })).toHaveCount(0);
