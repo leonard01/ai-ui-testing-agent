@@ -212,7 +212,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required to save)</span></label>
       <input id="test-name" type="text" maxlength="200" placeholder="Required for saving — e.g. SD-001 — Successful login" autocomplete="off" required>
-      <form id="generate-form">
+      <form id="generate-form" novalidate>
         <label for="base-url">Application URL <span class="required-marker">(required)</span></label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
         <label for="recent-url">Recent websites</label>
@@ -220,7 +220,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p id="url-source-status" class="muted" role="status">Using the URL entered above. Select a recent website to switch.</p>
         <label for="requirements">Your test instructions (working) <span class="required-marker">(required)</span></label>
         <textarea id="requirements" required placeholder="Required — Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
-        <p id="working-instructions-note" class="note" hidden><strong>Amendment history, not a consolidated specification.</strong> After incremental regeneration, the working instructions contain the original description plus later amendments. Some earlier instructions may have been replaced or discarded, so this text may contradict the current steps. The reviewed steps in Test Editor are the proposed executable test. The original instructions remain unchanged below; review the complete steps before saving.</p>
+        <p id="working-instructions-note" class="note" hidden><strong>Amendment history, not a consolidated specification.</strong> After incremental regeneration, the working instructions contain the original description plus later amendments. Some earlier instructions may have been superseded, replaced or discarded, so this text may contradict the current steps. The reviewed steps in Test Editor are the proposed executable test. The original instructions remain unchanged below; review the complete steps before saving.</p>
         <div id="original-instructions-panel" class="note" hidden>
           <strong>Original test instructions (read-only)</strong>
           <pre id="original-instructions" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
