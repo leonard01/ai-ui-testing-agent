@@ -216,18 +216,19 @@ export async function runTest(
                 // A small floor permits one final DOM read before reporting.
                 if (remaining <= 0 && result.observed !== undefined) {
                   throw new Error(
-                    `Text assertion failed: expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
+                    `Text assertion failed (${action.match ?? "exact"}): expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
                   );
                 }
                 const readTimeout = Math.max(150, Math.ceil(remaining));
                 result.observed = normalize(
                   (await target.textContent({ timeout: readTimeout })) ?? "",
                 );
-                if (result.observed === expectedText) break;
+                if (action.match === "contains"
+                  ? result.observed.includes(expectedText) : result.observed === expectedText) break;
                 const timeLeft = deadline - performance.now();
                 if (timeLeft <= 0) {
                   throw new Error(
-                    `Text assertion failed: expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
+                    `Text assertion failed (${action.match ?? "exact"}): expected ${JSON.stringify(action.expected)}, observed ${JSON.stringify(result.observed)}`,
                   );
                 }
                 await delay(Math.min(50, timeLeft));
