@@ -462,7 +462,7 @@
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
         workingDraftId = id;
-        editingSavedId = null;
+        editingSavedId = data.draft.sourceApprovedId || null;
         originalInstructions = data.draft.sourceInstructions;
         selectedBaseURL = data.draft.baseURL;
         $("base-url").value = selectedBaseURL;
@@ -515,6 +515,7 @@
             sourceInstructions: originalInstructions,
             workingInstructions: $("requirements").value,
             approvedStepIds: [...approvals].map(index => definition.steps[index].id),
+            ...(editingSavedId ? { sourceApprovedId: editingSavedId } : {}),
           }),
         });
         workingDraftId = result.id;
