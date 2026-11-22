@@ -1190,8 +1190,8 @@ test("failed regeneration removes prior successful draft and disables saving sta
     "Generation failed. No draft steps are available from this attempt.");
   await expect(page.locator("#draft")).toBeHidden();
   await expect(page.locator("#step-list .step")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Save Working Draft" })).toBeDisabled();
+  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.locator("#save-draft")).toBeDisabled();
   await expect(page.locator("#generation-status")).toBeEmpty();
   // The tester's latest instructions remain available to correct and retry.
   await expect(page.getByLabel("Your test instructions")).toHaveValue("Add several items to basket.");
@@ -1212,5 +1212,5 @@ test("invalid new instructions also clear an earlier successful generation", asy
   await expect(page.locator("#generation-error")).toContainText("Enter 1–12,000 characters");
   await expect(page.locator("#draft")).toBeHidden();
   await expect(page.locator("#step-list .step")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+  await expect(page.locator("#save")).toBeDisabled();
 });
