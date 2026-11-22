@@ -379,6 +379,141 @@
       }
       if (urls.includes(previous)) choices.value = previous;
     }
+    function showOriginalInstructions() {
+      const panel = $("original-instructions-panel");
+      panel.hidden = !definition;
+      $("original-instructions").textContent =
+        originalInstructions === undefined
+          ? "Original instructions unavailable for this older saved test."
+          : originalInstructions;
+    }
+    function renderExistingEditorChoices() {
+      const suite = $("edit-suite");
+      const script = $("edit-script");
+      const priorSuite = suite.value;
+      const priorScript = script.value;
+      const sites = [...new Set(approvedCatalog.map(test => test.siteUrl || "__legacy__"))].sort();
+      suite.replaceChildren();
+      const blank = make("option", "Select a test suite");
+      blank.value = "";
+      suite.append(blank);
+      for (const site of sites) {
+        const option = make("option", site === "__legacy__" ? "Older / unassigned" : site);
+        option.value = site;
+        suite.append(option);
+      }
+      if (sites.includes(priorSuite)) suite.value = priorSuite;
+      renderExistingScripts(priorScript);
+    }
+    function renderExistingScripts(selected = "") {
+      const script = $("edit-script");
+      const suite = $("edit-suite").value;
+      script.replaceChildren();
+      const placeholder = make("option", suite ? "Select a test script" : "Select a suite first");
+      placeholder.value = "";
+      script.append(placeholder);
+      const matching = approvedCatalog.filter(item => (item.siteUrl || "__legacy__") === suite);
+      for (const item of matching) {
+        const option = make("option", item.title + " (" + item.steps + " steps)");
+        option.value = item.id;
+        script.append(option);
+      }
+      if (matching.some(item => item.id === selected)) script.value = selected;
+      script.disabled = !suite;
+      $("edit-load").disabled = !script.value;
+    }
+    $("edit-suite").addEventListener("change", () => renderExistingScripts());
+    $("edit-script").addEventListener("change", () => {
+      $("edit-load").disabled = !$("edit-script").value;
+    });
+    $("edit-load").addEventListener("click", () => {
+      void loadSavedForEditing($("edit-script").value);
+    });
+    async function refreshDraftPicker(selected = $("draft-select").value) {
+      const data = await requestJSON("/api/drafts");
+      const select = $("draft-select");
+      select.replaceChildren();
+      const blank = make("option", "Select a working draft");
+      blank.value = "";
+      select.append(blank);
+      for (const draft of data.drafts) {
+        const option = make("option", draft.title + " — " + draft.approved +
+          "/" + draft.steps + " approved (" + draft.siteUrl + ")");
+        option.value = draft.id;
+        select.append(option);
+      }
+      if (data.drafts.some(item => item.id === selected)) select.value = selected;
+      $("draft-load").disabled = !select.value;
+      $("draft-list-status").textContent = data.drafts.length +
+        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available.";
+    }
+    $("draft-select").addEventListener("change", () => {
+      $("draft-load").disabled = !$("draft-select").value;
+    });
+    $("draft-refresh").addEventListener("click", () => {
+      void refreshDraftPicker().catch(error => {
+        $("draft-list-status").textContent = error.message || String(error);
+      });
+    });
+    $("draft-load").addEventListener("click", async () => {
+      const id = $("draft-select").value;
+      if (!id || running) return;
+      try {
+        const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
+        definition = data.draft.definition;
+        workingDraftId = id;
+        editingSavedId = null;
+        originalInstructions = data.draft.sourceInstructions;
+        selectedBaseURL = data.draft.baseURL;
+        $("base-url").value = selectedBaseURL;
+        $("requirements").value = data.draft.workingInstructions;
+        $("test-name").value = definition.title;
+        approvals = new Set(definition.steps.map((step, index) =>
+          data.draft.approvedStepIds.includes(step.id) ? index : -1).filter(index => index >= 0));
+        $("requirement-lines").value = (definition.requirements ?? [])
+          .map(item => item.text).join("\n");
+        showOriginalInstructions();
+        clearPreflight();
+        $("placeholder").hidden = true;
+        $("draft").hidden = false;
+        $("draft-title").textContent = "Working draft: " + definition.title;
+        $("draft-hint").textContent = "Resumed saved draft. Approval state and original instructions restored. This is not executable until fully reviewed and approved.";
+        $("draft-save-status").textContent = "";
+        renderSteps();
+        $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (error) {
+        $("draft-list-status").textContent = error.message || String(error);
+      }
+    });
+    $("back-to-selector").addEventListener("click", () => {
+      $("draft").hidden = true;
+      $("placeholder").hidden = false;
+      void refreshDraftPicker();
+    });
+    $("save-draft").addEventListener("click", async () => {
+      if (!definition || !$("test-name").value.trim()) return;
+      $("draft-save-status").textContent = "Saving working draft...";
+      try {
+        const name = $("test-name").value.trim();
+        const result = await requestJSON("/api/drafts/save", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(workingDraftId ? { id: workingDraftId } : {}),
+            definition, testName: name, baseURL: selectedBaseURL,
+            sourceInstructions: originalInstructions,
+            workingInstructions: $("requirements").value,
+            approvedStepIds: [...approvals].map(index => definition.steps[index].id),
+          }),
+        });
+        workingDraftId = result.id;
+        $("draft-save-status").textContent =
+          "Working draft saved (" + approvals.size + "/" + definition.steps.length +
+          " approved). You can resume it after restarting the server.";
+        await refreshDraftPicker(result.id);
+      } catch(error) {
+        $("draft-save-status").textContent = error.message || String(error);
+      }
+    });
     function describeTarget(target) {
       if (!target) return "unknown element";
       if (target.by === "role") return target.role +
@@ -931,6 +1066,7 @@
         $("base-url").value = website.value + "/";
       }
       renderWebsiteSuite(preservedSuiteSelection, preferredId);
+      renderExistingEditorChoices();
     }
     function diagnosticText(result) {
       const diagnosis = result.diagnosis;
@@ -1903,6 +2039,9 @@
       void loadSavedForEditing(selectedApprovedId);
     });
 
+    void refreshDraftPicker().catch(error => {
+      $("draft-list-status").textContent = error.message || String(error);
+    });
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
