@@ -74,7 +74,19 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   expect(websiteDirectory(dir, sauce)).not.toBe(websiteDirectory(dir, local));
   await page.goto(url);
   const suite = page.getByLabel("Test suite (website URL)");
+  const singleBeforeSuite = page.getByLabel("Test script", { exact: true });
+  await expect(suite).toHaveValue("");
+  await expect(singleBeforeSuite).toBeDisabled();
+  await expect(singleBeforeSuite).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
   await suite.selectOption(sauce);
+  await expect(singleBeforeSuite).toBeEnabled();
+  await expect(singleBeforeSuite).toHaveValue("");
+  const timeout = page.getByLabel("Step timeout (also used for batch runs)");
+  await expect(timeout).toHaveValue("5000");
+  await timeout.selectOption("10000");
+  await expect(timeout).toHaveValue("10000");
+  await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
   const single = page.getByLabel("Test script", { exact: true });
   await expect(single.locator("option")).toHaveCount(3); // blank + two SauceDemo scripts
   await expect(single.locator('option[value="' + first + '"]')).toHaveCount(1);
