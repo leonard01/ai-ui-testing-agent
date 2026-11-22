@@ -60,7 +60,7 @@
     #run-summary.run-passed { color:#17613b; background:#e7f8ee; border-color:#a5dbbc; }
     #run-summary.run-failed { color:#9f2236; background:#feeaed; border-color:#eab3be; }
     .artifact-links { display:flex; gap:16px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
-    .repair-choice { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }
+    .incremental-editor { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }\n    .repair-choice { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }
     .repair-choice h3 { margin:0 0 8px; font-size:14px; }
     .repair-choice fieldset { border:0; margin:0; padding:0; min-width:0; }
     .repair-choice legend { font-size:13px; font-weight:650; margin:0 0 10px; }
@@ -196,7 +196,7 @@
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
         </div>
         <div id="step-list"></div>
-        <section id="incremental-panel" class="repair-choice" hidden aria-labelledby="incremental-heading">
+        <section id="incremental-panel" class="incremental-editor" hidden aria-labelledby="incremental-heading">
           <h3 id="incremental-heading">Reinterpret steps with AI</h3>
           <p id="incremental-context" class="muted"></p>
           <label for="incremental-mode">Scope of changes</label>
