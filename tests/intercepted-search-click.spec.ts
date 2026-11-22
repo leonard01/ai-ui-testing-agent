@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -86,7 +87,7 @@ test("unique Google Search button blocked by autocomplete offers human-approved 
     expect(approval.status(), await approval.text()).toBe(200);
     const saved = await approval.json();
     await page.goto(site.reviewURL);
-    await page.getByLabel("Test script", { exact: true }).selectOption(saved.id);
+    await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
