@@ -81,7 +81,7 @@ test("unique Google Search button blocked by autocomplete offers human-approved 
   const site = await setup(browser);
   try {
     const approval = await page.request.post(site.reviewURL + "/api/save", {
-      data: { definition: definition(), baseURL: site.baseURL },
+      data: { testName: "Regression test", definition: definition(), baseURL: site.baseURL },
     });
     expect(approval.status(), await approval.text()).toBe(200);
     const saved = await approval.json();
@@ -138,7 +138,7 @@ test("blocked submit button outside the query form never offers an unverified En
   const site = await setup(browser, true);
   try {
     const response = await page.request.post(site.reviewURL + "/api/save", {
-      data: { definition: definition(), baseURL: site.baseURL },
+      data: { testName: "Regression test", definition: definition(), baseURL: site.baseURL },
     });
     expect(response.status()).toBe(200);
     const saved = await response.json();
