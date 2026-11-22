@@ -2348,7 +2348,8 @@
       }
       const provider = $("provider").value;
       $("generate").disabled = true;
-      $("generation-status").textContent = "Inspecting page and generating draft...";
+      $("generation-status").classList.add("ai-progress");
+      $("generation-status").textContent = "Generating test steps with AI… Inspecting the application and preparing a draft. No test has been modified.";
       try {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -2402,6 +2403,7 @@
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
       } finally {
+        $("generation-status").classList.remove("ai-progress");
         $("generate").disabled = false;
       }
     });
