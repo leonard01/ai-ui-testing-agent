@@ -1,3 +1,4 @@
+import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
 import { createReviewServer } from "../src/review-server.js";
 import { websiteDirectory } from "../src/site-storage.js";
@@ -131,7 +132,7 @@ test("confirmed individual deletion only removes its approved script and preserv
   const first = await save("Add user", sauce);
   const second = await save("Remove user", sauce);
   await page.goto(url);
-  await page.getByLabel("Test script", { exact: true }).selectOption(first);
+  await selectSavedScript(page, first);
   const denied = await post("/api/delete-test", { id: first, confirmed: false });
   expect(denied.status).toBe(400);
   const badID = await post("/api/delete-test", { id: "../../secrets.json", confirmed: true });
@@ -211,7 +212,7 @@ test("legacy script assignment needs confirmation, verifies URL and keeps origin
   const legacyID = "reviewed-1700000000000-deadbeef.json";
   await writeFile(join(dir, legacyID), JSON.stringify(original));
   await page.goto(url);
-  await page.getByLabel("Test script", { exact: true }).selectOption(legacyID);
+  await selectSavedScript(page, legacyID);
   await expect(page.getByRole("button", { name: "Assign older script to website URL" })).toBeEnabled();
   const denied = await post("/api/assign-site", {
     id: legacyID, baseURL: sauce, confirmed: false,
