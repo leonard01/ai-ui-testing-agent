@@ -423,6 +423,8 @@
     function showOriginalInstructions() {
       const panel = $("original-instructions-panel");
       panel.hidden = !definition;
+      $("working-instructions-note").hidden = !definition ||
+        !($("requirements").value.includes("Incremental amendment ("));
       $("original-instructions").textContent =
         originalInstructions === undefined
           ? "Original instructions unavailable for this older saved test."
