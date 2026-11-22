@@ -1176,3 +1176,23 @@ test("name entered before generation survives and save-area name enables approva
   await save.click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
 });
+
+test("required inputs and missing-field guidance update beside generation and save actions", async ({ page }) => {
+  await page.goto(url);
+  await expect(page.getByLabel("Application URL")).toHaveAttribute("required", "");
+  await expect(page.locator("#requirements")).toHaveAttribute("required", "");
+  await expect(page.locator("#generate-readiness")).toContainText("test instructions");
+  await expect(page.locator("#requirements")).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("Your test instructions").fill("Add a task and verify it appears");
+  await expect(page.locator("#generate-readiness")).toContainText("Required generation fields complete");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
+  await expect(page.locator("#save-readiness")).toContainText("confirm 9 remaining steps");
+  await page.locator("#save-test-name").fill("Task flow");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+});
