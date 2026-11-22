@@ -172,10 +172,13 @@
       </div>
       <aside class="help-setup" aria-labelledby="help-setup-title">
         <h3 id="help-setup-title">First-time setup: GroqCloud API key</h3>
-        <p><strong>Required for AI generation.</strong> Create a file named <code>.env</code> in the project root (the folder containing <code>package.json</code>). Add the following line, replacing the example with your own key:</p>
-        <pre><code>GROQ_API_KEY="gsk_your-actual-key"</code></pre>
+        <p><strong>Required for AI generation.</strong> In the project root (the folder containing <code>package.json</code>), copy the tracked template <code>.env.example</code> to a new local file named <code>.env</code>:</p>
+        <pre><code>cp .env.example .env</code></pre>
+        <p>Open <code>.env</code> and replace the empty <code>GROQ_API_KEY</code> value with your personal API key:</p>
+        <pre><code>GROQ_API_KEY="gsk_your-actual-key"
+GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Create or manage your GroqCloud API key</a></p>
-        <p>Save <code>.env</code> and restart the local application server. <strong>Never share or commit your key or .env file.</strong> The app reads it on the server; do not paste it into test instructions.</p>
+        <p>Save <code>.env</code> and restart the local application server. <strong>Never share or commit your key or .env file.</strong> Git ignores <code>.env</code>, so future pulls can update <code>.env.example</code> without overwriting your local settings. The app reads your key on the server; do not paste it into test instructions.</p>
         <p><strong>Optional:</strong> <code>GROQ_MODEL=openai/gpt-oss-20b</code> selects the model (already the default). The required variable is <code>GROQ_API_KEY</code>, <em>not</em> <code>GROK_API_KEY</code> (Grok/xAI is a different service).</p>
         <p>Using the prewritten demonstration and executing already approved tests does <strong>not</strong> require an API key.</p>
       </aside>
