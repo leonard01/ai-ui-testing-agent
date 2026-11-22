@@ -818,6 +818,7 @@
           const reinterpret = make("button", "Reinterpret with AI", "textbtn");
           reinterpret.type = "button";
           reinterpret.addEventListener("click", () => {
+            incrementalRevision++;
             incrementalSelectedId = step.id;
             incrementalPending = null;
             $("incremental-instructions").value = "";
@@ -859,6 +860,15 @@
       $("incremental-preview").hidden = true;
       $("incremental-status").textContent = "Proposed changes discarded. No steps were modified.";
     });
+    function invalidateIncrementalPreview() {
+      if (!incrementalPending) return;
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      $("incremental-status").textContent =
+        "Scope or instructions changed. Generate another proposal before applying.";
+    }
+    $("incremental-mode").addEventListener("change", invalidateIncrementalPreview);
+    $("incremental-instructions").addEventListener("input", invalidateIncrementalPreview);
     $("incremental-generate").addEventListener("click", async () => {
       if (!definition || !incrementalSelectedId || running) return;
       const instructions = $("incremental-instructions").value.trim();
@@ -876,6 +886,7 @@
       const revision = ++incrementalRevision;
       const stepId = incrementalSelectedId;
       const mode = $("incremental-mode").value;
+      const sourceSignature = JSON.stringify({ definition, approvals: [...approvals].sort() });
       $("incremental-generate").disabled = true;
       $("incremental-status").textContent = "Generating replacement proposal; approved steps remain unchanged...";
       try {
@@ -889,7 +900,7 @@
           }),
         });
         if (revision !== incrementalRevision) return;
-        incrementalPending = { result, instructions };
+        incrementalPending = { result, instructions, mode, sourceSignature };
         const box = $("incremental-proposed-steps");
         box.replaceChildren();
         for (const [index, step] of result.replacement.entries()) {
@@ -915,15 +926,22 @@
     });
     $("incremental-apply").addEventListener("click", () => {
       if (!incrementalPending || !definition) return;
-      const { result, instructions } = incrementalPending;
+      const { result, instructions, mode, sourceSignature } = incrementalPending;
+      if (JSON.stringify({ definition, approvals: [...approvals].sort() }) !== sourceSignature) {
+        $("incremental-status").textContent =
+          "The test or approvals changed since this proposal was generated. Generate another proposal.";
+        incrementalPending = null;
+        $("incremental-preview").hidden = true;
+        return;
+      }
       const preserved = new Set(result.preservedApprovedStepIds);
       definition = result.definition;
       approvals = new Set(definition.steps.flatMap((step, index) =>
         preserved.has(step.id) ? [index] : []));
       // Preserve the original request untouched; working instructions retain
       // the tester's later amendments for future review and full regeneration.
-      const mode = $("incremental-mode").value === "step" ? "one step" : "remaining steps";
-      const amendment = "Incremental amendment (" + mode + "): " + instructions;
+      const scope = mode === "step" ? "one step" : "remaining steps";
+      const amendment = "Incremental amendment (" + scope + "): " + instructions;
       const current = $("requirements").value;
       $("requirements").value = [current, amendment].filter(Boolean).join("\n\n");
       definition.workingInstructions = $("requirements").value;
