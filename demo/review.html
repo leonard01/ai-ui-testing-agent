@@ -1357,7 +1357,7 @@
             (step.assertionAlternatives?.candidates?.length
               ? "The expected text is visible elsewhere. Consider repairing the locator above before changing the expected result."
               : "Only revise this assertion if you have verified what the requirement actually specifies.")));
-          review.append(make("p", "Original comparison: Exact" + " (unless explicitly configured otherwise)", "muted"));
+          review.append(make("p", "Original comparison: " + (step.textMatch === "contains" ? "Contains" : "Exact"), "muted"));
           review.append(make("p", "Original expected: " + step.expected, "muted"));
           review.append(make("p", "Observed from run: " + step.observed, "muted"));
           const field = make("label", "New expected text");
