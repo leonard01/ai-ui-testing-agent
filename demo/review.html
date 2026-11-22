@@ -2161,8 +2161,6 @@
           return;
         }
       }
-      if (!saveAsNew && editingSavedId &&
-          !window.confirm("Replace the existing approved test? Choose Save as New Test to preserve it.")) return;
       $("save").disabled = true;
       $("save-error").textContent = "";
       $("saved").replaceChildren();
