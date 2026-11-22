@@ -9,6 +9,7 @@ import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
+import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
 import { listDrafts, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
@@ -564,6 +565,21 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 409, { error: "Test suite is still running" });
         } else {
           json(res, 200, suiteSnapshot(suite));
+        }
+        return;
+      }
+      if (req.method === "GET" && path === "/api/application-memory") {
+        try {
+          const site = url.searchParams.get("baseURL");
+          if (!site) throw new Error("Application URL is required");
+          const memory = await getApplicationMemory(savedDir, site);
+          const instructions = (url.searchParams.get("instructions") ?? "").slice(0, MAX_REQUIREMENTS_CHARS);
+          json(res, 200, {
+            siteOrigin: websiteOrigin(site),
+            suggestions: getMemorySuggestions(memory, instructions),
+          });
+        } catch {
+          json(res, 400, { error: "Invalid application URL or memory request" });
         }
         return;
       }
@@ -1383,6 +1399,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                     run.assertionSearchIndex?.set(stepId, evidence),
                 }, suppliedBrowser);
                 run.report = report;
+                // Store only an abstract prerequisite signal after a complete
+                // successful, tester-approved execution. Never store input values.
+                await observeSuccessfulRun(savedDir, base.href, definition, report).catch(() => {});
                 await persistRun(run, "finished").catch(() => {
                   // A full disk should not change the already produced verdict.
                 });
@@ -1458,6 +1477,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           onAssertionSearchIndex: (stepId, entries) => job.assertionSearchIndex?.set(stepId, entries),
         }, suppliedBrowser).then(async (report) => {
           job.report = report;
+          await observeSuccessfulRun(savedDir, base.href, definition, report).catch(() => {});
           await persistRun(job, "finished").catch(() => {});
           job.state = "finished";
         }).catch(async () => {
@@ -1479,13 +1499,18 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         const provider = input.provider === "groq" ? (groqOverride ?? groqProvider) : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
+          const memory = input.provider === "groq" && (body as Record<string, unknown>)?.useApplicationMemory !== false
+            ? await getApplicationMemory(savedDir, input.baseURL) : null;
+          const suggestions = getMemorySuggestions(memory, input.requirements);
           const result = await generateDraft({
             baseURL: input.baseURL, requirements: input.requirements, model,
             retryMalformedOutput: input.provider === "groq",
+            prerequisiteHints: suggestions.map(item => item.text),
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
             generationAttempts: result.generationAttempts,
+            memorySuggestions: suggestions,
             message: input.provider === "fixture"
               ? "Fixture is a prewritten demonstration, not AI-generated."
               : result.generationAttempts > 1
