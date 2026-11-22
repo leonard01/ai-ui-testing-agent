@@ -1373,7 +1373,7 @@
             option.value = value;
             matchSelect.append(option);
           }
-          matchSelect.value = "exact";
+          matchSelect.value = step.textMatch || "exact";
           comparisonField.append(matchSelect);
           review.append(comparisonField);
           const confirmLabel = make("label", null, "confirm-label");
