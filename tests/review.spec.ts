@@ -1037,7 +1037,7 @@ test("review server rejects malformed instructions and off-origin writes", async
 
 test("requires a human test name and offers previous application URLs", async ({ page }) => {
   await generateFixture(page);
-  const name = page.getByLabel("Test name (required to save)");
+  const name = page.locator("#test-name");
   const save = page.getByRole("button", { name: "Approve and save JSON test" });
   await name.fill("  ");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
@@ -1155,7 +1155,7 @@ test("approval and save readiness clearly explain required name and confirmation
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   const save = page.getByRole("button", { name: "Approve and save JSON test" });
   await expect(save).toBeDisabled();
-  await expect(page.locator("#save-readiness")).toContainText("Enter a Test name");
+  await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
   await page.locator("#test-name").fill("Approval regression check");
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
@@ -1167,7 +1167,7 @@ test("approval and save readiness clearly explain required name and confirmation
 
 test("name entered before generation survives and save-area name enables approval and JSON save", async ({ page }) => {
   await page.goto(url);
-  const originalName = page.getByLabel("Test name (required to save)").first();
+  const originalName = page.locator("#test-name").first();
   await originalName.fill("Name supplied before generation");
   await page.getByLabel("Your test instructions").fill("Add a task, then verify it is visible");
   await page.getByLabel("Generate with").selectOption("fixture");
@@ -1208,7 +1208,7 @@ test("required inputs and missing-field guidance update beside generation and sa
 
 test("new test name entered before generation survives and permits saving and execution", async ({ page }) => {
   await page.goto(url);
-  const name = page.getByLabel("Test name (required to save)");
+  const name = page.locator("#test-name");
   await name.fill("New test from instructions");
   await page.getByLabel("Your test instructions").fill(
     "Open the task page. Check that the initial status contains zero tasks.",
