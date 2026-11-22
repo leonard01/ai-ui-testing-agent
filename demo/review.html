@@ -486,8 +486,20 @@
       }
     });
     $("back-to-selector").addEventListener("click", () => {
+      // Returning to the test picker also ends the edit session. Otherwise
+      // generating a *new* test could unexpectedly replace the old script.
+      definition = null;
+      approvals = new Set();
+      editingSavedId = null;
+      workingDraftId = null;
+      originalInstructions = undefined;
+      $("test-name").value = "";
+      $("requirements").value = "";
+      showOriginalInstructions();
+      $("draft-save-status").textContent = "";
       $("draft").hidden = true;
       $("placeholder").hidden = false;
+      updateApproval();
       void refreshDraftPicker();
     });
     $("save-draft").addEventListener("click", async () => {
