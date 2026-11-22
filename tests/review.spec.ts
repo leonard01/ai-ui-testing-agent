@@ -919,6 +919,9 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
     expect(prompts[1]).toContain("COMPLETE test definition");
     await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    temporary.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       temporary.close((err) => err ? reject(err) : resolve()));
   }
@@ -953,6 +956,9 @@ test("two malformed responses stop after one bounded retry with safe step diagno
     expect(calls).toBe(2);
     await expect(page.locator("#draft")).toBeHidden();
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    temporary.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       temporary.close((err) => err ? reject(err) : resolve()));
   }
@@ -1005,6 +1011,9 @@ test("Test 1 Groq upstream 400 is identified correctly in the generator UI witho
       requirementsCharacters: testOneInstructions.length,
     });
   } finally {
+    // Close the Playwright page's idle HTTP connections before awaiting shutdown.
+    // Otherwise server.close can hang on CI and consume the entire test timeout.
+    tempServer.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       tempServer.close((error) => error ? reject(error) : resolve()));
   }
@@ -1138,6 +1147,65 @@ test("approved test retains source instructions and Save as New keeps original",
   expect(copy.definition.workingInstructions).toContain("Additional notes for new version.");
 });
 
+test("approval and save readiness clearly explain required name and confirmations", async ({ page }) => {
+  await page.goto(url);
+  await page.getByLabel("Your test instructions").fill("Add a task and verify it is listed");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeDisabled();
+  await expect(page.locator("#save-readiness")).toContainText("Enter a Test name");
+  await page.locator("#test-name").fill("Approval regression check");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+});
+
+test("name entered before generation survives and save-area name enables approval and JSON save", async ({ page }) => {
+  await page.goto(url);
+  const originalName = page.getByLabel("Test name (required to save)").first();
+  await originalName.fill("Name supplied before generation");
+  await page.getByLabel("Your test instructions").fill("Add a task, then verify it is visible");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(originalName).toHaveValue("Name supplied before generation");
+  const saveName = page.locator("#save-test-name");
+  await expect(saveName).toHaveValue("Name supplied before generation");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  await expect(save).toBeEnabled();
+  await saveName.fill("Name edited next to save");
+  await expect(originalName).toHaveValue("Name edited next to save");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+});
+
+test("required inputs and missing-field guidance update beside generation and save actions", async ({ page }) => {
+  await page.goto(url);
+  await expect(page.getByLabel("Application URL")).toHaveAttribute("required", "");
+  await expect(page.locator("#requirements")).toHaveAttribute("required", "");
+  await expect(page.locator("#generate-readiness")).toContainText("test instructions");
+  await expect(page.locator("#requirements")).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("Your test instructions").fill("Add a task and verify it appears");
+  await expect(page.locator("#generate-readiness")).toContainText("Required generation fields complete");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
+  await expect(page.locator("#save-readiness")).toContainText("confirm 9 remaining steps");
+  await page.locator("#save-test-name").fill("Task flow");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.locator("#save-readiness")).toContainText("Ready to save");
+  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+});
+
 test("new test name entered before generation survives and permits saving and execution", async ({ page }) => {
   await page.goto(url);
   const name = page.getByLabel("Test name (required to save)");
@@ -1164,4 +1232,93 @@ test("new test name entered before generation survives and permits saving and ex
   const persisted = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
   expect(persisted.title).toBe("New test from instructions");
   expect(persisted.sourceInstructions).toContain("initial status");
+});
+
+test("failed regeneration removes prior successful draft and disables saving stale steps", async ({ page }) => {
+  await generateFixture(page);
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+
+  await page.route("**/api/generate", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        source: "groqcloud", category: "timeout",
+        error: "GroqCloud did not respond within 90 seconds.",
+      }),
+    });
+  });
+  await page.getByLabel("Your test instructions").fill("Add several items to basket.");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+
+  await expect(page.locator("#generation-error")).toContainText("GroqCloud request failed (timeout)");
+  await expect(page.locator("#generation-review-status")).toContainText(
+    "Generation failed. No draft steps are available from this attempt.");
+  await expect(page.locator("#draft")).toBeHidden();
+  await expect(page.locator("#step-list .step")).toHaveCount(0);
+  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.locator("#save-draft")).toBeDisabled();
+  await expect(page.locator("#generation-status")).toBeEmpty();
+  // The tester's latest instructions remain available to correct and retry.
+  await expect(page.getByLabel("Your test instructions")).toHaveValue("Add several items to basket.");
+  await page.unroute("**/api/generate");
+
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await expect(page.locator("#generation-error")).toBeEmpty();
+  await expect(page.locator("#generation-review-status")).toBeEmpty();
+});
+
+test("invalid new instructions also clear an earlier successful generation", async ({ page }) => {
+  await generateFixture(page);
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.getByLabel("Your test instructions").fill("");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-error")).toContainText("Enter 1–12,000 characters");
+  await expect(page.locator("#draft")).toBeHidden();
+  await expect(page.locator("#step-list .step")).toHaveCount(0);
+  await expect(page.locator("#save")).toBeDisabled();
+});
+
+test("URL input and recent website selector visually indicate only one active source", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("ai-ui-testing-agent.recent-application-urls", JSON.stringify([
+      "https://www.saucedemo.com/",
+      "https://example.test/catalog",
+    ]));
+  });
+  await page.goto(url);
+
+  const field = page.locator("#base-url");
+  const recent = page.locator("#recent-url");
+  await expect(field).not.toHaveClass(/url-source-inactive/);
+  await expect(recent).toHaveClass(/url-source-inactive/);
+  await expect(page.locator("#url-source-status")).toContainText("Using the URL entered above");
+
+  await recent.selectOption("https://www.saucedemo.com/");
+  await expect(field).toHaveValue("https://www.saucedemo.com/");
+  await expect(field).toHaveClass(/url-source-inactive/);
+  await expect(recent).not.toHaveClass(/url-source-inactive/);
+  await expect(page.locator("#url-source-status")).toContainText("Using the selected recent website");
+
+  // The muted field must still be clickable, allowing a new URL without
+  // needing to find a separate reset button.
+  await field.click();
+  await field.fill("https://another.example.test/app");
+  await expect(recent).toHaveValue("");
+  await expect(field).not.toHaveClass(/url-source-inactive/);
+  await expect(recent).toHaveClass(/url-source-inactive/);
+  await expect(page.locator("#url-source-status")).toContainText("Using the URL entered above");
+
+  // Users can always switch back to recent URLs.
+  await recent.selectOption("https://example.test/catalog");
+  await expect(field).toHaveValue("https://example.test/catalog");
+  await expect(field).toHaveClass(/url-source-inactive/);
+  await expect(recent).not.toHaveClass(/url-source-inactive/);
+  await recent.selectOption("");
+  await expect(field).not.toHaveClass(/url-source-inactive/);
+  await expect(recent).toHaveClass(/url-source-inactive/);
 });

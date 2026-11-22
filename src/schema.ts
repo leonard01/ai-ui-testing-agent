@@ -74,6 +74,8 @@ const action = z.discriminatedUnion("kind", [
     expected: z.number().int().min(0).max(100000), provenance }).strict(),
 ]);
 
+export const testStepSchema = z.object({ id: text, description: text, action }).strict();
+
 export const testDefinitionSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -95,7 +97,7 @@ export const testDefinitionSchema = z
     workingInstructions: z.string().max(12_000).optional(),
     requirements: z.array(requirement).max(40).optional(),
     steps: z
-      .array(z.object({ id: text, description: text, action }).strict())
+      .array(testStepSchema)
       .min(1)
       .max(100),
   })

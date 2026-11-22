@@ -118,7 +118,7 @@ Human-approved locator/expectation correction → rerun
 Reopen execution history or export standalone Playwright spec
 ```
 
-**Real AI generation:** In the UI choose **GroqCloud** and configure `GROQ_API_KEY` in a local `.env` file or your environment. Groq's free tier has provider-imposed limits; availability and quotas can change. The key remains in the local server and should **never** be committed. In the CLI, you can also explicitly choose **Ollama** (local model) or **OpenAI** (usage may incur charges). No cloud provider is selected automatically.
+**Real AI generation:** In the UI choose **GroqCloud**. Copy `.env.example` to `.env` in the repository root (`cp .env.example .env`), then set `GROQ_API_KEY` to your key from https://console.groq.com/keys. The optional `GROQ_MODEL` defaults to `openai/gpt-oss-20b`. Restart the app after editing `.env`; your local `.env` is gitignored and won't be overwritten by pulls. Alternatively, set `GROQ_API_KEY` in your environment. Groq's free tier has provider-imposed limits; availability and quotas can change. The key remains in the local server and should **never** be committed. In the CLI, you can also explicitly choose **Ollama** (local model) or **OpenAI** (usage may incur charges). No cloud provider is selected automatically.
 
 ## CLI and automation
 

@@ -11,6 +11,27 @@
     header { background:#153655; color:#fff; padding:22px max(calc((100% - 1060px)/2),24px); }
     header h1 { margin:0 0 5px; font-size:22px; letter-spacing:-.02em; }
     header p { margin:0; color:#d6e2ed; font-size:14px; }
+    .app-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+    #help-open { background:#fff; color:#153655; border:1px solid #cbd9e5; white-space:nowrap; }
+    #help-open:hover, #help-open:focus-visible { background:#e8f3fc; }
+    #help-dialog { width:min(620px,calc(100vw - 32px)); max-height:85vh; overflow:auto; border:1px solid #b8cbdc; border-radius:12px; padding:0; box-shadow:0 18px 50px #10253b55; color:#1c304b; }
+    #help-dialog::backdrop { background:#10243ca8; }
+    .help-inner { padding:25px 27px; }
+    .help-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .help-head h2 { font-size:21px; margin:0 0 10px; }
+    .help-close { flex:none; }
+    .help-inner h3 { font-size:15px; margin:20px 0 8px; }
+    .help-inner p, .help-inner li { font-size:13px; line-height:1.65; }
+    .help-inner ol, .help-inner ul { padding-left:22px; }
+    .help-inner li { margin:5px 0; }
+    .help-setup { border:2px solid #246c98; background:#e8f4ff; border-radius:10px; padding:16px 18px; margin:14px 0 20px; }
+    .help-setup h3 { font-size:17px; color:#153b5c; margin:0 0 8px; }
+    .help-setup p { margin:8px 0; }
+    .help-setup pre { background:#17324e; color:#fff; border-radius:7px; padding:12px 14px; overflow-x:auto; font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .help-setup a { color:#064e84; font-weight:700; text-decoration:underline; }
+    .help-setup code { font:12px ui-monospace,SFMono-Regular,Consolas,monospace; }
+
+    @media(max-width:520px) { .app-header { align-items:center; } .help-inner { padding:18px; } }
     main { max-width:1060px; margin:24px auto 50px; padding:0 20px; display:grid; gap:20px; grid-template-columns:minmax(290px, 390px) minmax(420px,1fr); align-items:start; }
     section { background:white; border:1px solid #dce3ed; border-radius:13px; padding:23px; box-shadow:0 4px 18px #16304e08; }
     h2 { font-size:17px; margin:0 0 6px; }
@@ -18,12 +39,23 @@
     label { display:block; font-size:13px; font-weight:650; margin:14px 0 6px; }
     input[type=url],textarea,select,input[type=text] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
     textarea { min-height:137px; resize:vertical; line-height:1.5; }
+    .url-source-inactive { background:#f1f4f7 !important; color:#8292a4 !important; border-color:#d7dfe8 !important; }
+    .url-source-inactive:focus { background:white !important; color:#1c304b !important; }
     input:focus, textarea:focus, select:focus { outline:2px solid #83c5d2; outline-offset:1px; }
     input[type=file] { max-width:100%; font-size:13px; }
     button { cursor:pointer; border:0; font-size:14px; font-weight:650; border-radius:8px; padding:11px 16px; background:#205e86; color:white; }
     button:disabled { cursor:not-allowed; opacity:.42; }
     .secondary { color:#205e86; border:1px solid #a3bace; background:#f7fafc; }
     .textbtn { border:0; padding:5px 8px; background:transparent; color:#1b668e; font-size:12px; }
+    .required-marker { color:#a22b3b; font-weight:700; }
+    .field-readiness { margin:8px 0 0; font-size:12px; color:#8a3441; line-height:1.5; }
+    .ai-progress { margin-top:14px; padding:14px 16px; border:2px solid #205e86; border-radius:9px; background:#e8f3fc; color:#153c60; font-size:14px; font-weight:700; line-height:1.5; }
+    .ai-progress[hidden] { display:none; }
+    .ai-progress::before { content:"◌ "; font-weight:900; }
+    .ai-feedback { margin-top:12px; padding:12px 14px; border:1px solid #c9d9e6; border-radius:8px; background:#f7fafc; color:#24425c; font-size:13px; line-height:1.5; white-space:pre-wrap; }
+    .ai-feedback[hidden] { display:none; }
+    .field-readiness.ready { color:#216745; }
+    .missing-field { border-color:#b44959 !important; }
     .muted { font-size:12px; color:#64748b; line-height:1.5; }
     .tip { padding:12px; border-radius:8px; background:#eff7f8; color:#2c5762; font-size:12px; margin-top:17px; }
     .note { padding:12px; border-radius:8px; background:#f8f4e8; color:#705c2f; font-size:12px; line-height:1.5; margin:10px 0; }
@@ -60,7 +92,7 @@
     #run-summary.run-passed { color:#17613b; background:#e7f8ee; border-color:#a5dbbc; }
     #run-summary.run-failed { color:#9f2236; background:#feeaed; border-color:#eab3be; }
     .artifact-links { display:flex; gap:16px; flex-wrap:wrap; margin:12px 0; font-size:13px; }
-    .repair-choice { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }
+    .incremental-editor { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }\n    .repair-choice { background:#f1f6fb; border:1px solid #b5cadd; padding:15px; border-radius:9px; margin:14px 0 5px; }
     .repair-choice h3 { margin:0 0 8px; font-size:14px; }
     .repair-choice fieldset { border:0; margin:0; padding:0; min-width:0; }
     .repair-choice legend { font-size:13px; font-weight:650; margin:0 0 10px; }
@@ -126,26 +158,73 @@
 </head>
 <body>
   <header>
-    <h1>AI UI Testing Agent · Test Draft Builder</h1>
-    <p>Describe a workflow in plain English, review proposed steps, then save a runnable test.</p>
+    <div class="app-header">
+      <div>
+        <h1>AI UI Testing Agent · Test Draft Builder</h1>
+        <p>Describe a workflow in plain English, review proposed steps, then save a runnable test.</p>
+      </div>
+      <button type="button" id="help-open" aria-haspopup="dialog" aria-controls="help-dialog">? Help</button>
+    </div>
   </header>
+  <dialog id="help-dialog" aria-labelledby="help-title" aria-describedby="help-intro">
+    <div class="help-inner">
+      <div class="help-head">
+        <h2 id="help-title">Using the AI UI Testing Agent</h2>
+        <button type="button" id="help-close" class="secondary help-close" aria-label="Close help">Close</button>
+      </div>
+      <aside class="help-setup" aria-labelledby="help-setup-title">
+        <h3 id="help-setup-title">First-time setup: GroqCloud API key</h3>
+        <p><strong>Required for AI generation.</strong> In the project root (the folder containing <code>package.json</code>), copy the tracked template <code>.env.example</code> to a new local file named <code>.env</code>:</p>
+        <pre><code>cp .env.example .env</code></pre>
+        <p>Open <code>.env</code> and replace the empty <code>GROQ_API_KEY</code> value with your personal API key:</p>
+        <pre><code>GROQ_API_KEY="gsk_your-actual-key"
+GROQ_MODEL=openai/gpt-oss-20b</code></pre>
+        <p><a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Create or manage your GroqCloud API key</a></p>
+        <p>Save <code>.env</code> and restart the local application server. <strong>Never share or commit your key or .env file.</strong> Git ignores <code>.env</code>, so future pulls can update <code>.env.example</code> without overwriting your local settings. The app reads your key on the server; do not paste it into test instructions.</p>
+        <p><strong>Optional:</strong> <code>GROQ_MODEL=openai/gpt-oss-20b</code> selects the model (already the default). The required variable is <code>GROQ_API_KEY</code>, <em>not</em> <code>GROK_API_KEY</code> (Grok/xAI is a different service).</p>
+        <p>Using the prewritten demonstration and executing already approved tests does <strong>not</strong> require an API key.</p>
+      </aside>
+      <p id="help-intro">This is a prototype for creating and running browser tests from plain-English instructions. You review and approve every generated step before it becomes an executable test.</p>
+      <h3>Quick start</h3>
+      <ol>
+        <li>Enter a test name, the application URL, and the actions and checks you want performed.</li>
+        <li>Choose GroqCloud to generate a draft with AI, or the prewritten demonstration to explore the review workflow without an AI call.</li>
+        <li>Inspect the proposed actions, targets, and assertions. Edit incorrect steps and confirm each step before saving.</li>
+        <li>Save the approved JSON test; select it under Run Tests to execute with Playwright and review results and failure evidence.</li>
+      </ol>
+      <h3>Editing and incremental regeneration</h3>
+      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI can replace one step or the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
+      <h3>Important limitations</h3>
+      <ul>
+        <li><strong>AI is non-deterministic.</strong> The same instructions may produce different actions or occasionally invalid output. Review steps and execution results rather than assuming they are correct.</li>
+        <li><strong>Selectors and expectations can be wrong.</strong> A successful AI response does not prove the test represents your intent; complex or dynamic sites may need manual edits or selector repair.</li>
+        <li><strong>Incremental regeneration sees the initial page snapshot, not the live page after preceding steps.</strong> Later-page controls may be missing from its context.</li>
+        <li><strong>Working instructions are an amendment history.</strong> Previous wording may remain even after steps are replaced. The reviewed steps determine what is executed.</li>
+        <li><strong>GroqCloud requires a configured API key and has rate/token limits.</strong> AI requests can fail, but manual review and execution of saved tests do not require a Groq call.</li>
+        <li><strong>Memory is experimental.</strong> Do not assume every previous interaction, site, or deployment has reusable verified memory.</li>
+      </ul>
+      <p class="muted">This prototype is intended for local development and evaluation. Only run tests against applications you are authorized to test.</p>
+    </div>
+  </dialog>
   <main>
     <section aria-labelledby="instructions-heading">
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
-      <label for="test-name">Test name (required to save)</label>
-      <input id="test-name" type="text" maxlength="200" placeholder="e.g. SD-001 — Successful login" autocomplete="off" required>
+      <label for="test-name">Test name <span class="required-marker">(required to save)</span></label>
+      <input id="test-name" type="text" maxlength="200" placeholder="Required for saving — e.g. SD-001 — Successful login" autocomplete="off" required>
       <form id="generate-form">
-        <label for="base-url">Application URL</label>
+        <label for="base-url">Application URL <span class="required-marker">(required)</span></label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
         <label for="recent-url">Recent websites</label>
         <select id="recent-url" aria-label="Choose a previously used website"><option value="">Choose a previous URL (optional)</option></select>
-        <label for="requirements">Your test instructions</label>
-        <textarea id="requirements" placeholder="Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
+        <p id="url-source-status" class="muted" role="status">Using the URL entered above. Select a recent website to switch.</p>
+        <label for="requirements">Your test instructions (working) <span class="required-marker">(required)</span></label>
+        <textarea id="requirements" required placeholder="Required — Example: Add a new user called Bob. Check that Bob appears in the list. Then delete Bob and verify the list is empty." aria-describedby="instruction-help"></textarea>
+        <p id="working-instructions-note" class="note" hidden><strong>Amendment history, not a consolidated specification.</strong> After incremental regeneration, the working instructions contain the original description plus later amendments. Some earlier instructions may have been replaced or discarded, so this text may contradict the current steps. The reviewed steps in Test Editor are the proposed executable test. The original instructions remain unchanged below; review the complete steps before saving.</p>
         <div id="original-instructions-panel" class="note" hidden>
           <strong>Original test instructions (read-only)</strong>
           <pre id="original-instructions" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
-          <p>Modify the editable instructions above to create a new interpretation; your original instructions stay preserved.</p>
+          <p>This preserves your initial intent as written, including steps later superseded by amendments. It is not necessarily the current executable test.</p>
         </div>
         <div id="instruction-help" class="muted">Plain English is fine. If the app has no user form, the AI may propose unsupported steps; review its output carefully.</div>
         <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
@@ -167,6 +246,7 @@
         </select>
         <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. If a draft fails schema validation, the generator makes at most one extra Groq model call to correct it (two calls maximum). The API key stays on your computer's local server.</div>
         <button type="submit" id="generate" style="margin-top:20px;width:100%">Generate draft</button>
+        <p id="generate-readiness" class="field-readiness" role="status"></p>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
@@ -175,6 +255,7 @@
       <h2 id="review-heading">Test Editor</h2>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <div id="placeholder">
+        <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
         <p class="muted">Choose a saved website suite and test script, or reopen an unfinished working draft. To create a new test, enter instructions on the left.</p>
         <div class="run-test-selectors">
@@ -205,6 +286,36 @@
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
         </div>
         <div id="step-list"></div>
+        <section id="incremental-panel" class="incremental-editor" hidden aria-labelledby="incremental-heading">
+          <h3 id="incremental-heading">Reinterpret steps with AI</h3>
+          <p id="incremental-context" class="muted"></p>
+          <label for="incremental-mode">Scope of changes</label>
+          <select id="incremental-mode">
+            <option value="step">Replace this step only</option>
+            <option value="from">Replace this step and all following steps</option>
+          </select>
+          <label for="incremental-instructions">New plain-English instructions for replacement steps <span class="required-marker">(required)</span></label>
+          <textarea id="incremental-instructions" rows="4" maxlength="12000" placeholder="Required — describe what should happen from this point onwards."></textarea>
+          <p class="muted">GroqCloud is used only when you click Generate replacement. Earlier approved steps stay unchanged. No test steps run during regeneration.</p>
+          <p class="note">Applying a replacement appends an amendment to Working test instructions; it does not erase superseded wording. The reviewed steps, not the combined prose, define what will execute.</p>
+          <div class="actions">
+            <button type="button" id="incremental-generate">Generate replacement</button>
+            <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
+          </div>
+          <p id="incremental-readiness" class="field-readiness" role="status"></p>
+          <p id="incremental-progress" class="ai-progress" role="status" aria-live="polite" hidden>Generating replacement steps with AI… This can take up to 90 seconds per attempt. Your existing steps remain unchanged.</p>
+          <p id="incremental-status" role="status" class="ai-feedback" hidden></p>
+          <div id="incremental-preview" hidden>
+            <h4>Review proposed replacement</h4>
+            <p id="incremental-diff" class="muted"></p>
+            <div id="incremental-proposed-steps"></div>
+            <div id="incremental-warnings" class="note"></div>
+            <div class="actions">
+              <button type="button" id="incremental-apply">Apply proposed steps (unapproved)</button>
+              <button type="button" id="incremental-discard" class="secondary">Discard proposal</button>
+            </div>
+          </div>
+        </section>
         <p id="review-progress" class="muted"></p>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
           <h3 id="traceability-heading">Requirements traceability (optional)</h3>
@@ -227,6 +338,8 @@
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
+        <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
+        <input id="save-test-name" type="text" maxlength="200" placeholder="Required — e.g. Add two tasks" autocomplete="off">
         <button id="save" disabled style="width:100%">Approve and save JSON test</button>
         <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
@@ -334,15 +447,24 @@
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
+    $("help-open").addEventListener("click", () => $("help-dialog").showModal());
+    $("help-close").addEventListener("click", () => $("help-dialog").close());
+    $("help-dialog").addEventListener("click", (event) => {
+      if (event.target === $("help-dialog")) $("help-dialog").close();
+    });
     let definition = null;
     let approvals = new Set();
     let selectedBaseURL = "";
+    let activeURLSource = "manual";
     let running = false;
     let selectedApprovedId = "";
     let approvedCatalog = [];
     let editingSavedId = null;
     let workingDraftId = null;
     let originalInstructions = undefined;
+    let incrementalSelectedId = null;
+    let incrementalPending = null;
+    let incrementalRevision = 0;
     let preflightRevision = 0;
 
     function make(tag, text, cls) {
@@ -373,6 +495,15 @@
       try { localStorage.setItem(RECENT_URLS_KEY, JSON.stringify(values)); }
       catch { /* Browser storage may be disabled; saved script URLs still work. */ }
     }
+    function setActiveURLSource(source) {
+      activeURLSource = source;
+      const usingRecent = source === "recent" && Boolean($("recent-url").value);
+      $("base-url").classList.toggle("url-source-inactive", usingRecent);
+      $("recent-url").classList.toggle("url-source-inactive", !usingRecent);
+      $("url-source-status").textContent = usingRecent
+        ? "Using the selected recent website. Click the URL field to enter a different address."
+        : "Using the URL entered above. Select a recent website to switch.";
+    }
     function renderRecentUrls() {
       const choices = $("recent-url");
       const previous = choices.value;
@@ -387,11 +518,14 @@
         option.value = url;
         choices.append(option);
       }
-      if (urls.includes(previous)) choices.value = previous;
+      if (activeURLSource === "recent" && urls.includes(previous)) choices.value = previous;
+      setActiveURLSource(activeURLSource === "recent" && choices.value ? "recent" : "manual");
     }
     function showOriginalInstructions() {
       const panel = $("original-instructions-panel");
       panel.hidden = !definition;
+      $("working-instructions-note").hidden = !definition ||
+        !($("requirements").value.includes("Incremental amendment ("));
       $("original-instructions").textContent =
         originalInstructions === undefined
           ? "Original instructions unavailable for this older saved test."
@@ -755,6 +889,10 @@
       card.append(edits);
     }
     function renderSteps() {
+      incrementalRevision++;
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      $("incremental-panel").hidden = true;
       const list = $("step-list");
       list.replaceChildren();
       for (const [index, step] of definition.steps.entries()) {
@@ -790,6 +928,25 @@
         edit.type = "button";
         edit.onclick = () => { edit.disabled = true; beginEdit(card, step, index); };
         card.append(edit);
+        if (index > 0) {
+          const reinterpret = make("button", "Reinterpret with AI", "textbtn");
+          reinterpret.type = "button";
+          reinterpret.addEventListener("click", () => {
+            incrementalRevision++;
+            incrementalSelectedId = step.id;
+            incrementalPending = null;
+            $("incremental-instructions").value = "";
+            $("incremental-preview").hidden = true;
+            $("incremental-status").textContent = "";
+            $("incremental-status").hidden = true;
+            $("incremental-context").textContent = "Starting at step " + (index + 1) +
+              ": " + step.description;
+            $("incremental-panel").hidden = false;
+            updateIncrementalReadiness();
+            $("incremental-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+          card.append(reinterpret);
+        }
         const label = make("label");
         const check = make("input");
         check.type = "checkbox";
@@ -805,6 +962,120 @@
       updateApproval();
       if (definition) renderTraceability();
     }
+    function closeIncremental() {
+      incrementalRevision++;
+      incrementalPending = null;
+      incrementalSelectedId = null;
+      $("incremental-panel").hidden = true;
+      $("incremental-preview").hidden = true;
+      $("incremental-status").textContent = "";
+    }
+    $("incremental-cancel").addEventListener("click", closeIncremental);
+    $("incremental-discard").addEventListener("click", () => {
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      $("incremental-status").textContent = "Proposed changes discarded. No steps were modified.";
+    });
+    function invalidateIncrementalPreview() {
+      if (!incrementalPending) return;
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      $("incremental-status").textContent =
+        "Scope or instructions changed. Generate another proposal before applying.";
+    }
+    $("incremental-mode").addEventListener("change", invalidateIncrementalPreview);
+    $("incremental-instructions").addEventListener("input", invalidateIncrementalPreview);
+    $("incremental-generate").addEventListener("click", async () => {
+      if (!definition || !incrementalSelectedId || running) return;
+      const instructions = $("incremental-instructions").value.trim();
+      updateIncrementalReadiness();
+      if (!instructions || instructions.length > 12000) {
+        $("incremental-status").textContent = "Enter instructions (up to 12,000 characters).";
+        return;
+      }
+      if ($("provider").value !== "groq") {
+        $("incremental-status").textContent =
+          "Choose GroqCloud under Generate with before using incremental AI generation.";
+        return;
+      }
+      incrementalPending = null;
+      $("incremental-preview").hidden = true;
+      const revision = ++incrementalRevision;
+      const stepId = incrementalSelectedId;
+      const mode = $("incremental-mode").value;
+      const sourceSignature = JSON.stringify({ definition, approvals: [...approvals].sort() });
+      $("incremental-generate").disabled = true;
+      $("incremental-progress").hidden = false;
+      $("incremental-status").hidden = true;
+      $("incremental-status").textContent = "";
+      $("incremental-generate").textContent = "Generating replacement…";
+      try {
+        const result = await requestJSON("/api/regenerate-steps", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            definition, baseURL: selectedBaseURL,
+            stepId, mode, instructions, provider: "groq",
+            approvedStepIds: [...approvals].map(index => definition.steps[index].id),
+          }),
+        });
+        if (revision !== incrementalRevision) return;
+        incrementalPending = { result, instructions, mode, sourceSignature };
+        const box = $("incremental-proposed-steps");
+        box.replaceChildren();
+        for (const [index, step] of result.replacement.entries()) {
+          const item = make("div", null, "run-step");
+          item.append(make("strong", "New step " + (index + 1) + ": " + step.description));
+          item.append(make("div", describeAction(step.action), "action"));
+          box.append(item);
+        }
+        $("incremental-diff").textContent = "Replacing " + result.removed.length +
+          " step(s) with " + result.replacement.length + " proposed step(s). " +
+          result.preservedApprovedStepIds.length + " previously approved step(s) preserved.";
+        $("incremental-warnings").textContent = result.warnings.join(" ");
+        $("incremental-preview").hidden = false;
+        $("incremental-status").hidden = false;
+        $("incremental-status").textContent =
+          "Proposal ready for review. No test has been changed, saved, or executed.";
+      } catch (error) {
+        if (revision === incrementalRevision) {
+          $("incremental-status").hidden = false;
+          $("incremental-status").textContent = error.message || String(error);
+        }
+      } finally {
+        $("incremental-progress").hidden = true;
+        $("incremental-generate").textContent = "Generate replacement";
+        $("incremental-generate").disabled = false;
+      }
+    });
+    $("incremental-apply").addEventListener("click", () => {
+      if (!incrementalPending || !definition) return;
+      const { result, instructions, mode, sourceSignature } = incrementalPending;
+      if (JSON.stringify({ definition, approvals: [...approvals].sort() }) !== sourceSignature) {
+        $("incremental-status").textContent =
+          "The test or approvals changed since this proposal was generated. Generate another proposal.";
+        incrementalPending = null;
+        $("incremental-preview").hidden = true;
+        return;
+      }
+      const preserved = new Set(result.preservedApprovedStepIds);
+      definition = result.definition;
+      approvals = new Set(definition.steps.flatMap((step, index) =>
+        preserved.has(step.id) ? [index] : []));
+      // Preserve the original request untouched; working instructions retain
+      // the tester's later amendments for future review and full regeneration.
+      const scope = mode === "step" ? "one step" : "remaining steps";
+      const amendment = "Incremental amendment (" + scope + "): " + instructions;
+      const current = $("requirements").value;
+      $("requirements").value = [current, amendment].filter(Boolean).join("\n\n");
+      definition.workingInstructions = $("requirements").value;
+      $("working-instructions-note").hidden = false;
+      clearPreflight();
+      renderSteps();
+      $("draft-hint").textContent = "AI replacement applied as unapproved steps. " +
+        "Review new assertions and save a working draft, or approve all intended steps to save a runnable test.";
+      $("draft-save-status").textContent = "Unsaved incremental changes. Use Save Working Draft to preserve them.";
+    });
     function clearPreflight() {
       preflightRevision++;
       $("selector-preflight-status").textContent = "";
@@ -944,15 +1215,24 @@
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
       const missingName = !$("test-name").value.trim();
+      if ($("save-test-name").value !== $("test-name").value) {
+        $("save-test-name").value = $("test-name").value;
+      }
       const remaining = Math.max(0, total - approvals.size);
+      $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
+      $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
+      const missing = [
+        ...(missingName ? ["enter a Test name above"] : []),
+        ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
+          (remaining === 1 ? "" : "s")] : []),
+      ];
       $("save-readiness").textContent = total === 0
         ? "Generate a test to begin review."
-        : missingName
-          ? "Enter a Test name in Test Instructions to enable saving."
-          : remaining
-            ? "Confirm " + remaining + " remaining step" + (remaining === 1 ? "" : "s") +
-              " to enable saving and execution. Save Working Draft to continue later."
-            : "Ready to save. The test will then appear in Run Tests for execution.";
+        : missing.length
+          ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
+            ". Save Working Draft to continue later once a name is entered."
+          : "Ready to save. The test will then appear in Run Tests for execution.";
+      $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       $("save").disabled = total === 0 || approvals.size !== total ||
         !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
@@ -961,6 +1241,43 @@
         !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
+      $("save-error").textContent = "";
+      updateApproval();
+    });
+    function updateGenerateReadiness() {
+      const missing = [];
+      if (!validRecentUrl($("base-url").value)) missing.push("a valid Application URL");
+      const instructions = $("requirements").value.trim();
+      if (!instructions || instructions.length > 12000) missing.push("test instructions (1–12,000 characters)");
+      $("generate-readiness").textContent = missing.length
+        ? "Before generating, enter " + missing.join(" and ") + "."
+        : "Required generation fields complete.";
+      $("generate-readiness").classList.toggle("ready", !missing.length);
+      for (const id of ["base-url", "requirements"]) {
+        const invalid = id === "base-url" ? !validRecentUrl($("base-url").value) :
+          !instructions || instructions.length > 12000;
+        $(id).classList.toggle("missing-field", invalid);
+        $(id).setAttribute("aria-invalid", String(invalid));
+      }
+    }
+    function updateIncrementalReadiness() {
+      const instructions = $("incremental-instructions").value.trim();
+      const missing = !instructions || instructions.length > 12000;
+      $("incremental-readiness").textContent = missing
+        ? "Required before Generate replacement: enter replacement instructions (1–12,000 characters)."
+        : "Required replacement instructions complete.";
+      $("incremental-readiness").classList.toggle("ready", !missing);
+      $("incremental-instructions").classList.toggle("missing-field", missing);
+      $("incremental-instructions").setAttribute("aria-invalid", String(missing));
+    }
+    for (const id of ["base-url", "requirements"]) {
+      $(id).addEventListener("input", updateGenerateReadiness);
+    }
+    $("incremental-instructions").addEventListener("input", updateIncrementalReadiness);
+    updateGenerateReadiness();
+    updateIncrementalReadiness();
+    $("save-test-name").addEventListener("input", () => {
+      $("test-name").value = $("save-test-name").value;
       $("save-error").textContent = "";
       updateApproval();
     });
@@ -1937,11 +2254,25 @@
       if (selected?.sourceUrl) $("base-url").value = selected.sourceUrl;
       updateRunButton();
     });
-    $("base-url").addEventListener("input", updateRunButton);
+    $("base-url").addEventListener("focus", () => {
+      if (activeURLSource === "recent") {
+        $("recent-url").value = "";
+        setActiveURLSource("manual");
+      }
+    });
+    $("base-url").addEventListener("input", () => {
+      $("recent-url").value = "";
+      setActiveURLSource("manual");
+      updateRunButton();
+    });
     $("recent-url").addEventListener("change", () => {
-      if (!$("recent-url").value) return;
-      $("base-url").value = $("recent-url").value;
-      $("base-url").dispatchEvent(new Event("input", { bubbles: true }));
+      if ($("recent-url").value) {
+        $("base-url").value = $("recent-url").value;
+        setActiveURLSource("recent");
+      } else {
+        setActiveURLSource("manual");
+      }
+      updateRunButton();
     });
     $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
@@ -2108,6 +2439,33 @@
       $("generation-error").textContent = "";
       event.target.value = "";
     });
+    function clearGenerationPreview() {
+      // A previous successful attempt must never masquerade as the new draft.
+      // Do NOT clear persisted approved tests, execution history or input text.
+      definition = null;
+      approvals = new Set();
+      editingSavedId = null;
+      workingDraftId = null;
+      originalInstructions = undefined;
+      selectedBaseURL = "";
+      $("draft").hidden = true;
+      $("placeholder").hidden = false;
+      $("step-list").replaceChildren();
+      $("draft-title").textContent = "";
+      $("draft-hint").textContent = "";
+      $("draft-save-status").textContent = "";
+      $("review-progress").textContent = "";
+      $("requirement-lines").value = "";
+      $("traceability-note").textContent = "";
+      $("traceability-list").replaceChildren();
+      $("traceability-summary").textContent = "";
+      $("saved").replaceChildren();
+      $("save-error").textContent = "";
+      $("generation-review-status").textContent = "No new test draft is available.";
+      showOriginalInstructions();
+      clearPreflight();
+      updateApproval();
+    }
     $("check-application-memory").addEventListener("click", async () => {
       const status = $("application-memory-status");
       if (!$("use-application-memory").checked) {
@@ -2130,18 +2488,26 @@
     });
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      clearGenerationPreview();
       $("generation-error").textContent = "";
       $("saved").replaceChildren();
       $("save-error").textContent = "";
       const requirements = $("requirements").value.trim();
+      updateGenerateReadiness();
       if (!requirements || requirements.length > 12_000) {
         $("generation-error").textContent = "Enter 1–12,000 characters of test instructions.";
         return;
       }
       const baseURL = $("base-url").value;
+      if (!validRecentUrl(baseURL)) {
+        $("generation-error").textContent = "Enter a valid Application URL before generating.";
+        return;
+      }
       const provider = $("provider").value;
       $("generate").disabled = true;
-      $("generation-status").textContent = "Inspecting page and generating draft...";
+      $("generation-status").classList.add("ai-progress");
+      $("generation-status").textContent = "Generating test steps with AI… Inspecting the application and preparing a draft. No test has been modified.";
+      $("generation-review-status").textContent = "Generating a new draft; previous steps have been cleared.";
       try {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -2171,8 +2537,6 @@
         definition = data.definition;
         if (!wasEditing) {
           originalInstructions = requirements;
-          // The test name is entered ABOVE the generation form; do not erase
-          // the user's name after generating a new test.
           workingDraftId = null;
           editingSavedId = null;
         }
@@ -2193,6 +2557,7 @@
         updateRunButton();
         $("placeholder").hidden = true;
         $("draft").hidden = false;
+        $("generation-review-status").textContent = "";
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
         $("draft-hint").textContent = data.message;
         const memoryHints = $("use-application-memory").checked ? data.memorySuggestions ?? [] : [];
@@ -2203,9 +2568,12 @@
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "");
       } catch(error) {
+        clearGenerationPreview();
+        $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
       } finally {
+        $("generation-status").classList.remove("ai-progress");
         $("generate").disabled = false;
       }
     });
