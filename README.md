@@ -214,7 +214,7 @@ This prototype is meant to **demonstrate an end-to-end QA workflow**, not replac
 - **Playwright-backed execution only.** Additional runner backends, framework integrations and exporters beyond Playwright are not yet implemented.
 - **Human oversight is required.** AI-generated steps and expectations can be incorrect. `Add All` is a bulk reviewer action, not independent validation. A green execution does not prove that requirements were specified correctly.
 - **Live AI quality is not benchmarked.** CI uses fixtures/mocks rather than paid model calls. Real hosted-model output and reliability on arbitrary websites need further evaluation.
-- **Web UI testing only.** No API/mobile/load testing, automatic exploration, recording browser interactions or interactive human–AI browser takeover in v0.1.
+- **Web UI testing only.** No API/mobile/load testing, automatic exploration, recording browser interactions or interactive human–AI browser takeover in the current release candidate.
 - **Protected production websites are not reliable demo targets.** The tool does not bypass CAPTCHA, robot checks, access controls or anti-bot protection. Prefer test environments and official test fixtures.
 - **Selector repairs can be fragile.** Numbered choices for identically named elements rely on DOM order and can break if the page changes. Human approval and subsequent reruns remain necessary.
 - **Execution history is operational, not an immutable audit log.** Replacing a saved test may remove the superseded test and some related evidence. Removing an approved website suite does **not** automatically erase its history; **Delete All History** is a separate, global action.
