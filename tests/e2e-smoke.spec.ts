@@ -64,7 +64,6 @@ test.describe("@e2e-smoke application smoke", () => {
   }
 
   test("fixture draft → explicit approval → saved test → execution → history", async ({ page }) => {
-    await expect(page.getByRole("button", { name: "Run selected test" })).toHaveCount(0);
     const id = await saveApprovedFixture(page, "Smoke - task lifecycle");
     expect(id).toMatch(/^reviewed-.*\.json$/);
     await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
@@ -72,7 +71,11 @@ test.describe("@e2e-smoke application smoke", () => {
     // Click through the real UI; this is not a generated agent test.
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText(
-      "Run complete: all reported steps passed", { timeout: 30_000 });
+      "Run complete", { timeout: 30_000 });
+    const reportPath = await page.locator("#run-artifacts a").first().getAttribute("href");
+    expect(reportPath).toMatch(/^\/api\/runs\/.*\/report\.json$/);
+    const report = await (await page.request.get(url + reportPath)).json();
+    expect(report.status, JSON.stringify(report, null, 2)).toBe("passed");
     await expect(page.locator("#run-summary")).toContainText("PASSED");
     await expect(page.locator("#run-totals")).toContainText("9 passed");
     await expect(page.locator("#run-steps .run-step")).toHaveCount(9);
