@@ -47,9 +47,11 @@ export async function inspectApplication(
   try {
     await context.route("**/*", (route) => {
       try {
-        return new URL(route.request().url()).origin === destination.origin
-          ? route.continue()
-          : (blockedCrossOriginRequests++, route.abort("blockedbyclient"));
+        if (new URL(route.request().url()).origin === destination.origin) {
+          return route.continue();
+        }
+        blockedCrossOriginRequests++;
+        return route.abort("blockedbyclient");
       } catch {
         return route.abort("blockedbyclient");
       }
