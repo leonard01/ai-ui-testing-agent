@@ -26,6 +26,45 @@ test.afterAll(async () => {
   await rm(outputDir, { recursive: true, force: true });
 });
 
+
+test("initial page JavaScript exception is explained separately from selector defects", async ({ page }) => {
+  const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  const snapshot = {
+    url: "http://127.0.0.1:3000/", title: "Test app",
+    headings: ["Task list"], controls: [], statusText: [], sampleText: [],
+    inspection: {
+      mainDocumentStatus: 200, pageErrors: 1,
+      allowedCrossOriginRequests: 0, blockedCrossOriginRequests: 0,
+      pageErrorSummaries: ["TypeError: Cannot read properties of undefined"],
+    },
+  };
+  await page.goto(url);
+  await page.route("**/api/generate", route => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({
+      definition, needsReview: true, provider: "groq", generationAttempts: 1,
+      memorySuggestions: [], diagnostics: {
+        provider: "groq", model: "mock", attempts: 1, snapshot,
+        warnings: ["The website raised 1 JavaScript exception(s) while loading. This does NOT mean a test step or selector has failed. Open Generation diagnostics for the redacted error summary, then use Check selectors (read-only) to inspect starting-page targets before approving."],
+      },
+      message: "AI-generated draft",
+    }),
+  }));
+  await page.getByLabel("Your test instructions").fill("Add a task");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#draft-quality-warnings")).toContainText(
+    "does NOT mean a test step or selector has failed");
+  await expect(page.locator("#generation-page-error-summary")).toContainText(
+    "TypeError: Cannot read properties of undefined");
+  await expect(page.locator("#draft-preflight-panel")).toBeVisible();
+  const preflightBeforeSteps = await page.locator("#draft-preflight-panel").evaluate(
+    element => !!(element.compareDocumentPosition(document.querySelector("#step-list")) &
+      Node.DOCUMENT_POSITION_FOLLOWING));
+  expect(preflightBeforeSteps).toBe(true);
+  await expect(page.locator("#save")).toBeDisabled();
+});
+
 async function generateFixture(page: import("@playwright/test").Page) {
   await page.goto(url);
   await page.getByLabel("Your test instructions").fill(
@@ -57,7 +96,9 @@ test("read-only selector preflight suggests an Add button when generated label i
   await expect(page.locator("#saved")).toBeEmpty();
   await expect(page.locator("#run-status")).toContainText("Select an approved test");
 
-  await addStep.getByRole("button", { name: "Edit fields" }).click();
+  // The warning links directly to its editable step, before any execution.
+  await page.getByRole("button", { name: "Review step 4" }).click();
+  await expect(addStep.getByLabel("Locator strategy")).toHaveValue("label");
   await addStep.getByLabel("Locator strategy").selectOption("role");
   await addStep.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#selector-preflight-status")).toBeEmpty();
