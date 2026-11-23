@@ -5,7 +5,7 @@ import { loadEnvFile } from "node:process";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
+import { generateDraft, GeneratedDraftValidationError, InspectionAccessError, type ModelProvider } from "./generation.js";
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
@@ -1528,7 +1528,17 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             message: "Incremental AI proposal ready. Nothing has been saved or approved.",
           });
         } catch (error) {
-          if (error instanceof GroqProviderError) {
+          if (error instanceof InspectionAccessError) {
+            json(res, 502, {
+              source: error.source,
+              category: error.category,
+              siteStatus: error.siteStatus,
+              blockedCrossOriginRequests: error.blockedCrossOriginRequests,
+              allowedCrossOriginRequests: error.allowedCrossOriginRequests,
+              pageErrors: error.pageErrors,
+              error: error.message,
+            });
+          } else if (error instanceof GroqProviderError) {
             json(res, 502, {
               source: error.source, providerStatus: error.httpStatus,
               category: error.category, error: error.message,
