@@ -39,7 +39,7 @@ export interface AmbiguousResolution {
 /** Original failed locator plus candidates discovered at the failure point. */
 export type ExplicitTarget =
   | { by: "role"; role: NonNullable<IntentTarget["role"]>; name?: string; nth?: number }
-  | { by: "label" | "placeholder" | "text"; value: string };
+  | { by: "label" | "placeholder" | "text" | "testid" | "id" | "css" | "xpath"; value: string };
 export interface MissingLocatorChoices {
   attempted: ExplicitTarget;
   candidates: AmbiguousCandidate[];
