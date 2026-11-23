@@ -59,8 +59,11 @@ test("initial page JavaScript exception is explained separately from selector de
     "TypeError: Cannot read properties of undefined");
   await expect(page.locator("#draft-preflight-panel")).toBeVisible();
   const preflightBeforeSteps = await page.locator("#draft-preflight-panel").evaluate(
-    element => !!(element.compareDocumentPosition(document.querySelector("#step-list")) &
-      Node.DOCUMENT_POSITION_FOLLOWING));
+    element => {
+      const steps = document.querySelector("#step-list");
+      return !!steps && !!(element.compareDocumentPosition(steps) &
+        Node.DOCUMENT_POSITION_FOLLOWING);
+    });
   expect(preflightBeforeSteps).toBe(true);
   await expect(page.locator("#save")).toBeDisabled();
 });
