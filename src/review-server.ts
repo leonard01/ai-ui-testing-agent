@@ -1528,17 +1528,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             message: "Incremental AI proposal ready. Nothing has been saved or approved.",
           });
         } catch (error) {
-          if (error instanceof InspectionAccessError) {
-            json(res, 502, {
-              source: error.source,
-              category: error.category,
-              siteStatus: error.siteStatus,
-              blockedCrossOriginRequests: error.blockedCrossOriginRequests,
-              allowedCrossOriginRequests: error.allowedCrossOriginRequests,
-              pageErrors: error.pageErrors,
-              error: error.message,
-            });
-          } else if (error instanceof GroqProviderError) {
+          if (error instanceof GroqProviderError) {
             json(res, 502, {
               source: error.source, providerStatus: error.httpStatus,
               category: error.category, error: error.message,
@@ -1590,7 +1580,17 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 : "AI-generated draft. Verify each step and inferred assertion before approving.",
           });
         } catch (error) {
-          if (error instanceof GroqProviderError) {
+          if (error instanceof InspectionAccessError) {
+            json(res, 502, {
+              source: error.source,
+              category: error.category,
+              siteStatus: error.siteStatus,
+              blockedCrossOriginRequests: error.blockedCrossOriginRequests,
+              allowedCrossOriginRequests: error.allowedCrossOriginRequests,
+              pageErrors: error.pageErrors,
+              error: error.message,
+            });
+          } else if (error instanceof GroqProviderError) {
             // Upstream 400 is NOT invalid local user input: distinguish origins.
             json(res, 502, {
               source: error.source,
