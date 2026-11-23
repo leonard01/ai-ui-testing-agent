@@ -63,6 +63,15 @@
     .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .error:empty, .success:empty { display:none; }
     #draft-quality-warnings { white-space:pre-wrap; border-left:4px solid #c07d12; font-size:13px; }
+    .critical-blockers { margin:14px 0; padding:16px 18px; background:#fff0f1;
+      border:2px solid #b42339; border-left:7px solid #b42339; border-radius:10px;
+      color:#811b2b; }
+    .critical-blockers[hidden] { display:none; }
+    .critical-blockers h3 { margin:0 0 8px; font-size:17px; color:#811b2b; }
+    .critical-blockers p { margin:8px 0; font-size:13px; line-height:1.6; }
+    .critical-blockers .actions button { background:#fff; color:#8d1b2e;
+      border:1px solid #b42339; }
+    .critical-blockers .actions button:focus-visible { outline:3px solid #b42339; outline-offset:2px; }
     #generation-diagnostics { margin:12px 0; padding:12px 14px; border:1px solid #bfd0e0; border-radius:9px; background:#f8fbfe; }
     #generation-diagnostics summary { cursor:pointer; font-weight:650; font-size:13px; color:#205e86; }
     #generation-diagnostics pre { max-height:250px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.45 ui-monospace,Consolas,monospace; background:#eff3f8; border-radius:7px; padding:10px; }
@@ -289,6 +298,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
+        <div id="draft-critical-blockers" class="critical-blockers" role="alert" aria-live="polite" hidden></div>
         <div id="draft-quality-warnings" class="note" role="status" hidden></div>
         <p id="generation-page-error-summary" class="muted" role="status" hidden></p>
         <details id="generation-diagnostics" hidden>
@@ -1267,6 +1277,59 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         (cleared ? " " + cleared + " changed requirements had their previous links cleared." : "");
       renderTraceability();
     });
+    // Mirrors the server-side credential safety gate. Check field descriptions
+    // and explicit placeholders only: never send values to a model or diagnostic.
+    function unresolvedLoginCredentialSteps() {
+      if (!definition) return [];
+      const descriptor = step => {
+        const target = step.action.target;
+        const name = target && ("value" in target ? target.value : target.name || "");
+        return (name || "") + " " + step.description;
+      };
+      const passwordField = /\b(pass[\s_-]?(?:word|code)|pwd|one[\s_-]?time[\s_-]?(?:password|code)|otp|verification[\s_-]?code|auth[\s_-]?token)\b/i;
+      const usernameField = /\b(user[\s_-]?name|login[\s_-]?(?:id|name)|account[\s_-]?name)\b/i;
+      const loginFlow = definition.steps.some(step =>
+        /\b(log[\s_-]?in|sign[\s_-]?in|authenticate|authentication)\b/i.test(step.description) ||
+        (step.action.kind === "fill" && /\b(pass[\s_-]?word|pwd)\b/i.test(descriptor(step))));
+      return definition.steps.flatMap((step, index) => {
+        if (step.action.kind !== "fill") return [];
+        const value = step.action.value.trim();
+        const placeholder = /^(?:REPLACE_WITH_.*|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD)|<[^>]+>)$/i.test(value);
+        const label = descriptor(step);
+        const isCredential = passwordField.test(label) || usernameField.test(label) ||
+          (loginFlow && /\b(user|email|email[\s_-]?address)\b/i.test(label));
+        return placeholder || (isCredential && !value) ? [index + 1] : [];
+      });
+    }
+    function renderCriticalBlockers(steps) {
+      const panel = $("draft-critical-blockers");
+      panel.replaceChildren();
+      panel.hidden = steps.length === 0;
+      if (!steps.length) return;
+      panel.append(make("h3", "⛔ Cannot save or run — " + steps.length +
+        " unresolved login credential " + (steps.length === 1 ? "step" : "steps")));
+      panel.append(make("p",
+        "AI-proposed login values were replaced with placeholders for safety. " +
+        "Save Test and Save & Run are disabled until you enter approved credentials " +
+        "and review the affected steps. Save Draft is still allowed."));
+      panel.append(make("p", "Action required: fix step" + (steps.length === 1 ? " " : "s ") +
+        steps.join(", ") + ". This is a blocking validation issue, not a test execution failure."));
+      const buttons = make("div", null, "actions");
+      for (const number of steps) {
+        const review = make("button", "Edit step " + number, "secondary");
+        review.type = "button";
+        review.addEventListener("click", () => {
+          const card = document.querySelectorAll("#step-list .step")[number - 1];
+          if (!card) return;
+          card.scrollIntoView({ behavior:"smooth", block:"center" });
+          const edit = Array.from(card.querySelectorAll("button"))
+            .find(button => button.textContent.trim() === "Edit fields");
+          if (edit) edit.click();
+        });
+        buttons.append(review);
+      }
+      panel.append(buttons);
+    }
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
@@ -1277,9 +1340,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const remaining = Math.max(0, total - approvals.size);
       $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
-      const credentialReview = !!definition?.steps.some(step =>
-        step.action.kind === "fill" &&
-        /^(?:REPLACE_WITH_YOUR_(?:USERNAME|PASSWORD)|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD))$/i.test(step.action.value.trim()));
+      const unresolvedCredentials = unresolvedLoginCredentialSteps();
+      const credentialReview = unresolvedCredentials.length > 0;
+      renderCriticalBlockers(unresolvedCredentials);
       const missing = [
         ...(missingName ? ["enter a Test name above"] : []),
         ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
@@ -1290,7 +1353,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         ? "Generate a test to begin review."
         : missing.length
           ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
-            ". Save Working Draft to continue later once a name is entered."
+            ". Save Draft is available for unfinished work once a name is entered."
           : "Ready to save or run. Save & Run will save the reviewed test and automatically show the execution results below.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       const cannotSave = saving || running || total === 0 || approvals.size !== total ||
@@ -2568,7 +2631,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         ? evidence.warnings.filter(item => typeof item === "string") : [];
       const notice = $("draft-quality-warnings");
       notice.textContent = warnings.length
-        ? "Review before approving — " + warnings.length + " potential quality issue(s):\n" +
+        ? "Advisory review notes — " + warnings.length + " potential quality issue(s):\n" +
           warnings.map((warning, i) => (i + 1) + ". " + warning).join("\n")
         : "";
       notice.hidden = warnings.length === 0;
