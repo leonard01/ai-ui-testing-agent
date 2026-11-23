@@ -652,8 +652,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("draft-list-status").textContent = data.drafts.length +
         " working draft" + (data.drafts.length === 1 ? "" : "s") + " available." +
         (data.skippedInvalid ? " WARNING: " + data.skippedInvalid +
-          " saved draft file(s) could not be read. Check the review server logs." : "");
-      $("draft-list-status").classList.toggle("error", Boolean(data.skippedInvalid));
+          " saved draft file(s) could not be read; the server did not include them." : "") +
+        (data.skippedOverflow ? " WARNING: " + data.skippedOverflow +
+          " draft(s) exceed the current index limit." : "");
+      $("draft-list-status").classList.toggle("error",
+        Boolean(data.skippedInvalid || data.skippedOverflow));
       renderExistingEditorChoices();
       if (selected) {
         const item = draftCatalog.find(item => item.id === selected);
@@ -741,15 +744,24 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             ...(editingSavedId ? { sourceApprovedId: editingSavedId } : {}),
           }),
         });
+        if (!result.listed || !result.id || !result.file) {
+          throw new Error("The server did not verify that this working draft is saved and listed.");
+        }
         workingDraftId = result.id;
         await refreshDraftPicker(result.id);
-        const listed = $("draft-select").value === result.id;
-        $("draft-save-status").textContent = listed
-          ? "Working draft saved (" + approvals.size + "/" + definition.steps.length +
-            " approved) and selected under Saved working drafts above. You can resume it after restarting the server."
-          : "Draft save returned success, but the new draft was not found in the list. Refresh the draft list and check again.";
-        if (!listed) $("draft-save-status").classList.add("error");
-        else $("draft-save-status").classList.remove("error");
+        const listed = draftCatalog.some(item => item.id === result.id) &&
+          $("draft-select").value === result.id &&
+          $("edit-script").value === result.id;
+        if (!listed) {
+          throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and try Refresh drafts.");
+        }
+        $("draft-save-status").classList.remove("error");
+        $("draft-save-status").textContent = "Working draft saved and verified (" +
+          approvals.size + "/" + definition.steps.length + " approved). " +
+          "Listed as [Draft — not runnable] in Edit Existing Test, and selected " +
+          "under Saved working drafts. File: " + result.file;
+        $("working-drafts-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+        $("draft-select").focus({ preventScroll: true });
       } catch(error) {
         $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
