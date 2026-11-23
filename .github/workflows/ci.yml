@@ -35,6 +35,8 @@ jobs:
         run: npm run build
       - name: Validate case schema and rejection before browser launch
         run: npm run test:unit
+      - name: Run independent Playwright E2E smoke gate
+        run: npm run test:smoke
       - name: Run browser and structured runner tests
         run: npm test
       - name: Upload browser reports and evidence
