@@ -1,5 +1,6 @@
 import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
+import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { parseTestDefinition } from "./schema.js";
 
 /** Generating source is deterministic and never launches a browser or contacts a model. */
@@ -194,6 +195,22 @@ function exportAction(action: TestAction, base: URL): string[] {
       "// Assertion provenance: " + action.provenance,
       "await expect(page).toHaveURL(sameOriginURL(" + literal(portablePath(action.expected, base)) +
       "), { timeout: STEP_TIMEOUT });",
+    ];
+  }
+  if (action.kind === "assert-text" && action.scope === "search-results") {
+    const escaped = action.expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    return [
+      "// Assertion provenance: " + action.provenance,
+      "// Only identifiable search-result cards count; never the query box or whole page.",
+      "const resultCards = page.locator(" + literal(SEARCH_RESULT_ITEM_SELECTOR) + ");",
+      "const resultPattern = new RegExp(" + literal(escaped) + ", 'i');",
+      "await expect.poll(async () => {",
+      "  const matching = resultCards.filter({ hasText: resultPattern });",
+      "  for (let i = 0; i < await matching.count(); i++) {",
+      "    if (await matching.nth(i).isVisible()) return true;",
+      "  }",
+      "  return false;",
+      "}, { timeout: STEP_TIMEOUT }).toBe(true);",
     ];
   }
   const operation = action.kind === "uncheck" ? "check" : action.kind === "assert-count"
