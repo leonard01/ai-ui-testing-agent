@@ -38,6 +38,28 @@ async function generateFixture(page: import("@playwright/test").Page) {
   await page.locator("#test-name").fill("Add, complete and delete a task");
 }
 
+test("test-design issues panel highlights CSS/XPath brittleness and links to step editor", async ({ page }) => {
+  await generateFixture(page);
+  const card = page.locator("#step-list .step").nth(3);
+  await card.getByRole("button", { name: "Edit fields" }).click();
+  await card.getByLabel("Locator strategy").selectOption("css");
+  await card.getByLabel("CSS selector").fill("form > div:nth-child(2) button");
+  await card.getByRole("button", { name: "Apply changes" }).click();
+  await expect(card).toContainText("CSS fallback");
+  const panel = page.locator("#test-design-issues");
+  await panel.locator("summary").click();
+  await expect(panel).toContainText("may break when the UI changes");
+  const review = panel.getByRole("button", {name:"Review step 4"});
+  await review.click();
+  await expect(card.getByLabel("CSS selector")).toHaveValue("form > div:nth-child(2) button");
+  await card.getByLabel("Locator strategy").selectOption("xpath");
+  await card.getByLabel("XPath expression").fill("//form//button[2]");
+  await card.getByRole("button", { name: "Apply changes" }).click();
+  await expect(card).toContainText("XPath fallback");
+  await expect(panel).toContainText("XPath uses positional or structural relationships");
+  await expect(page.getByRole("button",{name:"Approve and save JSON test"})).toBeDisabled();
+});
+
 test("read-only selector preflight suggests an Add button when generated label is wrong", async ({ page }) => {
   await generateFixture(page);
   const addStep = page.locator(".step").nth(3);
