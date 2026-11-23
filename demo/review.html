@@ -295,6 +295,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <strong>Validated generated JSON</strong>
           <pre id="generation-diagnostics-output"></pre>
         </details>
+        <details id="test-design-issues" style="margin:12px 0;padding:12px 14px;border:1px solid #bfd0e0;border-radius:9px;background:#f8fbfe">
+          <summary id="test-design-issues-summary" style="cursor:pointer;font-weight:650;color:#205e86">Test design issues — no draft yet</summary>
+          <p class="muted">These are potential problems with the test definition, not results from an executed test. Locators on later pages cannot be verified from the initial page. Review warnings before approval.</p>
+          <div id="test-design-issues-list"></div>
+        </details>
         <div class="actions" style="margin:12px 0">
           <button type="button" id="review-add-all" class="secondary">Add All</button>
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
@@ -694,6 +699,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (target.by === "label") return 'field labelled "' + target.value + '"';
       if (target.by === "placeholder") return 'field with placeholder "' + target.value + '"';
       if (target.by === "text") return 'visible text "' + target.value + '"';
+      if (target.by === "testid") return 'data-testid "' + target.value + '"';
+      if (target.by === "id") return 'HTML id "' + target.value + '"';
+      if (target.by === "css") return 'CSS selector "' + target.value + '"';
+      if (target.by === "xpath") return 'XPath selector "' + target.value + '"';
       return "unrecognised target";
     }
     function describeAction(action) {
@@ -743,6 +752,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           ["label", "Form label"],
           ["placeholder", "Input placeholder"],
           ["text", "Visible text"],
+          ["testid", "Stable data-testid"],
+          ["id", "Stable HTML id"],
+          ["css", "CSS fallback (review brittleness)"],
+          ["xpath", "XPath fallback (last resort)"],
           ...(clone.action.kind === "assert-count" ? [] :
             [["intent", "Live DOM intent (recommended for unknown elements)"]]),
         ]) {
@@ -812,10 +825,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               }
             }
           } else {
-            labeledInput(locatorFields, t.by === "label" ? "Form label text" :
-              t.by === "placeholder" ? "Input placeholder text" : "Visible text", t.value, (v) => {
+            const name = t.by === "label" ? "Form label text" :
+              t.by === "placeholder" ? "Input placeholder text" :
+              t.by === "testid" ? "Test ID attribute value" :
+              t.by === "id" ? "HTML ID attribute value" :
+              t.by === "css" ? "CSS selector" :
+              t.by === "xpath" ? "XPath expression" : "Visible text";
+            labeledInput(locatorFields, name, t.value, (v) => {
               t.value = v;
             });
+            if (t.by === "css" || t.by === "xpath") {
+              locatorFields.append(make("p",
+                "Fallback locators are allowed but may be brittle when they depend on DOM hierarchy, class names or positional indexes. " +
+                "Use Check selectors (read-only) to verify the current initial page and approve the reviewed step explicitly.", "note"));
+            }
           }
         };
         strategySelect.addEventListener("change", () => {
@@ -908,6 +931,70 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       edits.append(buttons);
       card.append(edits);
     }
+    function findTestDesignIssues() {
+      if (!definition) return [];
+      const issues = [];
+      for (const [index, step] of definition.steps.entries()) {
+        const action = step.action;
+        const target = action.target;
+        const add = (severity, message) => issues.push({ stepNumber: index + 1, severity, message });
+        if (target?.by === "css") {
+          const complex = /:nth-(?:child|of-type)|(?:^|[\s>+~])(?:div|span|li)\s*[>+~]|\bcss=|\b(?:_[a-f0-9]{6,}|__[a-f0-9]{5,})\b/i.test(target.value);
+          add(complex ? "Review" : "Advisory", complex
+            ? "CSS depends on positions, hierarchy or potentially generated classes and may break when the UI changes. Prefer a role, data-testid or stable ID if available."
+            : "CSS selector used. It may be stable when based on a permanent attribute, but verify uniqueness and review it after significant UI changes.");
+        } else if (target?.by === "xpath") {
+          const positional = /\[\d+\]|(?:following|preceding|ancestor|parent)::/i.test(target.value);
+          add(positional ? "Review" : "Advisory", positional
+            ? "XPath uses positional or structural relationships and may be brittle. Prefer a semantic or stable attribute selector."
+            : "XPath fallback used. Test may be brittle when the DOM changes; verify the expression against the intended element.");
+        } else if (target?.by === "role" && Number.isInteger(target.nth)) {
+          add("Review", "Positional role locator relies on DOM order. Reordering matching elements may select the wrong target.");
+        } else if (target?.by === "role" && !target.name && action.kind !== "assert-count") {
+          add("Review", "Role locator has no accessible name. It may match multiple elements; check uniqueness.");
+        } else if (target?.by === "intent" &&
+          /^(?:complete|delete|remove|edit|finish|submit|continue|button)$/i.test(target.value.trim())) {
+          add("Review", "Intent is too generic for a page with repeated controls. Include the specific item identity.");
+        }
+        if ("provenance" in action && action.provenance === "inferred") {
+          add("Advisory", "Expected result was inferred by AI, not derived from an approved requirement. Confirm its correctness.");
+        }
+        if (target?.by === "id" || target?.by === "testid") {
+          // Stable technical attributes are preferred, so no automatic warning.
+        }
+      }
+      return issues;
+    }
+    function renderTestDesignIssues() {
+      const issues = findTestDesignIssues();
+      $("test-design-issues-summary").textContent =
+        "Test design issues (" + issues.length + ")" + (issues.length ? " — review recommended" : " — none detected");
+      const list = $("test-design-issues-list");
+      list.replaceChildren();
+      if (!issues.length) {
+        list.append(make("p", "No static design warnings detected. This does not prove the test will execute successfully.", "muted"));
+        return;
+      }
+      for (const issue of issues) {
+        const entry = make("div", "Step " + issue.stepNumber + " — " + issue.severity + ": " + issue.message,
+          issue.severity === "Review" ? "note" : "muted");
+        entry.style.marginTop = "8px";
+        const review = make("button", "Review step " + issue.stepNumber, "secondary");
+        review.type = "button";
+        review.style.marginTop = "6px";
+        review.addEventListener("click", () => {
+          const card = document.querySelectorAll("#step-list .step")[issue.stepNumber - 1];
+          if (!card) return;
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          const edit = Array.from(card.querySelectorAll("button"))
+            .find(button => button.textContent.trim() === "Edit fields");
+          if (edit && !card.querySelector(".edits")) edit.click();
+        });
+        entry.append(review);
+        list.append(entry);
+      }
+    }
+
     function renderSteps() {
       incrementalRevision++;
       incrementalPending = null;
@@ -915,6 +1002,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("incremental-panel").hidden = true;
       const list = $("step-list");
       list.replaceChildren();
+      renderTestDesignIssues();
       for (const [index, step] of definition.steps.entries()) {
         const card = make("article", null, "step");
         const top = make("header");
@@ -924,6 +1012,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         card.append(top);
         card.append(make("p", step.description));
         card.append(make("div", describeAction(step.action), "action"));
+        if ("target" in step.action && ["css", "xpath"].includes(step.action.target.by)) {
+          card.append(make("div", step.action.target.by === "xpath"
+            ? "XPath fallback: may be brittle as the DOM changes; review this selector before relying on it."
+            : "CSS fallback: stability depends on the attributes and structure used. Positional or generated-class selectors can be brittle.", "note"));
+        }
         if ("provenance" in step.action) {
           const status = make("div", "Expected result source: " + step.action.provenance, "muted");
           status.style.marginTop = "8px";
