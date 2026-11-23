@@ -273,14 +273,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
         </div>
         <div class="actions"><button type="button" id="edit-load" class="secondary" disabled>Load selected test</button></div>
-        <label for="draft-select">Saved working drafts</label>
+      </div>
+      <section id="working-drafts-panel" aria-label="Saved working drafts" style="padding:12px 0;margin:12px 0;border-top:1px solid #d5dce3">
+        <h3>Saved working drafts</h3>
+        <p class="muted">Working drafts can contain unfinished steps and are not executable until approved. Saved drafts remain available while a test is open in the editor.</p>
+        <label for="draft-select">Choose saved working draft</label>
         <select id="draft-select"><option value="">Select a working draft</option></select>
         <div class="actions">
           <button type="button" id="draft-load" class="secondary" disabled>Resume draft</button>
           <button type="button" id="draft-refresh" class="secondary">Refresh drafts</button>
         </div>
         <p id="draft-list-status" class="muted" role="status"></p>
-      </div>
+      </section>
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
@@ -350,13 +354,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <div id="traceability-list"></div>
         </section>
         <div class="actions">
-          <button type="button" id="save-draft" class="secondary" disabled>Save Working Draft</button>
+          <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
         <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
         <input id="save-test-name" type="text" maxlength="200" placeholder="Required — e.g. Add two tasks" autocomplete="off">
-        <button id="save" disabled style="width:100%">Approve and save JSON test</button>
+        <div class="actions" style="display:flex;gap:10px;margin-top:10px">
+          <button type="button" id="save" class="secondary" disabled style="flex:1">Save Test</button>
+          <button type="button" id="save-and-run" disabled style="flex:1">Save &amp; Run</button>
+        </div>
         <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
         <div id="saved" class="success" style="margin-top:12px"></div>
@@ -473,6 +480,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let selectedBaseURL = "";
     let activeURLSource = "manual";
     let running = false;
+    let saving = false;
+    let savedFingerprint = "";
+    let lastSavedId = "";
     let selectedApprovedId = "";
     let approvedCatalog = [];
     let editingSavedId = null;
@@ -664,6 +674,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     $("save-draft").addEventListener("click", async () => {
       if (!definition || !$("test-name").value.trim()) return;
+      $("draft-save-status").classList.remove("error");
       $("draft-save-status").textContent = "Saving working draft...";
       try {
         const name = $("test-name").value.trim();
@@ -679,11 +690,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }),
         });
         workingDraftId = result.id;
-        $("draft-save-status").textContent =
-          "Working draft saved (" + approvals.size + "/" + definition.steps.length +
-          " approved). You can resume it after restarting the server.";
         await refreshDraftPicker(result.id);
+        const listed = $("draft-select").value === result.id;
+        $("draft-save-status").textContent = listed
+          ? "Working draft saved (" + approvals.size + "/" + definition.steps.length +
+            " approved) and selected under Saved working drafts above. You can resume it after restarting the server."
+          : "Draft save returned success, but the new draft was not found in the list. Refresh the draft list and check again.";
+        if (!listed) $("draft-save-status").classList.add("error");
+        else $("draft-save-status").classList.remove("error");
       } catch(error) {
+        $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
       }
     });
@@ -1273,8 +1289,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             ". Save Working Draft to continue later once a name is entered."
           : "Ready to save. The test will then appear in Run Tests for execution.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
-      $("save").disabled = total === 0 || approvals.size !== total ||
+      const cannotSave = saving || running || total === 0 || approvals.size !== total ||
         credentialReview || !$("test-name").value.trim();
+      $("save").disabled = cannotSave;
+      $("save-and-run").disabled = cannotSave;
       $("review-add-all").disabled = total === 0 || approvals.size === total;
       $("save-draft").disabled = total === 0 || !$("test-name").value.trim();
       $("save-as-new").disabled = total === 0 || approvals.size !== total ||
