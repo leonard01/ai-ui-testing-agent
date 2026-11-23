@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { generateDraft, type ModelProvider } from "../src/generation.js";
+import { generateDraft, InspectionAccessError, type ModelProvider } from "../src/generation.js";
 import { runTest } from "../src/runner.js";
 import { fixtureProvider } from "../src/local-providers.js";
 import type { TestDefinition } from "../src/domain.js";
@@ -81,6 +81,34 @@ test("rejects generated cross-origin navigation", async ({ browser }) => {
   await expect(generateDraft({
     baseURL, model: "test-stub", requirements: "Check task count",
   }, stub(definition), browser)).rejects.toThrow(/configured HTTP/);
+});
+
+test("blocked initial HTTP 403 inspection aborts generation before any AI request", async ({ browser }) => {
+  const server = createServer((_req, res) => {
+    res.writeHead(403, { "Content-Type": "text/html; charset=utf-8" });
+    res.end("<title>Access denied</title><main>Something went wrong on our end</main>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
+  let providerCalls = 0;
+  const neverCallModel: ModelProvider = async () => {
+    providerCalls++;
+    throw new Error("Model must not receive a blocked page");
+  };
+  try {
+    const result = generateDraft({
+      baseURL: url, model: "test-stub", requirements: "Search for Wooden Abacus",
+      retryMalformedOutput: true,
+    }, neverCallModel, browser);
+    await expect(result).rejects.toBeInstanceOf(InspectionAccessError);
+    await expect(result).rejects.toMatchObject({
+      source: "inspection", category: "http-access-denied", siteStatus: 403,
+    });
+    expect(providerCalls).toBe(0);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 async function defectServer(): Promise<{ server: Server; url: string }> {
