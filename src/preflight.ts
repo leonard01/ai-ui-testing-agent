@@ -2,6 +2,7 @@ import { chromium, type Browser, type Locator, type Page } from "playwright";
 import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { parseTestDefinition } from "./schema.js";
+import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 
 type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 export type PreflightStatus = "matched" | "initial-match" | "warning" | "deferred";
@@ -102,14 +103,10 @@ export async function preflightSelectors(
   const context = await browser.newContext({ serviceWorkers: "block" });
   context.setDefaultNavigationTimeout(10_000);
   try {
-    await context.route("**/*", (route) => {
-      try {
-        return new URL(route.request().url()).origin === base.origin
-          ? route.continue() : route.abort("blockedbyclient");
-      } catch {
-        return route.abort("blockedbyclient");
-      }
-    });
+    // Use the same safety policy as generation and execution. Previously this
+    // blocked *all* CDNs during preflight, producing misleading missing-element
+    // reports for otherwise healthy pages.
+    await installBrowserRequestPolicy(context, base.origin);
     const page = await context.newPage();
     await page.goto(firstURL.href, { waitUntil: "domcontentloaded" });
     // No script actions are replayed. We inspect a single isolated page load.

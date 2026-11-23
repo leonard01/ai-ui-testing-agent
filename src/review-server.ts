@@ -11,6 +11,7 @@ import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
 import { parseTestDefinition } from "./schema.js";
+import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
 import { listDrafts, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
@@ -482,6 +483,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     const sourceUrl = base?.href ?? definition.sourceUrl;
     const approved = parseTestDefinition(sourceUrl
       ? { ...definition, sourceUrl } : definition);
+    // Working drafts may hold unresolved credentials; executable scripts may not.
+    assertCredentialsReviewed(approved);
     const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
     const directory = sourceUrl ? websiteDirectory(savedDir, sourceUrl) : savedDir;
     const file = join(directory, id);
@@ -1571,7 +1574,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               model,
               attempts: result.generationAttempts,
               snapshot: result.snapshot,
-              warnings: draftQualityWarnings(input.requirements, result.definition, result.snapshot),
+              warnings: [
+                ...draftQualityWarnings(input.requirements, result.definition, result.snapshot),
+                ...(unresolvedCredentialSteps(result.definition).length
+                  ? ["Unverified model-generated login values were replaced with placeholders. Enter approved test credentials in the step editor; an unresolved credential cannot be saved or executed."]
+                  : []),
+              ],
             },
             message: input.provider === "fixture"
               ? "Fixture is a prewritten demonstration, not AI-generated."

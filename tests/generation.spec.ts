@@ -2,12 +2,37 @@ import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { generateDraft, InspectionAccessError, type ModelProvider } from "../src/generation.js";
+import { generateDraft, InspectionAccessError, makeGenerationPrompt, type ModelProvider } from "../src/generation.js";
+import { summarizePageError, type PageSnapshot } from "../src/inspect.js";
 import { runTest } from "../src/runner.js";
 import { fixtureProvider } from "../src/local-providers.js";
 import type { TestDefinition } from "../src/domain.js";
 
 test.use({ trace: "off" });
+
+test("page exception diagnostic is bounded and redacted, not sent to the model", () => {
+  const error = new TypeError(
+    "Failed at https://example.net/private?token=abc123 password=VERYPRIVATE123 user@example.com",
+  );
+  const summary = summarizePageError(error);
+  expect(summary).toContain("TypeError");
+  expect(summary).not.toContain("https://example.net");
+  expect(summary).not.toContain("VERYPRIVATE123");
+  expect(summary).not.toContain("user@example.com");
+  const snapshot: PageSnapshot = {
+    url: baseURL, title: "Test app", headings: ["Login"], controls: [],
+    statusText: [], sampleText: [],
+    inspection: {
+      mainDocumentStatus: 200, blockedCrossOriginRequests: 0,
+      allowedCrossOriginRequests: 0, pageErrors: 1, pageErrorSummaries: [summary],
+    },
+  };
+  const result = makeGenerationPrompt("Verify login", snapshot);
+  expect(result.prompt).toContain('"pageErrors":1');
+  expect(result.prompt).not.toContain("pageErrorSummaries");
+  expect(result.prompt).not.toContain("TypeError");
+});
+
 const baseURL = "http://127.0.0.1:3000";
 
 async function fixture(): Promise<TestDefinition> {

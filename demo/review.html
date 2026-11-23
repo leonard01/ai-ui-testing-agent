@@ -286,6 +286,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
         <div id="draft-quality-warnings" class="note" role="status" hidden></div>
+        <p id="generation-page-error-summary" class="muted" role="status" hidden></p>
         <details id="generation-diagnostics" hidden>
           <summary id="generation-diagnostics-summary">Generation diagnostics</summary>
           <p id="generation-diagnostics-meta" class="muted"></p>
@@ -295,6 +296,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <strong>Validated generated JSON</strong>
           <pre id="generation-diagnostics-output"></pre>
         </details>
+        <div style="padding:12px 0" id="draft-preflight-panel">
+          <h3>Check draft targets before execution</h3>
+          <p class="muted">Check the selectors against the starting page before approving. Confirmed matches, missing or ambiguous elements, and suggested fixes appear by step. Targets that depend on login, navigation or other earlier actions are marked <strong>deferred</strong>, not incorrectly marked as broken. Nothing is clicked, filled, saved or executed.</p>
+          <button type="button" id="selector-preflight" class="secondary">Check selectors (read-only)</button>
+          <p id="selector-preflight-status" class="status" role="status"></p>
+          <div id="selector-preflight-results"></div>
+        </div>
         <div class="actions" style="margin:12px 0">
           <button type="button" id="review-add-all" class="secondary">Add All</button>
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
@@ -341,12 +349,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="traceability-summary" class="muted"></p>
           <div id="traceability-list"></div>
         </section>
-        <div style="padding:12px 0">
-          <button type="button" id="selector-preflight" class="secondary">Check selectors (read-only)</button>
-          <p class="muted">Optional: inspect the starting page before approval. Later dynamic targets may be deferred; no test actions or AI calls are made.</p>
-          <p id="selector-preflight-status" class="status" role="status"></p>
-          <div id="selector-preflight-results"></div>
-        </div>
         <div class="actions">
           <button type="button" id="save-draft" class="secondary" disabled>Save Working Draft</button>
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
@@ -1126,6 +1128,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             "): " + finding.message, finding.status === "warning" ? "note" : "muted");
           note.style.marginTop = "8px";
           $("selector-preflight-results").append(note);
+          if (finding.status === "warning") {
+            const review = make("button", "Review step " + finding.stepNumber, "secondary");
+            review.type = "button";
+            review.style.marginTop = "6px";
+            review.addEventListener("click", () => {
+              const card = document.querySelectorAll("#step-list .step")[finding.stepNumber - 1];
+              if (!card) return;
+              card.scrollIntoView({ behavior: "smooth", block: "center" });
+              const editButton = Array.from(card.querySelectorAll("button"))
+                .find(button => button.textContent.trim() === "Edit fields");
+              if (editButton) editButton.click();
+            });
+            $("selector-preflight-results").append(review);
+          }
         }
       } catch (error) {
         if (revision === preflightRevision) {
@@ -1241,8 +1257,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const remaining = Math.max(0, total - approvals.size);
       $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
+      const credentialReview = !!definition?.steps.some(step =>
+        step.action.kind === "fill" &&
+        /^(?:REPLACE_WITH_YOUR_(?:USERNAME|PASSWORD)|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD))$/i.test(step.action.value.trim()));
       const missing = [
         ...(missingName ? ["enter a Test name above"] : []),
+        ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
           (remaining === 1 ? "" : "s")] : []),
       ];
@@ -1254,11 +1274,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "Ready to save. The test will then appear in Run Tests for execution.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       $("save").disabled = total === 0 || approvals.size !== total ||
-        !$("test-name").value.trim();
+        credentialReview || !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
       $("save-draft").disabled = total === 0 || !$("test-name").value.trim();
       $("save-as-new").disabled = total === 0 || approvals.size !== total ||
-        !editingSavedId || !$("test-name").value.trim();
+        credentialReview || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
       $("save-error").textContent = "";
@@ -2526,14 +2546,32 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           warnings.map((warning, i) => (i + 1) + ". " + warning).join("\n")
         : "";
       notice.hidden = warnings.length === 0;
+      const errorNotice = $("generation-page-error-summary");
+      const pageErrors = evidence.snapshot.inspection?.pageErrors ?? 0;
+      const summaries = evidence.snapshot.inspection?.pageErrorSummaries ?? [];
+      errorNotice.textContent = pageErrors
+        ? "Initial page JavaScript exception" + (pageErrors === 1 ? "" : "s") +
+          " (" + pageErrors + "): " +
+          (summaries.length ? summaries.join(" | ") : "No details captured.") +
+          " This is not evidence that a test step failed. Use the read-only selector check below to verify known starting-page targets."
+        : "";
+      errorNotice.hidden = !pageErrors;
       const details = $("generation-diagnostics");
       details.hidden = false;
       $("generation-diagnostics-summary").textContent =
         "Generation diagnostics — initial page evidence" +
         (warnings.length ? " (" + warnings.length + " warning(s))" : "");
+      const inspection = evidence.snapshot.inspection;
+      const blocked = inspection?.blockedCrossOriginRequests ?? 0;
+      const blockedKinds = inspection?.blockedRequestKinds || {};
+      const breakdown = Object.entries(blockedKinds)
+        .map(([kind, count]) => kind + " × " + count).join(", ");
       $("generation-diagnostics-meta").textContent =
         "Provider: " + evidence.provider + " | Model: " + evidence.model +
-        " | Requests: " + evidence.attempts + ".";
+        " | Requests: " + evidence.attempts + "." +
+        (blocked ? " Inspector safely blocked " + blocked +
+          " third-party request(s)" + (breakdown ? " (" + breakdown + ")" : "") +
+          ". This is informational, not proof of a broken test; review the initial-page evidence." : "");
       $("generation-diagnostics-snapshot").textContent =
         JSON.stringify(evidence.snapshot, null, 2);
       $("generation-diagnostics-output").textContent =

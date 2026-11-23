@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { requireHumanCredentialValues } from "./credential-guard.js";
 import { z, ZodError } from "zod";
 import type { Browser } from "playwright";
 import { ensureAllowedNavigation, inspectApplication } from "./inspect.js";
@@ -140,6 +141,9 @@ export async function generateIncrementalProposal(
       const replacement = parsed.steps.map(step => ({
         ...step, id: "regen-" + randomUUID(),
       }));
+      // Scrub ONLY replacement steps; previously approved prefix/suffix and
+      // their human-entered values must not be modified by regeneration.
+      const reviewedCredentialCount = requireHumanCredentialValues({ ...original, steps: replacement });
       for (const step of replacement) {
         if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
         if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
@@ -161,6 +165,7 @@ export async function generateIncrementalProposal(
         .map(step => step.id);
       const warnings = [
         "AI saw the initial application page, not the live state after preserved steps.",
+        ...(reviewedCredentialCount ? ["Model-generated login values were replaced with review placeholders. Edit credential steps before approval."] : []),
         "Review all replacement actions and expectations before approving.",
       ];
       if (original.requirements?.some(item => item.stepIds.some(id => !retained.has(id)))) {

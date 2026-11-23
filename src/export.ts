@@ -2,6 +2,7 @@ import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { parseTestDefinition } from "./schema.js";
+import { assertCredentialsReviewed } from "./credential-guard.js";
 
 /** Generating source is deterministic and never launches a browser or contacts a model. */
 export interface PlaywrightExportOptions {
@@ -255,6 +256,7 @@ export function generatePlaywrightSpec(
   options: PlaywrightExportOptions,
 ): string {
   const definition: TestDefinition = parseTestDefinition(input);
+  assertCredentialsReviewed(definition);
   const base = new URL(options.baseURL);
   ensureAllowedNavigation(base.href, base);
   for (const step of definition.steps) {
