@@ -4,6 +4,7 @@ import type { Browser } from "playwright";
 import type { TestDefinition } from "./domain.js";
 import { parseTestDefinition } from "./schema.js";
 import { isExplicitSearchResultIntent, shouldScopeSearchResultAssertion } from "./search-results.js";
+import { restoreMissingSearchFill } from "./search-workflow.js";
 import {
   ensureAllowedNavigation,
   inspectApplication,
@@ -154,6 +155,14 @@ export async function generateDraft(
         (base.pathname !== "/" || !!base.search || !!base.hash)) {
       firstAction.url = snapshot.url;
     }
+    // Repair an under-specified search action: pressing Enter does not type the
+    // requested query. Only do this when requirements provide one unambiguous
+    // quoted query and the model selected a search input to submit.
+    // The new fill step is still unapproved and must be reviewed by the tester.
+    restoreMissingSearchFill(definition, options.requirements ?? "");
+    // Revalidate the complete edited definition before sending it for review.
+    parseTestDefinition(definition);
+
     // The model can mistake a search query appearing in the page heading for
     // evidence of a returned result. For explicit search-result requirements,
     // promote assertions of the submitted query to the scoped check, which
@@ -218,6 +227,8 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "Only use check/uncheck for checkbox or radio inputs, and select-option for an actual native select element.",
     "Use 'press' sparingly; only when the requirements require keyboard interaction or a standard search form can be submitted with Enter rather than selecting an ambiguous duplicate submit button.",
     "A search form may expose more than one button named 'Google Search'. Do NOT invent a positional selector. When a generic search submission is intended and the search textbox is identifiable, pressing Enter on that textbox is a safer supported alternative.",
+    "CRITICAL: Pressing Enter does NOT enter the search term. Searching for a named query requires TWO separate executable steps: FIRST {kind:'fill',target:SEARCH_INPUT,value:'the query'}, THEN {kind:'press',target:THE_SAME_SEARCH_INPUT,key:'Enter'}. Never combine typing and pressing into one press step or rely on its description to type for you.",
+    "If the tester writes search for 'shoes', there MUST be a fill action with value 'shoes' before any Enter submission. Both actions must address the search field, not the search button.",
     "For AI-generated tests, PREFER live DOM intent targets (e.g. {by:'intent',value:'Add',role:'button'}) instead of predicting CSS, labels or other selectors.",
     "The label locator targets form fields with associated HTML labels (for example the input labelled Task), NOT placeholder text shown inside an input.",
     "When PAGE SNAPSHOT controls include a placeholder attribute, use {by:'placeholder',value:'exact placeholder'} for filling and pressing keys on that field. Example: a textbox with placeholder 'What needs to be done?' MUST use {by:'placeholder',value:'What needs to be done?'}, NOT {by:'label',value:'What needs to be done?'}.",
