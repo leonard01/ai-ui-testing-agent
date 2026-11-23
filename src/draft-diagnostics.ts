@@ -21,10 +21,18 @@ export function draftQualityWarnings(
   if (errorPattern.test(observed)) {
     warnings.push("The inspected page contains an error/block message. Check whether the intended controls loaded before approving this draft.");
   }
-  if (inspection && inspection.blockedCrossOriginRequests > 0) {
-    warnings.push("The safety-limited inspector blocked " +
-      inspection.blockedCrossOriginRequests + " cross-origin resource request(s). " +
-      "Some sites rely on those resources; this may affect what the model saw.");
+  // A blocked third-party request is not itself a test defect. Modern sites
+  // regularly send background POSTs to external analytics endpoints; counting
+  // those as quality failures makes nearly every healthy page look broken.
+  // The counts/kinds remain in the expandable inspection diagnostics.
+  const hasObservedUI = snapshot.controls.length > 0 || snapshot.headings.length > 0 ||
+    snapshot.statusText.length > 0 || snapshot.sampleText.length > 0;
+  if (inspection?.blockedCrossOriginRequests && !hasObservedUI) {
+    warnings.push("The inspector saw no visible application controls or page content, " +
+      "and blocked " + inspection.blockedCrossOriginRequests +
+      " external request(s). The page may not have finished rendering. " +
+      "Inspect the snapshot before trusting this draft; the blocked requests alone " +
+      "do not establish a site or test failure.");
   }
   if (inspection && inspection.pageErrors > 0) {
     warnings.push("The website raised " + inspection.pageErrors +
