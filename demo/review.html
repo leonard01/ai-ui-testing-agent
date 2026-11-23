@@ -2561,9 +2561,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-diagnostics-summary").textContent =
         "Generation diagnostics — initial page evidence" +
         (warnings.length ? " (" + warnings.length + " warning(s))" : "");
+      const inspection = evidence.snapshot.inspection;
+      const blocked = inspection?.blockedCrossOriginRequests ?? 0;
+      const blockedKinds = inspection?.blockedRequestKinds || {};
+      const breakdown = Object.entries(blockedKinds)
+        .map(([kind, count]) => kind + " × " + count).join(", ");
       $("generation-diagnostics-meta").textContent =
         "Provider: " + evidence.provider + " | Model: " + evidence.model +
-        " | Requests: " + evidence.attempts + ".";
+        " | Requests: " + evidence.attempts + "." +
+        (blocked ? " Inspector safely blocked " + blocked +
+          " third-party request(s)" + (breakdown ? " (" + breakdown + ")" : "") +
+          ". This is informational, not proof of a broken test; review the initial-page evidence." : "");
       $("generation-diagnostics-snapshot").textContent =
         JSON.stringify(evidence.snapshot, null, 2);
       $("generation-diagnostics-output").textContent =
