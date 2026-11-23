@@ -431,7 +431,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <div id="suite-results"></div>
         <div id="suite-artifacts" class="artifact-links"></div>
       </div>
-      <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
+      <div id="run-status" class="status" role="status" tabindex="-1">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
       <div id="run-results" hidden>
         <h2 id="run-summary" style="margin-top:18px"></h2>
@@ -1287,15 +1287,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         : missing.length
           ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
             ". Save Working Draft to continue later once a name is entered."
-          : "Ready to save. The test will then appear in Run Tests for execution.";
+          : "Ready to save or run. Save & Run will save the reviewed test and automatically show the execution results below.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       const cannotSave = saving || running || total === 0 || approvals.size !== total ||
         credentialReview || !$("test-name").value.trim();
       $("save").disabled = cannotSave;
       $("save-and-run").disabled = cannotSave;
       $("review-add-all").disabled = total === 0 || approvals.size === total;
-      $("save-draft").disabled = total === 0 || !$("test-name").value.trim();
-      $("save-as-new").disabled = total === 0 || approvals.size !== total ||
+      $("save-draft").disabled = saving || running || total === 0 || !$("test-name").value.trim();
+      $("save-as-new").disabled = saving || running || total === 0 || approvals.size !== total ||
         credentialReview || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
@@ -2697,8 +2697,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("generate").disabled = false;
       }
     });
-    async function approveAndSave(saveAsNew = false) {
-      if (!definition || approvals.size !== definition.steps.length) return;
+    function currentSaveFingerprint(testName) {
+      return JSON.stringify({
+        definition: {
+          ...definition,
+          title: testName,
+          sourceInstructions: originalInstructions,
+          workingInstructions: $("requirements").value,
+        },
+        testName,
+        baseURL: selectedBaseURL,
+      });
+    }
+    async function approveAndSave(saveAsNew = false, runAfterSave = false) {
+      if (saving || running || !definition || approvals.size !== definition.steps.length) return;
       const testName = $("test-name").value.trim();
       if (!testName || testName.length > 200) {
         $("save-error").textContent = "Enter a test name (1–200 characters) before saving.";
@@ -2712,10 +2724,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           return;
         }
       }
-      $("save").disabled = true;
+      saving = true;
+      updateApproval();
       $("save-error").textContent = "";
       $("saved").replaceChildren();
+      let approvedId = "";
       try {
+        const fingerprint = currentSaveFingerprint(testName);
+        if (!saveAsNew && lastSavedId && savedFingerprint === fingerprint) {
+          // Re-running an unchanged approved test must not create or replace a file.
+          approvedId = lastSavedId;
+          const existing = approvedCatalog.find(item => item.id === approvedId);
+          await refreshApprovedTests(approvedId, existing?.siteUrl || "");
+          $("saved").textContent = "This test is unchanged. Using the previously saved approved test.";
+        } else {
         const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
           body: JSON.stringify({
@@ -2731,13 +2753,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not save test");
         definition.title = testName;
-        editingSavedId = null;
+        editingSavedId = data.id;
         workingDraftId = null;
         // The save response records the website actually persisted by the server.
         // Keep Run Tests (and its execution URL) in sync with that saved script.
         selectedBaseURL = data.sourceUrl;
         $("base-url").value = data.sourceUrl;
         await refreshApprovedTests(data.id, data.siteUrl);
+        approvedId = data.id;
+        lastSavedId = data.id;
+        savedFingerprint = currentSaveFingerprint(testName);
         if (data.replacedId) {
           $("run-results").hidden = true;
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
@@ -2756,13 +2781,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           catch { copy.textContent = "Select the command above to copy"; }
         };
         $("saved").append(copy);
+        }
       } catch(error) {
         $("save-error").textContent = error.message || String(error);
       } finally {
+        saving = false;
         updateApproval();
+      }
+      if (runAfterSave && approvedId) {
+        // Execution always references the saved approved ID, never an unsaved draft.
+        // Focus the live status before the asynchronous browser run begins.
+        $("execution-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+        $("run-status").focus({ preventScroll: true });
+        await executeApproved(approvedId);
       }
     }
     $("save").addEventListener("click", () => { void approveAndSave(false); });
+    $("save-and-run").addEventListener("click", () => { void approveAndSave(false, true); });
     $("save-as-new").addEventListener("click", () => { void approveAndSave(true); });
   </script>
 </body>
