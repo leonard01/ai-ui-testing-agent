@@ -2759,7 +2759,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
-          (data.diagnostics?.warnings?.length ? " Review the quality warnings in Test Editor." : "");
+          (data.diagnostics?.blockingCredentialSteps?.length
+            ? " BLOCKED: Save Test and Save & Run require approved login credentials. See the red blocker panel in Test Editor."
+            : "") +
+          (data.diagnostics?.warnings?.length ? " Review the advisory quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
