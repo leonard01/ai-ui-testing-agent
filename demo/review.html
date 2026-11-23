@@ -1241,8 +1241,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const remaining = Math.max(0, total - approvals.size);
       $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
+      const credentialReview = !!definition?.steps.some(step =>
+        step.action.kind === "fill" &&
+        /^(?:REPLACE_WITH_YOUR_(?:USERNAME|PASSWORD)|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD))$/i.test(step.action.value.trim()));
       const missing = [
         ...(missingName ? ["enter a Test name above"] : []),
+        ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
           (remaining === 1 ? "" : "s")] : []),
       ];
@@ -1254,11 +1258,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "Ready to save. The test will then appear in Run Tests for execution.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       $("save").disabled = total === 0 || approvals.size !== total ||
-        !$("test-name").value.trim();
+        credentialReview || !$("test-name").value.trim();
       $("review-add-all").disabled = total === 0 || approvals.size === total;
       $("save-draft").disabled = total === 0 || !$("test-name").value.trim();
       $("save-as-new").disabled = total === 0 || approvals.size !== total ||
-        !editingSavedId || !$("test-name").value.trim();
+        credentialReview || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
       $("save-error").textContent = "";
