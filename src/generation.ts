@@ -41,10 +41,15 @@ export class InspectionAccessError extends Error {
     readonly allowedCrossOriginRequests: number,
     readonly pageErrors: number,
   ) {
-    super("The website under test returned HTTP " + siteStatus +
-      " during initial inspection. No AI request was made and no test draft was generated. " +
-      "The website or its access-control service may be refusing this browser session. " +
-      "Try opening the website normally in your browser; an HTTP status alone does not establish the reason.");
+    super((siteStatus === 403
+      ? "Possible automation block by the website you are attempting to test. " +
+        "The site returned HTTP 403 (Forbidden) to the automated browser. " +
+        "This may also be caused by login requirements, permissions or network restrictions; " +
+        "HTTP 403 alone does not prove automated access was blocked. "
+      : "The website under test returned HTTP " + siteStatus + " during initial inspection. ") +
+      "No AI request was made and no test draft was generated. " +
+      "Check whether the site opens normally, then ask the website or test-environment administrator " +
+      "to permit the required access if the restriction is intentional.");
     this.name = "InspectionAccessError";
   }
 }

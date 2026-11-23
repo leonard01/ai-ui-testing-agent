@@ -2571,7 +2571,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               ? "GroqCloud rejected the request (provider HTTP " + data.providerStatus + ")."
               : "GroqCloud request failed (" + (data.category || "unknown transport error") + ")."
             : data.source === "inspection"
-              ? "Website inspection failed (target HTTP " + data.siteStatus + "). No AI request was made."
+              ? data.siteStatus === 403
+                ? "Possible automation block by the website under test (HTTP 403 Forbidden)."
+                : "Website inspection failed (target HTTP " + data.siteStatus + "). No AI request was made."
               : data.source === "generator"
                 ? "Generation/validation failed in our application."
                 : "Test Builder request failed (HTTP " + response.status + ").";

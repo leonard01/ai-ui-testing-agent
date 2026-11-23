@@ -84,7 +84,12 @@ test("HTTP 403 target shows inspection error and no draft instead of a false-pos
     await page.getByLabel("Generate with").selectOption("fixture");
     await page.getByRole("button", { name: "Generate draft" }).click();
     await expect(page.locator("#generation-error")).toContainText(
-      "Website inspection failed (target HTTP 403)", { timeout: 20_000 });
+      "Possible automation block by the website under test (HTTP 403 Forbidden)",
+      { timeout: 20_000 });
+    await expect(page.locator("#generation-error")).toContainText(
+      "HTTP 403 alone does not prove automated access was blocked");
+    await expect(page.locator("#generation-error")).toContainText(
+      "ask the website or test-environment administrator");
     await expect(page.locator("#generation-error")).toContainText("No AI request was made");
     await expect(page.locator("#generation-review-status")).toContainText("Generation failed");
     await expect(page.locator("#draft")).toBeHidden();
