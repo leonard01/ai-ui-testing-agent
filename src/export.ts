@@ -174,6 +174,10 @@ function targetExpression(target: Target, operation: string): string {
   if (target.by === "text") {
     return "page.getByText(" + literal(target.value) + ", { exact: true })";
   }
+  if (target.by === "testid") return "page.getByTestId(" + literal(target.value) + ")";
+  if (target.by === "id") return "page.locator(" + literal("css=[id=" + JSON.stringify(target.value) + "]") + ")";
+  if (target.by === "css") return "page.locator(" + literal("css=" + target.value) + ")";
+  if (target.by === "xpath") return "page.locator(" + literal("xpath=" + target.value) + ")";
   return "await intentLocator(page, " +
     literal({ value: target.value, ...(target.role ? { role: target.role } : {}) }) +
     ", " + literal(operation) + ")";
