@@ -1,0 +1,67 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { draftQualityWarnings } from "../../dist/draft-diagnostics.js";
+
+const fixture = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+const baseSnapshot = {
+  url: "http://127.0.0.1:3000/",
+  title: "Task list",
+  headings: ["Task list"],
+  controls: [{ kind: "textbox", name: "Task" }],
+  statusText: ["0 tasks, 0 completed"],
+  sampleText: [],
+};
+test("draft warnings flag a search silently replaced with an unexpected error assertion", () => {
+  const definition = {
+    ...fixture,
+    steps: [
+      { id: "open", description: "Open eBay", action: { kind: "navigate", url: "https://www.ebay.com/" } },
+      { id: "error", description: "Verify error page message", action: {
+        kind: "assert-text", target: { by: "text", value: "Something went wrong on our end" },
+        expected: "Something went wrong on our end", provenance: "inferred",
+      } },
+    ],
+  };
+  const warnings = draftQualityWarnings(
+    "search for 'Wooden Abacus' and verify 'wooden' and 'abacus' are in the results",
+    definition,
+    { ...baseSnapshot, title: "eBay", statusText: ["Something went wrong on our end"],
+      inspection: { mainDocumentStatus: 200, blockedCrossOriginRequests: 9, pageErrors: 2 } },
+  );
+  assert.ok(warnings.some((w) => w.includes("error/block message")));
+  assert.ok(warnings.some((w) => w.includes("blocked 9 cross-origin")));
+  assert.ok(warnings.some((w) => w.includes("JavaScript error")));
+  assert.ok(warnings.some((w) => w.includes("Wooden Abacus")));
+  assert.ok(warnings.some((w) => w.includes("false pass")));
+});
+test("HTTP error status is surfaced without pretending it proves a bug", () => {
+  const warnings = draftQualityWarnings("Check task list", fixture, {
+    ...baseSnapshot, inspection: { mainDocumentStatus: 503, blockedCrossOriginRequests: 0, pageErrors: 0 },
+  });
+  assert.ok(warnings.some((w) => w.includes("HTTP 503")));
+  assert.ok(!warnings.some((w) => w.includes("cross-origin")));
+});
+test("normal task fixture produces no quality warnings", () => {
+  const warnings = draftQualityWarnings(
+    "Add 'Prepare interview', complete it, then delete it.",
+    fixture,
+    baseSnapshot,
+  );
+  assert.deepEqual(warnings, []);
+});
+test("error verification requested explicitly is not mistaken for an unrequested error assertion", () => {
+  const definition = {
+    ...fixture, steps: [
+      fixture.steps[0],
+      { id: "error", description: "Verify expected error", action: {
+        kind: "assert-text", target: { by: "text", value: "Access denied" },
+        expected: "Access denied", provenance: "inferred",
+      } },
+    ],
+  };
+  const warnings = draftQualityWarnings("Verify the 'Access denied' message", definition, {
+    ...baseSnapshot, statusText: ["Access denied"],
+  });
+  assert.ok(!warnings.some((w) => w.includes("false pass")));
+});

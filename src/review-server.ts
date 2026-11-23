@@ -6,6 +6,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, type ModelProvider } from "./generation.js";
+import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
 import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
@@ -1565,6 +1566,13 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             definition: result.definition, needsReview: true, provider: input.provider,
             generationAttempts: result.generationAttempts,
             memorySuggestions: suggestions,
+            diagnostics: {
+              provider: input.provider,
+              model,
+              attempts: result.generationAttempts,
+              snapshot: result.snapshot,
+              warnings: draftQualityWarnings(input.requirements, result.definition, result.snapshot),
+            },
             message: input.provider === "fixture"
               ? "Fixture is a prewritten demonstration, not AI-generated."
               : result.generationAttempts > 1

@@ -192,6 +192,8 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "Assertion provenance must be 'requirements' if the requirement specifies that expected result,",
     "otherwise 'inferred'. NEVER claim 'human-confirmed'.",
     "Never assume actual observed application behavior establishes correctness.",
+    "If the initial page shows an error or missing controls, NEVER reinterpret an unrelated error message as the intended test assertion. A website loading error is not a successful implementation of the requested feature.",
+    "Keep the requested workflow and quoted search/data values in the proposed steps; do not silently replace them with a different test purpose.",
     "Generate one focused test with meaningful assertions. Avoid fabricated locators and expectations.",
     "Do not include credentials, external navigation, unsupported JavaScript or network actions.",
     "Only cover state-changing flows requested in the requirements or safe app demo actions.",
