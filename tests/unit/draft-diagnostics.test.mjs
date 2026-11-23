@@ -31,7 +31,8 @@ test("draft warnings flag a search silently replaced with an unexpected error as
   );
   assert.ok(warnings.some((w) => w.includes("error/block message")));
   assert.ok(warnings.some((w) => w.includes("blocked 9 cross-origin")));
-  assert.ok(warnings.some((w) => w.includes("JavaScript error")));
+  assert.ok(warnings.some((w) => w.includes("JavaScript exception") &&
+    w.includes("does NOT mean a test step or selector has failed")));
   assert.ok(warnings.some((w) => w.includes("Wooden Abacus")));
   assert.ok(warnings.some((w) => w.includes("false pass")));
 });
