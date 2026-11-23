@@ -150,7 +150,7 @@ test("plain-English input produces a readable review-only fixture draft", async 
   await expect(page.getByText("Fixture is a prewritten demonstration, not AI-generated.")).toBeVisible();
   await expect(page.locator(".step").nth(2)).toContainText("Enter");
   await expect(page.locator(".step").nth(2)).toContainText("Prepare interview");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
   for (const box of await page.locator(".step input[type=checkbox]").all()) {
     await box.check();
@@ -171,7 +171,7 @@ test("Add All explicitly confirms every proposed step without auto-saving or hid
   const previouslySaved = (await listApprovedIds(outputDir)).length;
   await generateFixture(page);
   const addAll = page.getByRole("button", { name: "Add All", exact: true });
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(addAll).toBeEnabled();
   await expect(save).toBeDisabled();
   await expect(page.locator("#review-progress")).toHaveText("0 of 9 steps confirmed");
@@ -236,7 +236,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const files = await listApprovedIds(outputDir);
   const drafts = await Promise.all(files.map(async (file) => JSON.parse(
@@ -249,7 +249,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 async function approveDraft(page: import("@playwright/test").Page) {
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
 }
@@ -449,7 +449,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
   await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   await expect(page.locator(".step")).toHaveCount(9);
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
   const fourth = page.locator(".step").nth(3);
   await fourth.getByRole("button", { name: "Edit fields" }).click();
   await fourth.getByLabel("Description").fill("Add a task via the button");
@@ -459,7 +459,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
     await box.check();
   }
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("old version removed from the list");
   const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(revisedId).not.toBe(originalId);
@@ -994,7 +994,7 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
     expect(prompts[1]).toContain("steps[4]");
     expect(prompts[1]).toContain("expected object, received string");
     expect(prompts[1]).toContain("COMPLETE test definition");
-    await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
   } finally {
     // Close the Playwright page's idle HTTP connections before awaiting shutdown.
     // Otherwise server.close can hang on CI and consume the entire test timeout.
@@ -1115,7 +1115,7 @@ test("review server rejects malformed instructions and off-origin writes", async
 test("requires a human test name and offers previous application URLs", async ({ page }) => {
   await generateFixture(page);
   const name = page.locator("#test-name");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await name.fill("  ");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await expect(save).toBeDisabled();
@@ -1139,7 +1139,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
   // An existing locally saved test is selected before another website is used.
   await generateFixture(page);
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.getByLabel("Test suite (website URL)"))
     .toHaveValue("http://127.0.0.1:3000");
 
@@ -1179,7 +1179,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
 
   const suite = page.getByLabel("Test suite (website URL)");
@@ -1216,11 +1216,69 @@ test("reviewer selects Contains and saved assertion preserves its explicit compa
   for (const checkbox of await page.locator(".step input[type=checkbox]").all()) {
     await checkbox.check();
   }
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const id = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
   expect(saved.steps[1].action.match).toBe("contains");
+});
+
+test("Save & Run persists once, focuses execution and reuses unchanged approved test", async ({ page }) => {
+  await generateFixture(page);
+  const before = (await (await page.request.get(url + "/api/tests")).json()).tests.length;
+  await page.getByRole("button", {name:"Add All",exact:true}).click();
+  const save = page.getByRole("button",{name:"Save Test",exact:true});
+  const saveAndRun = page.getByRole("button",{name:"Save & Run",exact:true});
+  await expect(save).toBeEnabled();
+  await expect(saveAndRun).toBeEnabled();
+  await saveAndRun.click();
+  await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+  await expect(page.locator("#run-status")).toBeFocused();
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  const first = (await (await page.request.get(url + "/api/tests")).json()).tests;
+  expect(first).toHaveLength(before + 1);
+  const firstId = await page.locator("#approved-tests").inputValue();
+  expect(firstId).toMatch(/^reviewed-/);
+  await expect(saveAndRun).toBeEnabled();
+  await saveAndRun.click();
+  await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+  const second = (await (await page.request.get(url + "/api/tests")).json()).tests;
+  expect(second).toHaveLength(first.length);
+  expect(await page.locator("#approved-tests").inputValue()).toBe(firstId);
+  await expect(page.locator("#saved")).toContainText("previously saved approved test");
+});
+
+test("Save & Run is disabled for unreviewed drafts and does not run after a save failure", async ({page}) => {
+  await generateFixture(page);
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await page.getByRole("button",{name:"Add All",exact:true}).click();
+  await expect(page.locator("#save-and-run")).toBeEnabled();
+  let runs = 0;
+  await page.route("**/api/run",route => {runs++;return route.abort();});
+  await page.route("**/api/save",route => route.fulfill({
+    status:409,contentType:"application/json",
+    body:JSON.stringify({error:"Duplicate test name — please choose another"}),
+  }));
+  await page.locator("#save-and-run").click();
+  await expect(page.locator("#save-error")).toContainText("Duplicate test name");
+  expect(runs).toBe(0);
+  await expect(page.locator("#run-status")).toContainText("Select an approved test to execute");
+});
+
+test("Save Draft remains visible in the picker while the editor is open",async({page})=>{
+  await generateFixture(page);
+  await page.locator("#step-list .step").first().locator('input[type="checkbox"]').check();
+  await page.getByRole("button",{name:"Save Draft",exact:true}).click();
+  await expect(page.locator("#draft-save-status")).toContainText("selected under Saved working drafts");
+  await expect(page.locator("#working-drafts-panel")).toBeVisible();
+  await expect(page.locator("#draft-select")).toBeVisible();
+  await expect(page.locator("#draft-select")).not.toHaveValue("");
+  await expect(page.locator("#draft-load")).toBeEnabled();
+  await expect(page.locator("#draft-select option")).toHaveCount(2);
+  // Saving a working draft must not accidentally approve or run it.
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await page.getByRole("button",{name:"Resume draft"}).click();
+  await expect(page.locator("#review-progress")).toContainText("1 of 9 steps confirmed");
 });
 
 test("working draft preserves partial approvals and original instructions without becoming runnable", async ({ page }) => {
@@ -1230,7 +1288,7 @@ test("working draft preserves partial approvals and original instructions withou
   const steps = page.locator("#step-list .step");
   await steps.nth(0).locator('input[type="checkbox"]').check();
   await steps.nth(1).locator('input[type="checkbox"]').check();
-  await page.getByRole("button", { name: "Save Working Draft" }).click();
+  await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/9 approved");
   await expect(page.locator("#draft-select option")).toHaveCount(2);
   const list = await page.request.get(url + "/api/drafts");
@@ -1253,7 +1311,7 @@ test("approved test retains source instructions and Save as New keeps original",
   await generateFixture(page);
   const instructions = await page.getByLabel("Your test instructions").inputValue();
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const before = await (await page.request.get(url + "/api/tests")).json();
   const originalId = await page.getByLabel("Test script", { exact: true }).inputValue();
@@ -1291,7 +1349,7 @@ test("approval and save readiness clearly explain required name and confirmation
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
   await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
   await page.locator("#test-name").fill("Approval regression check");
@@ -1315,7 +1373,7 @@ test("name entered before generation survives and save-area name enables approva
   const saveName = page.locator("#save-test-name");
   await expect(saveName).toHaveValue("Name supplied before generation");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeEnabled();
   await saveName.fill("Name edited next to save");
   await expect(originalName).toHaveValue("Name edited next to save");
@@ -1341,7 +1399,7 @@ test("required inputs and missing-field guidance update beside generation and sa
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await expect(page.locator("#save-readiness")).toContainText("Ready to save");
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Test" })).toBeEnabled();
 });
 
 test("new test name entered before generation survives and permits saving and execution", async ({ page }) => {
@@ -1355,7 +1413,7 @@ test("new test name entered before generation survives and permits saving and ex
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(name).toHaveValue("New test from instructions");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
@@ -1375,7 +1433,7 @@ test("new test name entered before generation survives and permits saving and ex
 test("failed regeneration removes prior successful draft and disables saving stale steps", async ({ page }) => {
   await generateFixture(page);
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Test" })).toBeEnabled();
   await expect(page.locator("#step-list .step")).toHaveCount(9);
 
   await page.route("**/api/generate", async (route) => {
