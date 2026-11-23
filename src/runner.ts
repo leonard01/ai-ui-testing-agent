@@ -11,6 +11,7 @@ import {
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
 import { ensureAllowedNavigation } from "./inspect.js";
+import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
@@ -98,11 +99,7 @@ export async function runTest(
     context = await browser.newContext({ serviceWorkers: "block" });
     context.setDefaultTimeout(timeout);
     context.setDefaultNavigationTimeout(timeout);
-    await context.route("**/*", (route) =>
-      new URL(route.request().url()).origin === base.origin
-        ? route.continue()
-        : route.abort("blockedbyclient"),
-    );
+    await installBrowserRequestPolicy(context, base.origin);
     await context.tracing.start({
       screenshots: true,
       snapshots: true,
