@@ -485,6 +485,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let incrementalPending = null;
     let incrementalRevision = 0;
     let preflightRevision = 0;
+    let preflightFindings = [];
 
     function make(tag, text, cls) {
       const node = document.createElement(tag);
@@ -963,6 +964,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           // Stable technical attributes are preferred, so no automatic warning.
         }
       }
+      // Read-only starting-page evidence is about test design, not a test verdict.
+      for (const finding of preflightFindings) {
+        if (finding.status === "warning") {
+          issues.push({stepNumber: finding.stepNumber, severity: "Review",
+            message: "Selector preflight: " + finding.message});
+        } else if (finding.status === "deferred") {
+          issues.push({stepNumber: finding.stepNumber, severity: "Advisory",
+            message: "Not yet verified: " + finding.message});
+        }
+      }
       return issues;
     }
     function renderTestDesignIssues() {
@@ -1191,6 +1202,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     function clearPreflight() {
       preflightRevision++;
+      preflightFindings = [];
+      if (definition) renderTestDesignIssues();
       $("selector-preflight-status").textContent = "";
       $("selector-preflight-results").replaceChildren();
       $("selector-preflight").disabled = false;
@@ -1208,6 +1221,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           body: JSON.stringify({ definition, baseURL: selectedBaseURL }),
         });
         if (revision !== preflightRevision) return;
+        preflightFindings = result.findings ?? [];
+        renderTestDesignIssues();
         $("selector-preflight-status").textContent =
           "Selector check complete: " + result.summary.matched + " initial matches, " +
           result.summary.warnings + " warnings, " + result.summary.deferred +
