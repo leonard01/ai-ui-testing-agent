@@ -56,6 +56,8 @@ export function browserRequestDecision(request: Request, approvedOrigin: string)
 export interface BrowserRequestCounters {
   allowedCrossOriginRequests: number;
   blockedCrossOriginRequests: number;
+  /** Bounded resource type/method counts, never resource URLs or request bodies. */
+  blockedRequestKinds?: Record<string, number>;
 }
 
 /** Also supports ordinary route mocking in browser tests via fallback(). */
@@ -67,7 +69,14 @@ export async function installBrowserRequestPolicy(
   await context.route("**/*", (route) => {
     const decision = browserRequestDecision(route.request(), approvedOrigin);
     if (decision === "blocked") {
-      if (counters) counters.blockedCrossOriginRequests++;
+      if (counters) {
+        counters.blockedCrossOriginRequests++;
+        if (counters.blockedRequestKinds) {
+          const request = route.request();
+          const kind = request.resourceType() + ":" + request.method().toUpperCase();
+          counters.blockedRequestKinds[kind] = (counters.blockedRequestKinds[kind] ?? 0) + 1;
+        }
+      }
       return route.abort("blockedbyclient");
     }
     if (decision === "public-subresource" && counters) {
