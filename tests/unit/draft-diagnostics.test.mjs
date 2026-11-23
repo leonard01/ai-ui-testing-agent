@@ -30,7 +30,10 @@ test("draft warnings flag a search silently replaced with an unexpected error as
       inspection: { mainDocumentStatus: 200, blockedCrossOriginRequests: 9, pageErrors: 2 } },
   );
   assert.ok(warnings.some((w) => w.includes("error/block message")));
-  assert.ok(warnings.some((w) => w.includes("blocked 9 cross-origin")));
+  // Third-party request blocking is expected policy activity, not automatically
+  // a defect in a page that returned meaningful heading/status evidence.
+  assert.ok(!warnings.some((w) => w.includes("blocked 9 cross-origin")));
+  assert.ok(!warnings.some((w) => w.includes("blocked 9 external")));
   assert.ok(warnings.some((w) => w.includes("JavaScript exception") &&
     w.includes("does NOT mean a test step or selector has failed")));
   assert.ok(warnings.some((w) => w.includes("Wooden Abacus")));
