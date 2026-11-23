@@ -31,7 +31,9 @@ async function fixturePage(result: "match" | "unrelated" | "none"): Promise<{ se
   const server = createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     if (req.url?.startsWith("/search?")) {
-      const cards = result === "match"
+      // A submit with no entered query must not magically return results.
+      const searched = new URL(req.url, "http://127.0.0.1").searchParams.get("q");
+      const cards = searched !== "shoes" ? "" : result === "match"
         ? '<article data-testid="search-result">Comfortable running SHOES for women</article>'
         : result === "unrelated"
           ? '<article data-testid="search-result">Waterproof boots for hiking</article>'
@@ -80,6 +82,53 @@ for (const result of ["match", "unrelated", "none"] as const) {
     }
   });
 }
+
+test("AI draft missing a query fill restores type-then-Enter and actually searches", async ({ browser }, info) => {
+  const { server, url } = await fixturePage("match");
+  try {
+    const proposal = steps(url);
+    // Reproduce the generated Google draft: description claims typing, but JSON only presses Enter.
+    proposal.steps.splice(1, 1);
+    proposal.steps[1].description = "Enter 'shoes' in search box and submit";
+    const original = structuredClone(proposal);
+    const requirements = "search for 'shoes'\nvalidate a return contains the text shoes";
+
+    // The bad draft cannot pass even though the query is visible on the home page.
+    const uncorrected = await runTest(original, {
+      baseURL: url, outputDir: info.outputPath("without-fill"), timeoutMs: 650,
+    }, browser);
+    expect(uncorrected.status).toBe("assertion-failed");
+
+    const generated = await generateDraft({
+      baseURL: url, model: "mock-model", requirements,
+    }, async () => JSON.stringify(proposal), browser);
+    expect(generated.definition.steps.map(step => step.action.kind)).toEqual([
+      "navigate", "fill", "press", "assert-text",
+    ]);
+    const fill = generated.definition.steps[1].action;
+    const press = generated.definition.steps[2].action;
+    expect(fill.kind).toBe("fill");
+    expect(press.kind).toBe("press");
+    if (fill.kind === "fill" && press.kind === "press") {
+      expect(fill.value).toBe("shoes");
+      expect(fill.target).toEqual(press.target);
+    }
+    const check = generated.definition.steps[3].action;
+    expect(check.kind).toBe("assert-text");
+    if (check.kind === "assert-text") expect(check.scope).toBe("search-results");
+
+    const corrected = await runTest(generated.definition, {
+      baseURL: url, outputDir: info.outputPath("with-fill"), timeoutMs: 1500,
+    }, browser);
+    expect(corrected.status).toBe("passed");
+    expect(corrected.steps.map(step => step.status)).toEqual([
+      "passed", "passed", "passed", "passed",
+    ]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close(error => error ? reject(error) : resolve()));
+  }
+});
 
 test("AI draft matching the user search query is deterministically scoped to results", async ({ browser }) => {
   const { server, url } = await fixturePage("match");
