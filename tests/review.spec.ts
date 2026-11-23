@@ -1375,10 +1375,26 @@ test("Save Draft remains visible in the picker while the editor is open",async({
   await expect(page.locator("#draft-select")).not.toHaveValue("");
   await expect(page.locator("#draft-load")).toBeEnabled();
   await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
+  const id = await page.locator("#draft-select").inputValue();
+  expect(id).toMatch(/^draft-[a-f0-9-]{36}\\.json$/);
+  const stored = JSON.parse(await readFile(join(outputDir,"drafts",id),"utf8"));
+  expect(stored.definition.title).toBe("Add, complete and delete a task");
+  await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+  await expect(page.locator("#edit-script")).toHaveValue(id);
+  await expect(page.locator("#edit-script option:checked")).toContainText("[Draft — not runnable]");
   // Saving a working draft must not accidentally approve or run it.
   await expect(page.locator("#save-and-run")).toBeDisabled();
-  await page.getByRole("button",{name:"Resume draft"}).click();
+
+  // Re-open the full page: the existing-tests list must discover this draft
+  // from disk, not a stateful client cache or success toast.
+  await page.reload();
+  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
+  await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
+  await page.locator("#edit-script").selectOption(id);
+  await expect(page.getByRole("button",{name:"Resume selected draft"})).toBeEnabled();
+  await page.getByRole("button",{name:"Resume selected draft"}).click();
   await expect(page.locator("#review-progress")).toContainText("1 of 9 steps confirmed");
+  await expect(page.locator("#run-test")).toBeDisabled();
 });
 
 test("working draft preserves partial approvals and original instructions without becoming runnable", async ({ page }) => {
