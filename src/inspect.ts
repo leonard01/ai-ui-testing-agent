@@ -15,6 +15,8 @@ export interface PageSnapshot {
     blockedCrossOriginRequests: number;
     allowedCrossOriginRequests: number;
     pageErrors: number;
+    /** Local diagnostic only; never pass exception messages to a hosted model. */
+    pageErrorSummaries?: string[];
   };
 }
 
@@ -36,6 +38,21 @@ export function ensureAllowedNavigation(destination: string, base: URL): URL {
   return url;
 }
 
+/**
+ * Bounded, privacy-filtered first-line error summary. Never expose stacks,
+ * resource URLs, tokens or long application-controlled messages.
+ */
+export function summarizePageError(error: Error): string {
+  const type = /^[A-Za-z][A-Za-z0-9]*Error$/.test(error.name) ? error.name : "JavaScript error";
+  const safe = (error.message ?? "").split(/\r?\n/, 1)[0]
+    .replace(/https?:\/\/[^\s\u0022\u0027<>]+/gi, "[URL redacted]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email redacted]")
+    .replace(/\b(password|token|secret|api[_ -]?key|authorization)\s*[:=]\s*(?:\u0022[^\u0022]*\u0022|\u0027[^\u0027]*\u0027|[^\s,;]+)/gi, "$1=[redacted]")
+    .replace(/\b[A-Za-z0-9_-]{30,}\b/g, "[opaque value redacted]")
+    .replace(/\s+/g, " ").trim().slice(0, 160);
+  return safe ? type + ": " + safe : type;
+}
+
 export async function inspectApplication(
   baseURL: string,
   suppliedBrowser?: Browser,
@@ -46,10 +63,16 @@ export async function inspectApplication(
   context.setDefaultNavigationTimeout(10_000);
   const resourceCounts = { blockedCrossOriginRequests: 0, allowedCrossOriginRequests: 0 };
   let pageErrors = 0;
+  const pageErrorSummaries: string[] = [];
   try {
     await installBrowserRequestPolicy(context, destination.origin, resourceCounts);
     const page = await context.newPage();
-    page.on("pageerror", () => { pageErrors++; });
+    page.on("pageerror", (error) => {
+      pageErrors++;
+      if (pageErrorSummaries.length < 3) {
+        pageErrorSummaries.push(summarizePageError(error));
+      }
+    });
     const mainDocument = await page.goto(destination.href, { waitUntil: "domcontentloaded" });
     const snapshot = await page.evaluate(() => {
       const clip = (value: string | null | undefined) =>
@@ -96,6 +119,7 @@ export async function inspectApplication(
         mainDocumentStatus: mainDocument?.status() ?? null,
         ...resourceCounts,
         pageErrors,
+        pageErrorSummaries,
       },
     };
   } finally {
