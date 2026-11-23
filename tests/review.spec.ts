@@ -68,6 +68,105 @@ test("initial page JavaScript exception is explained separately from selector de
   await expect(page.locator("#save")).toBeDisabled();
 });
 
+test("unverified login placeholders are critical blockers, not amber advisory warnings", async ({page}) => {
+  const login = {
+    schemaVersion:1, id:"login", title:"Login", version:1,
+    steps:[
+      {id:"open", description:"Open login page",action:{kind:"navigate",url:"http://127.0.0.1:3000"}},
+      {id:"user",description:"Enter username",action:{
+        kind:"fill",target:{by:"label",value:"Username"},value:"REPLACE_WITH_YOUR_USERNAME"}},
+      {id:"pass",description:"Enter password",action:{
+        kind:"fill",target:{by:"label",value:"Password"},value:"REPLACE_WITH_YOUR_PASSWORD"}},
+      {id:"login",description:"Click Login",action:{
+        kind:"click",target:{by:"role",role:"button",name:"Login"}}},
+      {id:"verify",description:"Verify Products",action:{
+        kind:"assert-visible",target:{by:"text",value:"Products"},provenance:"requirements"}},
+    ],
+  };
+  await page.goto(url);
+  await page.route("**/api/generate",route => route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({
+      definition:login,needsReview:true,provider:"groq",generationAttempts:1,
+      memorySuggestions:[],
+      diagnostics:{
+        provider:"groq",model:"mock",attempts:1,
+        snapshot:{url:"http://127.0.0.1:3000",title:"Login",headings:["Login"],
+          controls:[],statusText:[],sampleText:[],
+          inspection:{mainDocumentStatus:200,blockedCrossOriginRequests:0,
+            allowedCrossOriginRequests:0,pageErrors:0}},
+        warnings:[],blockingCredentialSteps:[2,3],
+      },
+      message:"AI-generated draft",
+    }),
+  }));
+  await page.getByLabel("Your test instructions").fill("Log in and verify Products");
+  await page.locator("#test-name").fill("Login validation");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button",{name:"Generate draft"}).click();
+  const panel = page.locator("#draft-critical-blockers");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Cannot save or run");
+  await expect(panel).toContainText("step 2");
+  await expect(panel).toContainText("3");
+  await expect(page.locator("#generation-status")).toContainText("BLOCKED");
+  await expect(page.locator("#draft-quality-warnings")).toBeHidden();
+  await page.getByRole("button",{name:"Add All",exact:true}).click();
+  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await expect(page.locator("#save-draft")).toBeEnabled();
+
+  await panel.getByRole("button",{name:"Edit step 2"}).click();
+  const username = page.locator("#step-list .step").nth(1);
+  await username.getByLabel("Value to enter").fill("public-demo-user");
+  await username.getByRole("button",{name:"Apply changes"}).click();
+  await expect(panel).toContainText("1 unresolved login credential step");
+  await expect(panel).not.toContainText("Edit step 2");
+  await expect(panel.getByRole("button",{name:"Edit step 3"})).toBeVisible();
+  await panel.getByRole("button",{name:"Edit step 3"}).click();
+  const password = page.locator("#step-list .step").nth(2);
+  await password.getByLabel("Value to enter").fill("public-demo-password");
+  await password.getByRole("button",{name:"Apply changes"}).click();
+  await expect(panel).toBeHidden();
+  await expect(page.locator("#draft-quality-warnings")).toBeHidden();
+
+  // Editing invalidates approval of the changed steps; the user must confirm
+  // them again before creating an executable test.
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await page.getByRole("button",{name:"Add All",exact:true}).click();
+  await expect(page.locator("#save")).toBeEnabled();
+  await expect(page.locator("#save-and-run")).toBeEnabled();
+});
+
+test("JavaScript page warnings stay advisory, never incorrectly labelled as blockers", async ({page}) => {
+  await page.goto(url);
+  await page.route("**/api/generate",route => route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({
+      definition:{
+        schemaVersion:1,id:"simple",title:"Simple",version:1,
+        steps:[{id:"open",description:"Open site",action:{kind:"navigate",url:"http://127.0.0.1:3000"}}],
+      },
+      needsReview:true,provider:"groq",generationAttempts:1,memorySuggestions:[],
+      diagnostics:{provider:"groq",model:"mock",attempts:1,
+        snapshot:{url:"http://127.0.0.1:3000",title:"Todo",headings:["Todo"],
+          controls:[],statusText:[],sampleText:[],
+          inspection:{mainDocumentStatus:200,blockedCrossOriginRequests:0,
+            allowedCrossOriginRequests:0,pageErrors:1,
+            pageErrorSummaries:["TypeError: demo script issue"]}},
+        blockingCredentialSteps:[],
+        warnings:["The website raised a JavaScript exception while loading; no test-step failure is implied."]},
+      message:"AI-generated draft",
+    }),
+  }));
+  await page.getByLabel("Your test instructions").fill("Open the page");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button",{name:"Generate draft"}).click();
+  await expect(page.locator("#draft-critical-blockers")).toBeHidden();
+  await expect(page.locator("#draft-quality-warnings")).toContainText("Advisory review notes");
+  await expect(page.locator("#draft-quality-warnings")).toContainText("JavaScript exception");
+});
+
 async function generateFixture(page: import("@playwright/test").Page) {
   await page.goto(url);
   await page.getByLabel("Your test instructions").fill(
