@@ -10,6 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { assertCredentialsReviewed } from "./credential-guard.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
@@ -78,6 +79,8 @@ export async function runTest(
   let tracing = false;
   try {
     const definition = parseTestDefinition(input);
+    // Fail before opening a browser if a draft placeholder reached the runner.
+    assertCredentialsReviewed(definition);
     report.testId = definition.id;
     report.title = definition.title;
     const timeout = options.timeoutMs ?? 5000;
