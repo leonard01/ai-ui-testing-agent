@@ -67,6 +67,20 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 `GROQ_MODEL` is optional. Restart the server after editing. **Do not commit `.env` or share credentials.** GroqCloud quota limits apply; Fixture mode and running already approved tests do not require Groq requests.
 
+## Independent Playwright E2E smoke suite
+
+Run a fast **application-level release smoke** check from the repository root:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:smoke
+```
+
+The dedicated `tests/e2e-smoke.spec.ts` suite drives the **real test-builder UI using Playwright directly**. It checks Fixture-mode generation, explicit human approval, saving and executing a test, run history, working-draft persistence, and running a two-test website suite. Each test uses isolated temporary storage and a separate local review server. No hosted AI key, external website or agent-authored JSON test harness is needed. Failures retain Playwright trace/screenshot evidence.
+
+This is a **deterministic release gate**, not a verification of GroqCloud response quality. A separate optional live-model smoke test is still recommended before publishing a release. The regular `npm test` command runs the broader regression suite.
+
 ## Watch the demo (73 seconds)
 
 [![Watch the AI UI Testing Agent v0.1 demo — plain-English test creation, approval, execution and results](assets/demo-thumbnail.jpg)](https://raw.githubusercontent.com/leonard01/ai-ui-testing-agent/main/assets/AI_UI_Testing_Agent_v0.1_LinkedIn_Demo.mp4)

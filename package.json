@@ -18,7 +18,8 @@
     "generate": "node dist/generate-cli.js",
     "review": "node dist/review-server.js",
     "start": "npm run build && npm run review",
-    "start:demo": "npm run build && node scripts/start-demo-and-review.mjs"
+    "start:demo": "npm run build && node scripts/start-demo-and-review.mjs",
+    "test:smoke": "npm run build && playwright test --grep @e2e-smoke"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
