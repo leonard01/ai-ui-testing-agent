@@ -2344,6 +2344,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (running || !id) return;
       running = true;
       updateRunButton();
+      updateApproval();
       $("run-error").textContent = "";
       $("run-results").hidden = true;
       $("run-status").textContent = "Starting Playwright test...";
@@ -2363,6 +2364,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } finally {
         running = false;
         updateRunButton();
+        updateApproval();
       }
     }
     $("run-test").addEventListener("click", () => { void executeApproved(selectedApprovedId); });
@@ -2745,7 +2747,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           if (!existing) throw new Error("Previously saved test is no longer available. Save the test again.");
           approvedId = lastSavedId;
           await refreshApprovedTests(approvedId, existing.siteUrl || "");
-          $("saved").textContent = "This test is unchanged. Using the previously saved approved test.";
+          $("saved").textContent = runAfterSave
+            ? "This test is unchanged. Starting the previously saved approved test."
+            : "This test is unchanged. Using the previously saved approved test.";
         } else {
           const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
