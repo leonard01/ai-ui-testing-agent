@@ -116,6 +116,21 @@ test("unverified login placeholders are critical blockers, not amber advisory wa
   await expect(page.locator("#save-and-run")).toBeDisabled();
   await expect(page.locator("#save-draft")).toBeEnabled();
 
+  // Reproduces the user-reported login-memory case: an incomplete login test
+  // with credential placeholders must be saved, rediscovered after reload,
+  // and reopenable as a draft (never a runnable approved test).
+  await page.getByRole("button",{name:"Save Draft",exact:true}).click();
+  await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+  const loginDraftId = await page.locator("#draft-select").inputValue();
+  expect(loginDraftId).toMatch(/^draft-/);
+  await page.reload();
+  await expect(page.locator('#draft-select option[value="' + loginDraftId + '"]')).toHaveCount(1);
+  await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
+  await page.locator("#edit-script").selectOption(loginDraftId);
+  await page.getByRole("button",{name:"Resume selected draft"}).click();
+  await expect(panel).toBeVisible();
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+
   await panel.getByRole("button",{name:"Edit step 2"}).click();
   const username = page.locator("#step-list .step").nth(1);
   await username.getByLabel("Value to enter").fill("public-demo-user");
