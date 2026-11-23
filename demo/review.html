@@ -631,6 +631,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
+        lastSavedId = "";
+        savedFingerprint = "";
         workingDraftId = id;
         editingSavedId = data.draft.sourceApprovedId || null;
         originalInstructions = data.draft.sourceInstructions;
@@ -659,6 +661,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       // Returning to the test picker also ends the edit session. Otherwise
       // generating a *new* test could unexpectedly replace the old script.
       definition = null;
+      lastSavedId = "";
+      savedFingerprint = "";
       approvals = new Set();
       editingSavedId = null;
       workingDraftId = null;
@@ -2425,6 +2429,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       try {
         const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
         definition = payload.definition;
+        lastSavedId = "";
+        savedFingerprint = "";
         workingDraftId = null;
         originalInstructions = definition.sourceInstructions;
         $("requirements").value = definition.workingInstructions ?? definition.sourceInstructions ?? "";
@@ -2653,6 +2659,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         const wasEditing = Boolean(editingSavedId || workingDraftId);
         definition = data.definition;
+        lastSavedId = "";
+        savedFingerprint = "";
         if (!wasEditing) {
           originalInstructions = requirements;
           workingDraftId = null;
@@ -2733,12 +2741,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const fingerprint = currentSaveFingerprint(testName);
         if (!saveAsNew && lastSavedId && savedFingerprint === fingerprint) {
           // Re-running an unchanged approved test must not create or replace a file.
+          const existing = approvedCatalog.find(item => item.id === lastSavedId);
+          if (!existing) throw new Error("Previously saved test is no longer available. Save the test again.");
           approvedId = lastSavedId;
-          const existing = approvedCatalog.find(item => item.id === approvedId);
-          await refreshApprovedTests(approvedId, existing?.siteUrl || "");
+          await refreshApprovedTests(approvedId, existing.siteUrl || "");
           $("saved").textContent = "This test is unchanged. Using the previously saved approved test.";
         } else {
-        const response = await fetch("/api/save", {
+          const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
           body: JSON.stringify({
             definition: {
@@ -2767,13 +2776,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           $("run-results").hidden = true;
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
         }
-        $("saved").append(make("strong", data.replacedId
-          ? "Amended test saved; old version removed from the list. Ready to execute."
-          : "Saved and ready to execute. The test has NOT been executed."));
+        $("saved").append(make("strong", runAfterSave
+          ? "Test saved successfully. Starting execution below."
+          : data.replacedId
+            ? "Amended test saved; old version removed from the list. Ready to execute."
+            : "Saved and ready to execute. The test has NOT been executed."));
         $("saved").append(make("p", "JSON file: " + data.file));
         const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
         const pre = make("pre", command);
-        $("saved").append(make("p", "Use Run selected test in section 3, or run via the CLI:"));
+        $("saved").append(make("p", runAfterSave
+          ? "Execution will start below. To run again later, use Run Tests. CLI command:"
+          : "Use Run selected test in section 3, or run via the CLI:"));
         $("saved").append(pre);
         const copy = make("button", "Copy run command", "secondary");
         copy.onclick = async () => {
