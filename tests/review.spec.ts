@@ -1391,7 +1391,7 @@ test("Save Draft remains visible in the picker while the editor is open",async({
   await expect(page.locator("#draft-load")).toBeEnabled();
   await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
   const id = await page.locator("#draft-select").inputValue();
-  expect(id).toMatch(/^draft-[a-f0-9-]{36}\\.json$/);
+  expect(id).toMatch(/^draft-[a-f0-9-]{36}[.]json$/);
   const stored = JSON.parse(await readFile(join(outputDir,"drafts",id),"utf8"));
   expect(stored.definition.title).toBe("Add, complete and delete a task");
   await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
