@@ -20,6 +20,7 @@ This project is a pre-1.0 prototype. Release increments are deliberately small; 
 - **Blocked-site fail-closed generation:** When the inspected website returns HTTP 4xx/5xx, stop before contacting the AI model and show the upstream status/resource diagnostics. Never offer a synthetic test that treats an access-denied/error page as successful application behaviour.
 - **403 error guidance:** Highlight that website security may be blocking automation, while explicitly noting that HTTP 403 can also mean missing login, access permissions or network restrictions; suggest contacting the test-environment owner.
 - **Search-result assertion correctness:** When a tester asks to validate returned search results, scope the expected text to identifiable result cards rather than the search field, heading, navigation or whole page. Fail safely if no matching result card is found; preserve the scope in review UI, preflight and Playwright export.
+- **Search submission correctness:** For one explicitly quoted search query, if the AI mistakenly proposes pressing Enter on an identifiable search input without first typing the query, add a separate human-reviewable Fill action and clarify the submit step description. Avoid inventing queries or changing unrelated Enter actions.
 - **Regression coverage and stability:** Automated validation of new workflows and safer HTTP test-server cleanup.
 
 ### Known limitations
