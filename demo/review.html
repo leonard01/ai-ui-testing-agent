@@ -2756,13 +2756,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               workingInstructions: $("requirements").value,
             },
             testName, baseURL: selectedBaseURL,
-            ...(!saveAsNew && editingSavedId ? { replaceId: editingSavedId } : {}),
+            ...(!saveAsNew && (editingSavedId || lastSavedId)
+              ? { replaceId: editingSavedId || lastSavedId } : {}),
           }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not save test");
         definition.title = testName;
-        editingSavedId = data.id;
+        editingSavedId = null;
         workingDraftId = null;
         // The save response records the website actually persisted by the server.
         // Keep Run Tests (and its execution URL) in sync with that saved script.
