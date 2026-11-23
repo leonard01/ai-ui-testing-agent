@@ -123,6 +123,13 @@ export async function preflightSelectors(
         continue;
       }
       if (action.kind === "assert-url") continue; // URL has no locator to preflight.
+      if (action.kind === "assert-text" && action.scope === "search-results") {
+        findings.push({
+          stepId: step.id, stepNumber: index + 1, status: "deferred",
+          message: "Search-result assertions require the live result cards after search submission. The starting page and search query field are not valid evidence.",
+        });
+        continue;
+      }
       const item = (status: PreflightStatus, message: string, extra: Partial<PreflightFinding> = {}) => {
         findings.push({ stepId: step.id, stepNumber: index + 1, status, message, ...extra });
       };

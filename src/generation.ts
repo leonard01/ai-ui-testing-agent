@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import type { Browser } from "playwright";
 import type { TestDefinition } from "./domain.js";
 import { parseTestDefinition } from "./schema.js";
+import { isExplicitSearchResultIntent, shouldScopeSearchResultAssertion } from "./search-results.js";
 import {
   ensureAllowedNavigation,
   inspectApplication,
@@ -153,6 +154,34 @@ export async function generateDraft(
         (base.pathname !== "/" || !!base.search || !!base.hash)) {
       firstAction.url = snapshot.url;
     }
+    // The model can mistake a search query appearing in the page heading for
+    // evidence of a returned result. For explicit search-result requirements,
+    // promote assertions of the submitted query to the scoped check, which
+    // only inspects identifiable result cards at execution time.
+    if (isExplicitSearchResultIntent(options.requirements ?? "")) {
+      const searchedValues = definition.steps.flatMap(step =>
+        step.action.kind === "fill" ? [step.action.value] : []);
+      for (const step of definition.steps) {
+        if (step.action.kind === "assert-text" &&
+            shouldScopeSearchResultAssertion(
+              options.requirements ?? "", step.action, searchedValues,
+            )) {
+          step.action.scope = "search-results";
+          step.action.match = "contains";
+        } else if (step.action.kind === "assert-visible" &&
+            step.action.target.by === "text" &&
+            shouldScopeSearchResultAssertion(
+              options.requirements ?? "", { expected: step.action.target.value }, searchedValues,
+            )) {
+          const target = step.action.target;
+          step.action = {
+            kind: "assert-text", target, expected: target.value,
+            match: "contains", scope: "search-results",
+            provenance: step.action.provenance,
+          };
+        }
+      }
+    }
     for (const step of definition.steps) {
       if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
       if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
@@ -194,7 +223,10 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "When PAGE SNAPSHOT controls include a placeholder attribute, use {by:'placeholder',value:'exact placeholder'} for filling and pressing keys on that field. Example: a textbox with placeholder 'What needs to be done?' MUST use {by:'placeholder',value:'What needs to be done?'}, NOT {by:'label',value:'What needs to be done?'}.",
     "When entering a new TodoMVC item, target the SAME placeholder-based input for BOTH fill and press Enter.",
     "If you do use explicit locators, only use accessible role/name for buttons and checkboxes when the initial snapshot supports them. Never infer a label from button text.",
-    "Assert-text action: {kind:'assert-text',target:TARGET,expected:string,match?:'exact'|'contains',provenance:string}. Omit match for exact; use contains only when requirements allow surrounding or dynamic text, never to conceal unexpected text.",
+    "Assert-text action: {kind:'assert-text',target:TARGET,expected:string,match?:'exact'|'contains',scope?:'search-results',provenance:string}. Omit match for exact; use contains only when requirements allow surrounding or dynamic text, never to conceal unexpected text.",
+    "CRITICAL FOR SEARCH: If the tester asks to verify a returned search result contains a term, assert-text MUST have scope:'search-results' and match:'contains'. This checks identifiable result cards only after submitting the search, NEVER the search field, page heading, navigation, or whole page.",
+    "For example, after searching for 'shoes', verification of a returned result containing 'shoes' uses {kind:'assert-text',target:{by:'text',value:'shoes'},expected:'shoes',match:'contains',scope:'search-results',provenance:'requirements'}. The runner scopes this to result cards; the target text does NOT by itself prove the assertion.",
+    "Never assert that a search returned results merely because the submitted query is visible anywhere on the page. If result cards cannot be identified, the test must fail rather than pass from unrelated page text.",
     "Assert-visible action: {kind:'assert-visible',target:TARGET,provenance:string}.",
     "Assert-url action: {kind:'assert-url',expected:'/same-origin-path',provenance:string}; exact URL including path/query/hash, origin must remain the configured app origin.",
     "Assert-count action: {kind:'assert-count',target:EXPLICIT_TARGET,expected:nonNegativeInteger,provenance:string}; counts all matched DOM elements, including hidden.",

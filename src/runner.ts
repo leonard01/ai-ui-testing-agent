@@ -12,6 +12,7 @@ import {
 import { parseTestDefinition } from "./schema.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
+import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
@@ -140,6 +141,39 @@ export async function runTest(
             }
             await delay(Math.min(50, remaining));
           }
+        } else if (action.kind === "assert-text" && action.scope === "search-results") {
+          // Never let the query echoed in the input, page heading or navigation
+          // satisfy a search-result requirement. Inspect result CARDS only.
+          checkingAssertion = true;
+          result.expected = action.expected;
+          result.textMatch = "contains";
+          const expected = normalize(action.expected);
+          const cards = page.locator(SEARCH_RESULT_ITEM_SELECTOR);
+          const escaped = expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+          const matches = cards.filter({ hasText: new RegExp(escaped, "i") });
+          const deadline = performance.now() + timeout;
+          let found = false;
+          while (true) {
+            const count = await cards.count();
+            const matchedCount = await matches.count();
+            for (let i = 0; i < Math.min(matchedCount, 30); i++) {
+              const candidate = matches.nth(i);
+              if (!await candidate.isVisible()) continue;
+              result.observed = normalize(await candidate.innerText()).slice(0, 500);
+              found = true;
+              break;
+            }
+            if (found) break;
+            result.observed = count === 0
+              ? "No identifiable search-result cards on the page"
+              : count + " result card(s) found, but none contains " + JSON.stringify(expected);
+            const remaining = deadline - performance.now();
+            if (remaining <= 0) {
+              throw new Error("Search-result assertion failed: " + result.observed +
+                ". The query shown elsewhere on the page is not a returned result.");
+            }
+            await delay(Math.min(100, remaining));
+          }
         } else {
           let target: Locator;
           if (action.target.by === "intent") {
@@ -248,6 +282,7 @@ export async function runTest(
           // Execution deliberately stops without acting on any candidate.
           result.ambiguity = error.ambiguity;
         } else if (page && step.action.kind === "assert-text" &&
+          step.action.scope !== "search-results" &&
           result.status === "assertion-failed") {
           try {
             // A selector may resolve successfully but point to the wrong
@@ -332,7 +367,7 @@ export async function runTest(
             // Candidate discovery is best-effort; retain the original error.
           }
         }
-        if (page && (step.action.kind === "assert-text" ||
+        if (page && (step.action.kind === "assert-text" && step.action.scope !== "search-results" ||
             step.action.kind === "assert-visible") && options.onAssertionSearchIndex) {
           try {
             const index = await captureAssertionSearchIndex(page);

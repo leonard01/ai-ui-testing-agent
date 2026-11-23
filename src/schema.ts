@@ -65,6 +65,8 @@ const action = z.discriminatedUnion("kind", [
       target,
       expected: z.string().max(10000),
       match: z.enum(["exact", "contains"]).optional(),
+      // Search result assertions must not check page-wide text or the query field.
+      scope: z.literal("search-results").optional(),
       provenance,
     })
     .strict(),

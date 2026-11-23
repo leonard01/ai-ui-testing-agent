@@ -704,6 +704,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (action.kind === "uncheck") return "Uncheck " + describeTarget(action.target);
       if (action.kind === "select-option") return 'Select option value "' + action.value + '" in ' + describeTarget(action.target);
       if (action.kind === "press") return 'Press ' + action.key + " on " + describeTarget(action.target);
+      if (action.kind === "assert-text" && action.scope === "search-results") return 'Verify a returned search result contains "' + action.expected + '" (result cards only)';
       if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + (action.match === "contains" ? ' contains "' : ' equals "') + action.expected + '"';
       if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
       if (action.kind === "assert-count") return "Verify " + describeTarget(action.target) + " matches " + action.expected + " elements";
@@ -729,6 +730,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         labeledInput(edits, "Expected URL / path", clone.action.expected, (v) => {
           clone.action.expected = v;
         });
+      } else if (clone.action.kind === "assert-text" && clone.action.scope === "search-results") {
+        labeledInput(edits, "Expected text in a returned search result", clone.action.expected, (v) => {
+          clone.action.expected = v;
+        });
+        edits.append(make("p", "This assertion checks visible returned search-result cards, not the search field, page heading, navigation or whole page. If result cards cannot be identified, it fails safely.", "note"));
       } else {
         const strategyLabel = make("label", "Locator strategy");
         const strategySelect = make("select");
