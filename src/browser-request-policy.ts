@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import type { Request } from "playwright";
+import type { Request, BrowserContext } from "playwright";
 
 /**
  * The approved site owns the test. Ordinary websites also need public CDNs:
@@ -51,4 +51,28 @@ export function browserRequestDecision(request: Request, approvedOrigin: string)
     url: request.url(), method: request.method(), resourceType: request.resourceType(),
     isNavigationRequest: request.isNavigationRequest(),
   }, approvedOrigin);
+}
+
+export interface BrowserRequestCounters {
+  allowedCrossOriginRequests: number;
+  blockedCrossOriginRequests: number;
+}
+
+/** Also supports ordinary route mocking in browser tests via fallback(). */
+export async function installBrowserRequestPolicy(
+  context: BrowserContext,
+  approvedOrigin: string,
+  counters?: BrowserRequestCounters,
+): Promise<void> {
+  await context.route("**/*", (route) => {
+    const decision = browserRequestDecision(route.request(), approvedOrigin);
+    if (decision === "blocked") {
+      if (counters) counters.blockedCrossOriginRequests++;
+      return route.abort("blockedbyclient");
+    }
+    if (decision === "public-subresource" && counters) {
+      counters.allowedCrossOriginRequests++;
+    }
+    return route.fallback();
+  });
 }
