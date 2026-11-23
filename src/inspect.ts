@@ -8,6 +8,12 @@ export interface PageSnapshot {
   controls: Array<{ kind: string; name: string; type?: string; placeholder?: string }>;
   statusText: string[];
   sampleText: string[];
+  /** Initial navigation/inspection evidence; no full DOM or cross-origin URLs. */
+  inspection?: {
+    mainDocumentStatus: number | null;
+    blockedCrossOriginRequests: number;
+    pageErrors: number;
+  };
 }
 
 export function ensureAllowedNavigation(destination: string, base: URL): URL {
@@ -36,19 +42,22 @@ export async function inspectApplication(
   const browser = suppliedBrowser ?? (await chromium.launch());
   const context = await browser.newContext({ serviceWorkers: "block" });
   context.setDefaultNavigationTimeout(10_000);
+  let blockedCrossOriginRequests = 0;
+  let pageErrors = 0;
   try {
     await context.route("**/*", (route) => {
       try {
         return new URL(route.request().url()).origin === destination.origin
           ? route.continue()
-          : route.abort("blockedbyclient");
+          : (blockedCrossOriginRequests++, route.abort("blockedbyclient"));
       } catch {
         return route.abort("blockedbyclient");
       }
     });
     const page = await context.newPage();
-    await page.goto(destination.href, { waitUntil: "domcontentloaded" });
-    return await page.evaluate(() => {
+    page.on("pageerror", () => { pageErrors++; });
+    const mainDocument = await page.goto(destination.href, { waitUntil: "domcontentloaded" });
+    const snapshot = await page.evaluate(() => {
       const clip = (value: string | null | undefined) =>
         (value ?? "").replace(/\s+/g, " ").trim().slice(0, 180);
       const unique = (values: string[], max: number) =>
@@ -87,6 +96,14 @@ export async function inspectApplication(
           .map((node) => clip(node.textContent)), 30),
       };
     });
+    return {
+      ...snapshot,
+      inspection: {
+        mainDocumentStatus: mainDocument?.status() ?? null,
+        blockedCrossOriginRequests,
+        pageErrors,
+      },
+    };
   } finally {
     await context.close();
     if (!suppliedBrowser) await browser.close();
