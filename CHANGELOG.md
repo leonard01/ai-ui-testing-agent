@@ -13,6 +13,7 @@ This project is a pre-1.0 prototype. Release increments are deliberately small; 
 
 ### Improved
 - **Run Tests usability:** Side-by-side suite/test selection, selected-suite filtering, and step timeout controls (5, 10, or 15 seconds).
+- **Saved-test website selection:** After approving and saving a JSON test, Run Tests now selects the script's persisted website suite and matching execution URL instead of retaining the previously selected site.
 - **Generation/review clarity:** Readiness and progress messaging, explicit required fields, active URL source highlighting, and clearer failed-generation handling that avoids saving stale draft steps.
 - **Draft generation diagnostics:** Review initial-page HTTP/load evidence, blocked cross-origin resource counts and validated generated JSON. Advisory warnings identify unexpected error-page assertions and missing quoted requirement values before approval.
 - **Regression coverage and stability:** Automated validation of new workflows and safer HTTP test-server cleanup.
