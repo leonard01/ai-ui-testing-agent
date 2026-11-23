@@ -17,9 +17,9 @@ test.describe("@e2e-smoke application smoke", () => {
   let url: string;
   let dataDir: string | undefined;
 
-  test.beforeEach(async ({ browser }) => {
+  test.beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), "agent-e2e-smoke-"));
-    server = await createReviewServer(dataDir, browser);
+    // Do not share Playwright Test\'s instrumented browser with the agent runner.\n    // The app launches its own Chromium contexts and traces during execution.\n    server = await createReviewServer(dataDir);
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
     url = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
   });
