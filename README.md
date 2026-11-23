@@ -12,7 +12,7 @@
 | --- | --- |
 | **Plain-English test creation** | Enter the website URL and natural-language instructions; GroqCloud uses a bounded initial-page snapshot to propose steps. **Fixture** mode works without AI. |
 | **Human review** | Inspect and edit steps, locators and expectations. Approve individually or use **Add All**; nothing saves or executes without an explicit action. |
-| **Generation diagnostics (v0.2)** | Inspect the initial page snapshot, HTTP status, blocked cross-origin resource count and generated JSON. Advisory warnings flag suspicious error-page assertions or quoted requirement values missing from the draft; testers still decide what to approve. |
+| **Generation diagnostics (v0.2)** | Inspect the initial page snapshot, HTTP status, allowed/blocked third-party resource counts and generated JSON. Advisory warnings flag suspicious error-page assertions or quoted requirement values missing from the draft; testers still decide what to approve. |
 | **Incremental regeneration (v0.2)** | Use **Reinterpret with AI** on a selected step to replace only that step, or that step and all subsequent steps. Preview the proposal and reapprove changes while retaining unaffected approvals. |
 | **Working drafts and test editing (v0.2)** | Save partly approved drafts, resume them later, preserve original and amended instructions, and edit existing tests or **Save as New Test**. |
 | **Website suites and execution** | Organise saved scripts by website. Run one script or up to **10** sequentially in isolated Chromium contexts, with **5/10/15-second** step timeout options. |
