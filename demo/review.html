@@ -860,6 +860,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 clone.action.kind === "select-option" ? { role: "combobox" } :
                 ["check", "uncheck"].includes(clone.action.kind) ? { role: "checkbox" } : {}),
             };
+          } else if (["testid", "id", "css", "xpath"].includes(strategySelect.value)) {
+            // Never reinterpret an accessible name as a CSS/XPath expression
+            // or guessed technical attribute. The tester must provide it.
+            clone.action.target = { by: strategySelect.value, value: "" };
           } else {
             clone.action.target = { by: strategySelect.value, value: name };
           }
@@ -918,6 +922,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const apply = make("button", "Apply changes");
       apply.type = "button";
       apply.onclick = () => {
+        if ("target" in clone.action &&
+            ["testid", "id", "css", "xpath"].includes(clone.action.target.by) &&
+            !clone.action.target.value.trim()) {
+          let message = edits.querySelector(".locator-edit-error");
+          if (!message) {
+            message = make("p", "", "error locator-edit-error");
+            edits.insertBefore(message, buttons);
+          }
+          message.textContent = "Enter the actual locator value; an accessible name is not a CSS/XPath selector or HTML ID.";
+          return;
+        }
         definition.steps[index] = clone;
         approvals.delete(index);
         clearPreflight();
