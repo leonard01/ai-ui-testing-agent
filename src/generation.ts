@@ -31,6 +31,24 @@ export interface GeneratedDraft {
   generationAttempts: number;
 }
 
+/** The target website denied inspection. Never ask the model to reinterpret its error page as a passing test. */
+export class InspectionAccessError extends Error {
+  readonly source = "inspection";
+  readonly category = "http-access-denied";
+  constructor(
+    readonly siteStatus: number,
+    readonly blockedCrossOriginRequests: number,
+    readonly allowedCrossOriginRequests: number,
+    readonly pageErrors: number,
+  ) {
+    super("The website under test returned HTTP " + siteStatus +
+      " during initial inspection. No AI request was made and no test draft was generated. " +
+      "The website or its access-control service may be refusing this browser session. " +
+      "Try opening the website normally in your browser; an HTTP status alone does not establish the reason.");
+    this.name = "InspectionAccessError";
+  }
+}
+
 /** A malformed model response never becomes a runnable test definition. */
 export class GeneratedDraftValidationError extends Error {
   readonly source = "generator";
@@ -73,6 +91,15 @@ export async function generateDraft(
   ensureAllowedNavigation(options.baseURL, base);
 
   const snapshot = await inspectApplication(options.baseURL, suppliedBrowser);
+  const inspectedStatus = snapshot.inspection?.mainDocumentStatus;
+  if (inspectedStatus !== null && inspectedStatus !== undefined && inspectedStatus >= 400) {
+    throw new InspectionAccessError(
+      inspectedStatus,
+      snapshot.inspection?.blockedCrossOriginRequests ?? 0,
+      snapshot.inspection?.allowedCrossOriginRequests ?? 0,
+      snapshot.inspection?.pageErrors ?? 0,
+    );
+  }
   const { system, prompt } = makeGenerationPrompt(options.requirements ?? "", snapshot, options.prerequisiteHints ?? []);
   const maxAttempts = options.retryMalformedOutput ? 2 : 1;
   let problems: string[] = [];
