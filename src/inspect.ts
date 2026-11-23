@@ -1,4 +1,5 @@
 import { chromium, type Browser } from "playwright";
+import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 
 /** Bounded, untrusted application context supplied to a test-design model. */
 export interface PageSnapshot {
@@ -12,6 +13,7 @@ export interface PageSnapshot {
   inspection?: {
     mainDocumentStatus: number | null;
     blockedCrossOriginRequests: number;
+    allowedCrossOriginRequests: number;
     pageErrors: number;
   };
 }
@@ -42,20 +44,10 @@ export async function inspectApplication(
   const browser = suppliedBrowser ?? (await chromium.launch());
   const context = await browser.newContext({ serviceWorkers: "block" });
   context.setDefaultNavigationTimeout(10_000);
-  let blockedCrossOriginRequests = 0;
+  const resourceCounts = { blockedCrossOriginRequests: 0, allowedCrossOriginRequests: 0 };
   let pageErrors = 0;
   try {
-    await context.route("**/*", (route) => {
-      try {
-        if (new URL(route.request().url()).origin === destination.origin) {
-          return route.continue();
-        }
-        blockedCrossOriginRequests++;
-        return route.abort("blockedbyclient");
-      } catch {
-        return route.abort("blockedbyclient");
-      }
-    });
+    await installBrowserRequestPolicy(context, destination.origin, resourceCounts);
     const page = await context.newPage();
     page.on("pageerror", () => { pageErrors++; });
     const mainDocument = await page.goto(destination.href, { waitUntil: "domcontentloaded" });
@@ -102,7 +94,7 @@ export async function inspectApplication(
       ...snapshot,
       inspection: {
         mainDocumentStatus: mainDocument?.status() ?? null,
-        blockedCrossOriginRequests,
+        ...resourceCounts,
         pageErrors,
       },
     };
