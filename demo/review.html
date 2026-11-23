@@ -1400,7 +1400,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!matching.length) list.append(make("p", "No saved test scripts in this suite.", "muted"));
       updateRunButton();
     }
-    async function refreshApprovedTests(preferredId = $("approved-tests").value) {
+    async function refreshApprovedTests(preferredId = $("approved-tests").value, preferredSiteUrl = "") {
       const preservedSuiteSelection = new Set(suiteSelectedIds());
       const previousSite = $("suite-site").value;
       const payload = await requestJSON("/api/tests");
@@ -1418,7 +1418,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         website.append(row);
       }
       const selectedTest = approvedCatalog.find((test) => test.id === preferredId);
-      const chosen = selectedTest?.siteUrl || (selectedTest ? "__legacy__" : previousSite);
+      // A newly saved script's confirmed website takes priority over the old Run Tests
+      // selection, even when that previous selection belongs to another suite.
+      const chosen = preferredSiteUrl ||
+        (selectedTest ? (selectedTest.siteUrl || "__legacy__") : previousSite);
       if (chosen && [...website.options].some((item) => item.value === chosen)) {
         website.value = chosen;
       }
@@ -2659,7 +2662,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         definition.title = testName;
         editingSavedId = null;
         workingDraftId = null;
-        await refreshApprovedTests(data.id);
+        // The save response records the website actually persisted by the server.
+        // Keep Run Tests (and its execution URL) in sync with that saved script.
+        selectedBaseURL = data.sourceUrl;
+        $("base-url").value = data.sourceUrl;
+        await refreshApprovedTests(data.id, data.siteUrl);
         if (data.replacedId) {
           $("run-results").hidden = true;
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
