@@ -89,7 +89,7 @@ test("HTTP 403 target shows inspection error and no draft instead of a false-pos
     await expect(page.locator("#generation-review-status")).toContainText("Generation failed");
     await expect(page.locator("#draft")).toBeHidden();
     await expect(page.locator("#step-list .step")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+    await expect(page.locator("#save")).toBeHidden();
   } finally {
     await new Promise<void>((resolve, reject) =>
       blocked.close((error) => error ? reject(error) : resolve()));
