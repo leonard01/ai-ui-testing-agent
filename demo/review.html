@@ -671,9 +671,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft-list-status").textContent = error.message || String(error);
       });
     });
-    $("draft-load").addEventListener("click", async () => {
-      const id = $("draft-select").value;
-      if (!id || running) return;
+    async function loadWorkingDraft(id) {
+      if (!id || running || !draftCatalog.some(item => item.id === id)) return;
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
@@ -702,6 +701,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } catch (error) {
         $("draft-list-status").textContent = error.message || String(error);
       }
+    }
+    $("draft-load").addEventListener("click", () => {
+      void loadWorkingDraft($("draft-select").value);
     });
     $("back-to-selector").addEventListener("click", () => {
       // Returning to the test picker also ends the edit session. Otherwise
