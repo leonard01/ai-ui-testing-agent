@@ -270,18 +270,19 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
-        <p class="muted">Choose a saved website suite and test script, or reopen an unfinished working draft. To create a new test, enter instructions on the left.</p>
+        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, enter instructions on the left.</p>
         <div class="run-test-selectors">
           <div>
             <label for="edit-suite">Test suite</label>
             <select id="edit-suite"><option value="">Select a test suite</option></select>
           </div>
           <div>
-            <label for="edit-script">Existing test script</label>
+            <label for="edit-script">Existing test or draft</label>
             <select id="edit-script" disabled><option value="">Select a suite first</option></select>
           </div>
         </div>
         <div class="actions"><button type="button" id="edit-load" class="secondary" disabled>Load selected test</button></div>
+        <p id="edit-scripts-summary" class="muted" role="status"></p>
       </div>
       <section id="working-drafts-panel" aria-label="Saved working drafts" style="padding:12px 0;margin:12px 0;border-top:1px solid #d5dce3">
         <h3>Saved working drafts</h3>
@@ -495,6 +496,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let lastSavedId = "";
     let selectedApprovedId = "";
     let approvedCatalog = [];
+    let draftCatalog = [];
     let editingSavedId = null;
     let workingDraftId = null;
     let originalInstructions = undefined;
@@ -572,7 +574,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const script = $("edit-script");
       const priorSuite = suite.value;
       const priorScript = script.value;
-      const sites = [...new Set(approvedCatalog.map(test => test.siteUrl || "__legacy__"))].sort();
+      const sites = [...new Set([
+        ...approvedCatalog.map(test => test.siteUrl || "__legacy__"),
+        ...draftCatalog.map(draft => draft.siteUrl),
+      ])].sort();
       suite.replaceChildren();
       const blank = make("option", "Select a test suite");
       blank.value = "";
@@ -592,25 +597,45 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const placeholder = make("option", suite ? "Select a test script" : "Select a suite first");
       placeholder.value = "";
       script.append(placeholder);
-      const matching = approvedCatalog.filter(item => (item.siteUrl || "__legacy__") === suite);
-      for (const item of matching) {
-        const option = make("option", item.title + " (" + item.steps + " steps)");
+      const approved = approvedCatalog.filter(item =>
+        (item.siteUrl || "__legacy__") === suite);
+      const drafts = draftCatalog.filter(item => item.siteUrl === suite);
+      for (const item of approved) {
+        const option = make("option", "[Approved] " + item.title + " (" + item.steps + " steps)");
         option.value = item.id;
         script.append(option);
       }
-      if (matching.some(item => item.id === selected)) script.value = selected;
+      for (const item of drafts) {
+        const option = make("option", "[Draft — not runnable] " + item.title +
+          " (" + item.approved + "/" + item.steps + " approved)");
+        option.value = item.id;
+        script.append(option);
+      }
+      if ([...approved, ...drafts].some(item => item.id === selected)) script.value = selected;
       script.disabled = !suite;
-      $("edit-load").disabled = !script.value;
+      $("edit-scripts-summary").textContent = suite
+        ? approved.length + " approved test(s), " + drafts.length +
+          " working draft(s). Drafts cannot be run."
+        : "Select a website suite to see approved tests and working drafts.";
+      updateEditLoadButton();
     }
     $("edit-suite").addEventListener("change", () => renderExistingScripts());
-    $("edit-script").addEventListener("change", () => {
-      $("edit-load").disabled = !$("edit-script").value;
-    });
+    function updateEditLoadButton() {
+      const id = $("edit-script").value;
+      $("edit-load").disabled = !id || running;
+      $("edit-load").textContent = id.startsWith("draft-")
+        ? "Resume selected draft" : "Load selected test";
+    }
+    $("edit-script").addEventListener("change", updateEditLoadButton);
     $("edit-load").addEventListener("click", () => {
-      void loadSavedForEditing($("edit-script").value);
+      const id = $("edit-script").value;
+      if (!id) return;
+      if (id.startsWith("draft-")) void loadWorkingDraft(id);
+      else void loadSavedForEditing(id);
     });
     async function refreshDraftPicker(selected = $("draft-select").value) {
       const data = await requestJSON("/api/drafts");
+      draftCatalog = data.drafts;
       const select = $("draft-select");
       select.replaceChildren();
       const blank = make("option", "Select a working draft");
@@ -625,7 +650,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (data.drafts.some(item => item.id === selected)) select.value = selected;
       $("draft-load").disabled = !select.value;
       $("draft-list-status").textContent = data.drafts.length +
-        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available.";
+        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available." +
+        (data.skippedInvalid ? " WARNING: " + data.skippedInvalid +
+          " saved draft file(s) could not be read. Check the review server logs." : "");
+      $("draft-list-status").classList.toggle("error", Boolean(data.skippedInvalid));
+      renderExistingEditorChoices();
+      if (selected) {
+        const item = draftCatalog.find(item => item.id === selected);
+        if (item) {
+          $("edit-suite").value = item.siteUrl;
+          renderExistingScripts(item.id);
+        }
+      }
     }
     $("draft-select").addEventListener("change", () => {
       $("draft-load").disabled = !$("draft-select").value;
