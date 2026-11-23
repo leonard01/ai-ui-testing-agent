@@ -1574,12 +1574,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               model,
               attempts: result.generationAttempts,
               snapshot: result.snapshot,
-              warnings: [
-                ...draftQualityWarnings(input.requirements, result.definition, result.snapshot),
-                ...(unresolvedCredentialSteps(result.definition).length
-                  ? ["Unverified model-generated login values were replaced with placeholders. Enter approved test credentials in the step editor; an unresolved credential cannot be saved or executed."]
-                  : []),
-              ],
+              // Credential placeholders are executable-script blockers, not
+              // advisory test-design warnings. The editor renders them in a
+              // prominent, live-updating blocking panel.
+              blockingCredentialSteps: unresolvedCredentialSteps(result.definition),
+              warnings: draftQualityWarnings(
+                input.requirements, result.definition, result.snapshot),
             },
             message: input.provider === "fixture"
               ? "Fixture is a prewritten demonstration, not AI-generated."
