@@ -70,13 +70,16 @@ export function requireHumanCredentialValues(definition: TestDefinition): number
 export function unresolvedCredentialSteps(definition: TestDefinition): number[] {
   const loginFlow = hasLoginFlow(definition);
   return definition.steps.flatMap((step, index) => {
-    if (step.action.kind !== "fill" || !credentialKind(step, loginFlow)) return [];
+    if (step.action.kind !== "fill") return [];
     const value = step.action.value.trim();
-    // Also reject common untrusted model-authored placeholder variations.
-    return !value || value === USERNAME_REVIEW_PLACEHOLDER ||
+    // Placeholder values are never executable, even if the tester edits the
+    // locator or description to obscure that this was a credential field.
+    const unresolvedPlaceholder = value === USERNAME_REVIEW_PLACEHOLDER ||
       value === PASSWORD_REVIEW_PLACEHOLDER ||
-      /^(?:REPLACE_WITH_|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD)|<[^>]+>)$/i.test(value)
-      ? [index + 1] : [];
+      /^(?:REPLACE_WITH_.*|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD)|<[^>]+>)$/i.test(value);
+    if (unresolvedPlaceholder) return [index + 1];
+    if (!credentialKind(step, loginFlow)) return [];
+    return value ? [] : [index + 1];
   });
 }
 
