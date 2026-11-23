@@ -55,6 +55,17 @@ test("offline fixture mode generates a valid draft and it runs with no model", a
   expect(report.status).toBe("passed");
 });
 
+test("model cannot smuggle unverified CSS into an executable draft", async ({ browser }) => {
+  const definition = await fixture();
+  markRequirements(definition);
+  const action = definition.steps.find(step => step.action.kind === "click")?.action;
+  if (!action || !("target" in action)) throw new Error("Fixture no longer contains a click");
+  action.target = { by: "css", value: "button:nth-child(123)" };
+  await expect(generateDraft({
+    baseURL, model: "test-stub", requirements: "Add a task",
+  }, stub(definition), browser)).rejects.toThrow(/unverified technical locator/);
+});
+
 test("rejects a model falsely claiming human confirmation", async ({ browser }) => {
   const definition = await fixture();
   await expect(generateDraft({
