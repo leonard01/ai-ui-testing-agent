@@ -1,10 +1,10 @@
 # AI UI Testing Agent
 
-**v0.2.0 release preparation · AI-assisted browser test creation, review and execution · Playwright-powered**
+**v0.2.0 release candidate · AI-assisted browser test creation, review and execution · Playwright-powered**
 
 **Describe a test in plain English, generate proposed browser steps, review or edit them, and execute the approved test.** No test automation code is needed for the primary web UI workflow.
 
-> **Release status:** v0.2.0 is prepared but not yet tagged or published. The current package version is `0.2.0`. The tool remains a local QA prototype, not a production-ready autonomous testing platform. Publishing is separate from preparation.
+> **Release status (23 November 2026):** v0.2.0 is **ready to publish** following the maintainer's completed manual testing and green CI on `main` (3/3 independent E2E smoke tests; 119/119 browser regression tests). The package version is `0.2.0`. **No Git tag or GitHub Release has been published yet.** This is a local QA prototype, not a production-ready autonomous testing platform.
 
 ## Current functionality — implemented on `main`
 
@@ -12,7 +12,8 @@
 | --- | --- |
 | **Plain-English test creation** | Enter the website URL and natural-language instructions; GroqCloud uses a bounded initial-page snapshot to propose steps. **Fixture** mode works without AI. |
 | **Human review** | Inspect and edit steps, locators and expectations. Approve individually or use **Add All**; nothing saves or executes without an explicit action. |
-| **Generation diagnostics (v0.2)** | Inspect the initial page snapshot, HTTP status, allowed/blocked third-party resource counts and generated JSON. Advisory warnings flag suspicious error-page assertions or quoted requirement values missing from the draft; testers still decide what to approve. |
+| **Generation diagnostics (v0.2)** | Inspect the initial page snapshot, HTTP status, allowed/blocked third-party resource counts and generated JSON. Advisory warnings flag suspicious error-page assertions or quoted requirement values missing from the draft. On initial HTTP 4xx/5xx, generation stops before calling AI; HTTP 403 highlights a possible website automation block without claiming that is the only explanation. |
+| **Search-flow safeguards (v0.2)** | Preserve an explicitly quoted search query as a separate **Fill** step before **Press Enter** when the draft omitted typing. Validate requested search text against identifiable returned result cards, not the search field or page-wide text; unsupported result markup fails rather than producing a false pass. |
 | **Incremental regeneration (v0.2)** | Use **Reinterpret with AI** on a selected step to replace only that step, or that step and all subsequent steps. Preview the proposal and reapprove changes while retaining unaffected approvals. |
 | **Working drafts and test editing (v0.2)** | Save partly approved drafts, resume them later, preserve original and amended instructions, and edit existing tests or **Save as New Test**. |
 | **Website suites and execution** | Organise saved scripts by website. Run one script or up to **10** sequentially in isolated Chromium contexts, with **5/10/15-second** step timeout options. |
@@ -22,16 +23,28 @@
 | **Portable Playwright export** | Export an approved script as standalone Playwright `.spec.ts`; later execution does not require the AI provider. |
 | **Run history and developer tools** | Review historic executions by site; use CLI generation, execution and export; access Help and `.env.example` onboarding instructions. |
 
-**Start here:** [Release history](#release-history) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
+**Start here:** [Release history](#release-history) · [Publish v0.2.0](#publishing-v020-on-github) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
 
 ## Release history
 
 | Version | Scope | State |
 | --- | --- | --- |
-| **v0.2.0** | Incremental AI reinterpretation; working drafts and existing-test editing; per-website login-prerequisite memory proof of concept; Run Tests UI improvements; Help and `.env.example`; regression fixes | **Prepared for release** — tag and GitHub release pending |
+| **v0.2.0** | Incremental AI reinterpretation; working drafts and existing-test editing; per-website login-prerequisite memory proof of concept; Run Tests UI improvements; generation diagnostics; guarded HTTP 403 handling; search-flow correctness fixes | **Ready to publish** — manual acceptance and CI passed; tag and GitHub release pending |
 | **v0.1.0** | Baseline prototype: plain-English to reviewed JSON tests, Playwright execution, repair assistance, suites, history, traceability and standalone export | Baseline functionality; check [GitHub Releases](https://github.com/leonard01/ai-ui-testing-agent/releases) for published versions |
 
-**Release approach:** Small incremental versions (for example, `0.2.1` and `0.2.2`) will carry focused improvements with their own tests and documentation. The second hosted AI provider, broader memory, and advanced assertion capabilities are **not** part of v0.2.0. See [CHANGELOG.md](CHANGELOG.md) for release notes.
+**Release approach:** Small incremental versions may carry focused fixes with their own tests and documentation. Duplicate-name rejection, multi-term search predicates and general AND/NOT assertions are planned for **v0.3**, not v0.2.0 (see [#59](https://github.com/leonard01/ai-ui-testing-agent/issues/59), [#60](https://github.com/leonard01/ai-ui-testing-agent/issues/60) and [#61](https://github.com/leonard01/ai-ui-testing-agent/issues/61)). Broader application memory and additional hosted-model integrations are also future work. See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Publishing v0.2.0 on GitHub
+
+**Maintainer checklist — the repository is ready; publication is a separate action:**
+
+1. Open the [latest successful `main` CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/45160164806) and confirm that the release commit contains the documentation you want to publish. Manual acceptance for v0.2.0 was completed on 23 November 2026.
+2. Open [GitHub Releases → Draft a new release](https://github.com/leonard01/ai-ui-testing-agent/releases/new).
+3. Under **Choose a tag**, type `v0.2.0` and select **Create new tag on publish** targeting **`main`** (or create it from the final release commit). Do **not** reuse an earlier release/tag.
+4. Set the release title to **`v0.2.0 — AI UI Testing Agent (Prototype)`**. Use the `[0.2.0]` section in [CHANGELOG.md](CHANGELOG.md) as the release notes, including its limitations.
+5. Consider checking **Set as a pre-release** because this is a pre-1.0, local, human-reviewed prototype. Click **Publish release** when satisfied.
+
+No build artifacts, standalone installer or production deployment are required for this source-code release. Users clone the repository and follow [Quick start](#quick-start). Do not put API keys or `.env` secrets in a release. The current package version is already `0.2.0`.
 
 ## Quick start
 
@@ -80,7 +93,9 @@ npm run test:smoke
 
 The dedicated `tests/e2e-smoke.spec.ts` suite drives the **real test-builder UI using Playwright directly**. It checks Fixture-mode generation, explicit human approval, saving and executing a test, run history, working-draft persistence, and running a two-test website suite. Each test uses isolated temporary storage and a separate local review server. No hosted AI key, external website or agent-authored JSON test harness is needed. Failures retain Playwright trace/screenshot evidence.
 
-This is a **deterministic release gate**, not a verification of GroqCloud response quality. A separate optional live-model smoke test is still recommended before publishing a release. The regular `npm test` command runs the broader regression suite.
+This is a **deterministic release gate**, not a verification of GroqCloud response quality. The maintainer has completed manual acceptance; live-model behaviour is still non-deterministic and is not benchmarked by the CI fixtures. The regular `npm test` command runs the broader regression suite.
+
+**Latest verified release-candidate pipeline:** [GitHub Actions on `main`, 23 November 2026](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/45160164806): **3/3 independent UI E2E smoke tests and 119/119 browser regression tests passed**, plus type-check, build and unit/schema validation. These counts describe automated deterministic coverage, not 119 real GroqCloud generation calls.
 
 ## Watch the demo (73 seconds)
 
@@ -101,7 +116,7 @@ The table above summarises the current capabilities; the following gives more op
 | **Structured test scripts** | Store validated, framework-neutral JSON definitions, including action steps, assertion provenance, optional requirement links and the originating website URL. Reject malformed definitions before browser execution. |
 | **Website test suites** | Group approved scripts by website origin (scheme, host and port). Select a website and see **only its scripts** in both single-test and batch selectors. Edit/delete a script, or delete a website suite, with confirmation. Older unassigned scripts remain accessible. |
 | **Browser execution** | Run one approved script or **1–10 scripts sequentially** in isolated Playwright Chromium contexts. Supported actions: navigate, click, fill, press keys, check/uncheck and select a native dropdown option. |
-| **Assertions and diagnostics** | Verify exact or contained text (including dynamic prefixes/suffixes), visibility, URL and element counts. Display step-by-step pass/fail, timings and expected/observed values; attempt screenshots and Playwright traces on failures. |
+| **Assertions and diagnostics** | Verify exact or contained text, visibility, URL and element counts. Search-result text assertions can check *identifiable returned result cards* rather than page-wide query echoes; show a failure if suitable result cards cannot be identified. Display per-step verdicts, expected/observed values, timings and screenshots/traces when available. |
 | **Selector inspection and repair** | Run read-only selector preflight; locate targets from explicit roles, labels, placeholders, visible text or live DOM intent. Show human-reviewable alternatives for missing/ambiguous locators and failed assertions. Distinguish blocked clicks from selector failures. Approved repairs save a corrected script and rerun from step 1. |
 | **Requirements traceability** | Optionally link requirements to steps/assertions **manually**, show coverage gaps and view/export a read-only requirements matrix. AI cannot claim human-confirmed mappings. |
 | **Playwright export** | Download a standalone `.spec.ts` for an approved script or export via CLI. Generated specs run with `@playwright/test`, without this agent or an AI service. |
@@ -220,7 +235,7 @@ Run results are saved under `run-results/` by default. Successful runs report `p
 
 Run a saved trace with `npx playwright show-trace path/to/trace.zip`. The browser test suite uses its own isolated fixtures and can start the local demo automatically.
 
-**CI:** GitHub Actions runs type-checking, build, unit/schema validation and Playwright browser tests. [PR #48](https://github.com/leonard01/ai-ui-testing-agent/pull/48) passed **105 tests** before merge; see [GitHub Actions](https://github.com/leonard01/ai-ui-testing-agent/actions) for the latest `main` verification.
+**CI:** GitHub Actions runs type-checking, build, unit/schema validation, the independent UI E2E smoke suite and Playwright browser tests. The verified [v0.2.0 `main` run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/45160164806) passed **3/3 smoke tests and 119/119 browser tests**; see [GitHub Actions](https://github.com/leonard01/ai-ui-testing-agent/actions) for subsequent runs.
 
 ## Limitations and known gaps
 
@@ -229,13 +244,14 @@ This prototype is meant to **demonstrate an end-to-end QA workflow**, not replac
 - **Playwright-backed execution only.** Additional runner backends, framework integrations and exporters beyond Playwright are not yet implemented.
 - **Human oversight is required.** AI-generated steps and expectations can be incorrect. `Add All` is a bulk reviewer action, not independent validation. A green execution does not prove that requirements were specified correctly.
 - **Live AI quality is not benchmarked.** CI uses fixtures/mocks rather than paid model calls. Real hosted-model output and reliability on arbitrary websites need further evaluation.
+- **Authentication prerequisites are unverified.** Application memory can suggest that a shopping flow may need login, but it does not establish valid credentials. An AI draft may still propose unsupported username/password values; reviewers must reject or replace them with authorised test data before saving or running ([issue #45](https://github.com/leonard01/ai-ui-testing-agent/issues/45)).
 - **Web UI testing only.** No API/mobile/load testing, automatic exploration, recording browser interactions or interactive human–AI browser takeover in the current release candidate.
 - **Protected production websites are not reliable demo targets.** The tool does not bypass CAPTCHA, robot checks, access controls or anti-bot protection. Prefer test environments and official test fixtures.
 - **Selector repairs can be fragile.** Numbered choices for identically named elements rely on DOM order and can break if the page changes. Human approval and subsequent reruns remain necessary.
 - **Execution history is operational, not an immutable audit log.** Replacing a saved test may remove the superseded test and some related evidence. Removing an approved website suite does **not** automatically erase its history; **Delete All History** is a separate, global action.
 - **Single browser execution at a time.** Suite runs are serial and use isolated contexts, intentionally reducing pressure on less powerful machines. The UI is a local development tool, not a hosted multi-user service.
 
-**v0.2 release status:** The package version is 0.2.0. Publishing the release/tag and completing manual end-to-end acceptance are separate steps. A second hosted AI provider and generalized cross-workflow memory remain future work. Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps.
+**v0.2 release status:** Manual functional acceptance and the latest deterministic CI have passed. The package version is `0.2.0`; the `v0.2.0` Git tag and GitHub release are **not yet published**. Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps. General AND/NOT assertions and independent multi-term result checks belong to v0.3.
 
 ## Documentation
 
@@ -261,6 +277,7 @@ This prototype is meant to **demonstrate an end-to-end QA workflow**, not replac
 | Test reports `execution-error` | Check selector ambiguity, blocked clicks, timeouts or off-origin navigation |
 | Real AI generation unavailable | Check the configured provider/key; Fixture needs no AI credentials |
 | Robot check appears | Use an automation-friendly test environment; bypassing bot checks is out of scope |
+| Generation stops at HTTP 403 | The site refused automated inspection. Bot protection is possible but not proven; check normal browser access and ask the test-environment owner about permissions or allowlisting |
 
 ## Contributing
 
