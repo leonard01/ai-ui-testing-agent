@@ -27,8 +27,10 @@ export function draftQualityWarnings(
       "Some sites rely on those resources; this may affect what the model saw.");
   }
   if (inspection && inspection.pageErrors > 0) {
-    warnings.push("The inspected page emitted " + inspection.pageErrors +
-      " JavaScript error(s) during initial loading.");
+    warnings.push("The website raised " + inspection.pageErrors +
+      " JavaScript exception(s) while loading. This does NOT mean a test step or selector has failed. " +
+      "Open Generation diagnostics for the redacted error summary, then use Check selectors (read-only) " +
+      "to inspect starting-page targets before approving.");
   }
   const normalizedSteps = JSON.stringify(definition.steps).toLowerCase().replace(/\s+/g, " ");
   const quoted = [...requirements.matchAll(/(['"])([^'"\n]{3,90})\1/g)]
