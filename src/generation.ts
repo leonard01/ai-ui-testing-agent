@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { requireHumanCredentialValues } from "./credential-guard.js";
 import { ZodError } from "zod";
 import type { Browser } from "playwright";
 import type { TestDefinition } from "./domain.js";
@@ -200,6 +201,9 @@ export async function generateDraft(
         throw new Error("Model cannot claim human-confirmed assertion provenance");
       }
     }
+    // A model cannot attest the provenance of login values, even if its
+    // proposed credential happens to work. Require explicit tester input.
+    requireHumanCredentialValues(definition);
     return { definition, snapshot, needsReview: true, generationAttempts: attempt };
   }
   throw new GeneratedDraftValidationError(maxAttempts, problems);
