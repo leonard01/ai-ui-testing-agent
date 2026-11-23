@@ -149,11 +149,8 @@ export async function runTest(
           result.textMatch = "contains";
           const expected = normalize(action.expected);
           const cards = page.locator(SEARCH_RESULT_ITEM_SELECTOR);
-          const matches = cards.filter({
-            hasText: new RegExp(expected.replace(/[.*+?^\$\{\}()|[\]\\]/g, "\\        } else {
-          let target: Locator;
-          if (action.target.by === "intent") {"), "i"),
-          });
+          const escaped = expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+          const matches = cards.filter({ hasText: new RegExp(escaped, "i") });
           const deadline = performance.now() + timeout;
           let found = false;
           while (true) {
