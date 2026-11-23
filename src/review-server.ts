@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { existsSync, type Dirent } from "node:fs";
 import { mkdir, readFile, readdir, rm, unlink, writeFile, rmdir } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, InspectionAccessError, type ModelProvider } from "./generation.js";
@@ -13,7 +13,7 @@ import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-pr
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
-import { listDrafts, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
+import { listDraftsWithDiagnostics, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
@@ -590,7 +590,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (req.method === "GET" && path === "/api/drafts") {
-        try { json(res, 200, { drafts: await listDrafts(savedDir) }); }
+        try { json(res, 200, await listDraftsWithDiagnostics(savedDir)); }
         catch { json(res, 500, { error: "Could not list working drafts" }); }
         return;
       }
@@ -749,7 +749,17 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             updatedAt: new Date().toISOString(),
           });
           const stored = await saveDraft(savedDir, proposed, existingId as string | undefined);
-          json(res, 200, { id: stored.id, message: "Working draft saved. This is not a runnable test." });
+          // Verify that the draft is not just writable/readable, but also
+          // discoverable by the same list endpoint the UI uses after reload.
+          const listing = await listDraftsWithDiagnostics(savedDir);
+          if (!listing.drafts.some(item => item.id === stored.id)) {
+            throw new Error("Draft file saved but could not be indexed. The draft is not ready to resume; inspect the drafts folder before saving again.");
+          }
+          json(res, 200, {
+            id: stored.id, listed: true,
+            file: relative(process.cwd(), join(savedDir, "drafts", stored.id)),
+            message: "Working draft saved and verified in the draft list. This is not a runnable test.",
+          });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid working draft" });
         }
