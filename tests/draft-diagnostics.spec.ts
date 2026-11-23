@@ -59,7 +59,7 @@ test("draft shows quality warnings and inspected-page evidence, then clears them
     await expect(page.locator("#draft-quality-warnings")).toBeVisible();
     await expect(page.locator("#draft-quality-warnings")).toContainText("Wooden Abacus");
     await expect(page.locator("#draft-quality-warnings")).toContainText("false pass");
-    await expect(page.locator("#generation-status")).toContainText("Review the quality warnings");
+    await expect(page.locator("#generation-status")).toContainText("Review the advisory quality warnings");
     await expect(page.locator("#generation-diagnostics")).toBeVisible();
     await page.locator("#generation-diagnostics summary").click();
     await expect(page.locator("#generation-diagnostics-meta")).toContainText("openai/gpt-oss-20b");
