@@ -8,6 +8,11 @@ import { createReviewServer } from "../src/review-server.js";
 
 // Black-box browser journeys. The harness uses Playwright directly, never the
 // agent's JSON test authoring APIs, CLI runner or any hosted AI provider.
+// Playwright Test instruments every context it sees, including contexts
+// launched inside the app runner. Let the app own execution traces while
+// keeping Playwright Test screenshots on smoke failures.
+test.use({ trace: "off" });
+
 const demoURL = "http://127.0.0.1:3000";
 const instructions =
   "Add Prepare interview, complete it, then delete it and check the task count.";
