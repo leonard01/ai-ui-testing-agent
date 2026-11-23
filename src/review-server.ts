@@ -1646,6 +1646,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         );
         json(res, 200, {
           id, file, replacedId,
+          sourceUrl: base.href,
+          siteUrl: websiteOrigin(base.href),
           message: replacedId
             ? "Amended test saved; previous version removed. No test has been executed."
             : "Saved approved test definition; no test has been executed.",
