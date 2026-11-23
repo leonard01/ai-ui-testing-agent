@@ -61,6 +61,8 @@ export function restoreMissingSearchFill(
       description: "Enter " + JSON.stringify(query) + " into the search field",
       action: { kind: "fill", target, value: query },
     });
+    // The former description may falsely claim that pressing Enter also typed.
+    step.description = "Submit search by pressing Enter";
     return true;
   }
   return false;
