@@ -31,7 +31,12 @@ function locator(page: Page, target: Exclude<Target, { by: "intent" }>): Locator
   }
   if (target.by === "label") return page.getByLabel(target.value, { exact: true });
   if (target.by === "placeholder") return page.getByPlaceholder(target.value, { exact: true });
-  return page.getByText(target.value, { exact: true });
+  if (target.by === "text") return page.getByText(target.value, { exact: true });
+  if (target.by === "testid") return page.getByTestId(target.value);
+  if (target.by === "id") return page.locator("css=[id=" + JSON.stringify(target.value) + "]");
+  if (target.by === "css") return page.locator("css=" + target.value);
+  if (target.by === "xpath") return page.locator("xpath=" + target.value);
+  throw new Error("Intent locators cannot be checked without live resolution");
 }
 
 /**
@@ -139,8 +144,15 @@ export async function preflightSelectors(
         item("deferred", "Intent resolution depends on the live DOM at this step; no action was replayed.");
       } else {
         const target = action.target;
-        const found = locator(page, target);
-        const count = await found.count();
+        let found: Locator;
+        let count = 0;
+        try {
+          found = locator(page, target);
+          count = await found.count();
+        } catch {
+          item("warning", "Selector is invalid or cannot be evaluated on the starting page. Edit this step before approval.");
+          continue;
+        }
         if (action.kind === "assert-count") {
           item(stateMayHaveChanged ? "deferred" :
             count === action.expected ? "matched" : "warning",
