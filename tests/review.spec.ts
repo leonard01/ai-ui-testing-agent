@@ -1267,6 +1267,7 @@ test("Save & Run is disabled for unreviewed drafts and does not run after a save
 
 test("Save Draft remains visible in the picker while the editor is open",async({page})=>{
   await generateFixture(page);
+  const beforeDraftCount = (await (await page.request.get(url + "/api/drafts")).json()).drafts.length;
   await page.locator("#step-list .step").first().locator('input[type="checkbox"]').check();
   await page.getByRole("button",{name:"Save Draft",exact:true}).click();
   await expect(page.locator("#draft-save-status")).toContainText("selected under Saved working drafts");
@@ -1274,7 +1275,7 @@ test("Save Draft remains visible in the picker while the editor is open",async({
   await expect(page.locator("#draft-select")).toBeVisible();
   await expect(page.locator("#draft-select")).not.toHaveValue("");
   await expect(page.locator("#draft-load")).toBeEnabled();
-  await expect(page.locator("#draft-select option")).toHaveCount(2);
+  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
   // Saving a working draft must not accidentally approve or run it.
   await expect(page.locator("#save-and-run")).toBeDisabled();
   await page.getByRole("button",{name:"Resume draft"}).click();
@@ -1284,17 +1285,20 @@ test("Save Draft remains visible in the picker while the editor is open",async({
 test("working draft preserves partial approvals and original instructions without becoming runnable", async ({ page }) => {
   await generateFixture(page);
   const approvedBeforeDraft = (await (await page.request.get(url + "/api/tests")).json()).tests.length;
+  const beforeDraftCount = (await (await page.request.get(url + "/api/drafts")).json()).drafts.length;
   const original = await page.getByLabel("Your test instructions").inputValue();
   const steps = page.locator("#step-list .step");
   await steps.nth(0).locator('input[type="checkbox"]').check();
   await steps.nth(1).locator('input[type="checkbox"]').check();
   await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/9 approved");
-  await expect(page.locator("#draft-select option")).toHaveCount(2);
+  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
   const list = await page.request.get(url + "/api/drafts");
   const drafts = (await list.json()).drafts;
-  expect(drafts).toHaveLength(1);
-  const saved = await (await page.request.get(url + "/api/drafts/" + drafts[0].id)).json();
+  expect(drafts).toHaveLength(beforeDraftCount + 1);
+  const selectedDraftId = await page.locator("#draft-select").inputValue();
+  expect(drafts.some((draft: {id:string}) => draft.id === selectedDraftId)).toBe(true);
+  const saved = await (await page.request.get(url + "/api/drafts/" + selectedDraftId)).json();
   expect(saved.draft.sourceInstructions).toBe(original);
   expect(saved.draft.approvedStepIds).toEqual(["open", "empty"]);
   expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(approvedBeforeDraft);
