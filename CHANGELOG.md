@@ -2,7 +2,7 @@
 
 This project is a pre-1.0 prototype. Release increments are deliberately small; later `0.2.x` updates can add focused functionality as well as fixes.
 
-## [0.2.0] — Prepared, not yet published
+## [0.2.0] — Release-ready; Git tag and GitHub release pending
 
 ### Added
 - **Incremental AI reinterpretation:** Replace one selected test step, or that step and all following steps, with a reviewed AI-generated patch. Preserve approvals and IDs outside the changed range; require human approval of replacement steps.
@@ -28,10 +28,14 @@ This project is a pre-1.0 prototype. Release increments are deliberately small; 
 - Per-website memory is deliberately narrow, based only on qualifying login-then-shopping observations; it does not discover or store credentials, retrieve arbitrary past tests, or prove login is mandatory.
 - The primary browser execution engine is Playwright/Chromium; framework-neutral JSON definitions are not a second framework-free runner.
 - Real-model GroqCloud quality and arbitrary-site success are not guaranteed by fixture/mocked CI tests. GroqCloud usage limits apply.
+- Inferred login prerequisites and credential values are **not verified**: reviewers must confirm authorised test credentials before approving generated authentication steps (see [issue #45](https://github.com/leonard01/ai-ui-testing-agent/issues/45)).
+- General AND/NOT assertions, independent multi-term search predicates and same-site duplicate-name rejection are tracked for v0.3 ([#61](https://github.com/leonard01/ai-ui-testing-agent/issues/61), [#60](https://github.com/leonard01/ai-ui-testing-agent/issues/60), [#59](https://github.com/leonard01/ai-ui-testing-agent/issues/59)).
 
 ### Verification
-- Before release preparation: GitHub Actions on `main` completed successfully with **105 automated browser tests** alongside type-check, build and schema/unit checks ([successful run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/45035904113)).
-- Release-preparation CI and a final manual GroqCloud smoke test are separate gates. No tag or GitHub release is implied by this changelog.
+- **Maintainer's manual functional acceptance completed 23 November 2026.**
+- **Latest release-candidate CI:** [successful GitHub Actions run on `main`](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/45160164806), commit `cfb9ead`: **3/3 independent UI E2E smoke tests**, **119/119 browser regression tests**, plus type-check, build and unit/schema validation.
+- Automated CI uses controlled fixtures/mocks and does not establish hosted GroqCloud quality. The project is a local prototype with human-reviewed tests, not a production-ready autonomous QA platform.
+- Publication of the `v0.2.0` tag and GitHub release is a separate maintainer action. No published release is implied by this changelog.
 
 ## v0.1 baseline
 
