@@ -14,6 +14,8 @@ export interface PageSnapshot {
     mainDocumentStatus: number | null;
     blockedCrossOriginRequests: number;
     allowedCrossOriginRequests: number;
+    /** Local diagnostics: request types only, no cross-origin URLs. */
+    blockedRequestKinds?: Record<string, number>;
     pageErrors: number;
     /** Local diagnostic only; never pass exception messages to a hosted model. */
     pageErrorSummaries?: string[];
@@ -61,7 +63,11 @@ export async function inspectApplication(
   const browser = suppliedBrowser ?? (await chromium.launch());
   const context = await browser.newContext({ serviceWorkers: "block" });
   context.setDefaultNavigationTimeout(10_000);
-  const resourceCounts = { blockedCrossOriginRequests: 0, allowedCrossOriginRequests: 0 };
+  const resourceCounts = {
+    blockedCrossOriginRequests: 0,
+    allowedCrossOriginRequests: 0,
+    blockedRequestKinds: {} as Record<string, number>,
+  };
   let pageErrors = 0;
   const pageErrorSummaries: string[] = [];
   try {
