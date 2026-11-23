@@ -39,6 +39,24 @@ test("draft warnings flag a search silently replaced with an unexpected error as
   assert.ok(warnings.some((w) => w.includes("Wooden Abacus")));
   assert.ok(warnings.some((w) => w.includes("false pass")));
 });
+test("blocked third-party requests are warned about only if the initial UI appears absent", () => {
+  const snapshot = {
+    ...baseSnapshot,
+    headings: [], controls: [], statusText: [], sampleText: [],
+    inspection: {
+      mainDocumentStatus: 200, blockedCrossOriginRequests: 4,
+      allowedCrossOriginRequests: 1, pageErrors: 0,
+      blockedRequestKinds: { "script:GET": 1, "fetch:POST": 3 },
+    },
+  };
+  const warnings = draftQualityWarnings("Verify the Login button", fixture, snapshot);
+  assert.ok(warnings.some(w => w.includes("no visible application controls or page content")));
+  assert.ok(warnings.some(w => w.includes("blocked 4 external request(s)")));
+  const usableSnapshot = {...snapshot, headings: ["Login"]};
+  const normal = draftQualityWarnings("Verify the Login button", fixture, usableSnapshot);
+  assert.ok(!normal.some(w => w.includes("blocked 4 external request(s)")));
+});
+
 test("HTTP error status is surfaced without pretending it proves a bug", () => {
   const warnings = draftQualityWarnings("Check task list", fixture, {
     ...baseSnapshot, inspection: { mainDocumentStatus: 503, blockedCrossOriginRequests: 0, pageErrors: 0 },
