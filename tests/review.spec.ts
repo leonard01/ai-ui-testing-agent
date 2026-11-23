@@ -68,6 +68,34 @@ test("read-only selector preflight suggests an Add button when generated label i
     'a different locator does match: button named "Add"');
 });
 
+test("HTTP 403 target shows inspection error and no draft instead of a false-positive test", async ({ page }) => {
+  const blocked = createServer((_req, res) => {
+    res.writeHead(403, { "Content-Type": "text/html; charset=utf-8" });
+    res.end("<title>Access denied</title><main>Something went wrong on our end</main>");
+  });
+  await new Promise<void>((resolve) => blocked.listen(0, "127.0.0.1", resolve));
+  const siteURL = "http://127.0.0.1:" + (blocked.address() as AddressInfo).port;
+  try {
+    await page.goto(url);
+    await page.getByLabel("Application URL").fill(siteURL);
+    await page.getByLabel("Your test instructions").fill(
+      "Search for 'Wooden Abacus' and verify matching search results",
+    );
+    await page.getByLabel("Generate with").selectOption("fixture");
+    await page.getByRole("button", { name: "Generate draft" }).click();
+    await expect(page.locator("#generation-error")).toContainText(
+      "Website inspection failed (target HTTP 403)", { timeout: 20_000 });
+    await expect(page.locator("#generation-error")).toContainText("No AI request was made");
+    await expect(page.locator("#generation-review-status")).toContainText("Generation failed");
+    await expect(page.locator("#draft")).toBeHidden();
+    await expect(page.locator("#step-list .step")).toHaveCount(0);
+    await expect(page.locator("#save")).toBeHidden();
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      blocked.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("plain-English input produces a readable review-only fixture draft", async ({ page }) => {
   await generateFixture(page);
   await expect(page.getByText("Fixture is a prewritten demonstration, not AI-generated.")).toBeVisible();

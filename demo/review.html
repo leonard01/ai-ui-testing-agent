@@ -2570,14 +2570,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             ? Number.isInteger(data.providerStatus)
               ? "GroqCloud rejected the request (provider HTTP " + data.providerStatus + ")."
               : "GroqCloud request failed (" + (data.category || "unknown transport error") + ")."
-            : data.source === "generator"
-              ? "Generation/validation failed in our application."
-              : "Test Builder request failed (HTTP " + response.status + ").";
+            : data.source === "inspection"
+              ? "Website inspection failed (target HTTP " + data.siteStatus + "). No AI request was made."
+              : data.source === "generator"
+                ? "Generation/validation failed in our application."
+                : "Test Builder request failed (HTTP " + response.status + ").";
           const category = data.category ? " Category: " + data.category + "." : "";
           const attempts = data.attempts ? " Attempts: " + data.attempts + "." : "";
           const inputLength = Number.isInteger(data.requirementsCharacters)
             ? " Your instructions: " + data.requirementsCharacters + " characters." : "";
-          throw new Error(origin + category + attempts + inputLength + "\n" +
+          const inspection = data.source === "inspection"
+            ? "\nInspector resource requests: " + data.allowedCrossOriginRequests +
+              " allowed, " + data.blockedCrossOriginRequests +
+              " blocked; JavaScript errors: " + data.pageErrors + "."
+            : "";
+          throw new Error(origin + category + attempts + inputLength + inspection + "\n" +
             (data.error || "Could not generate draft"));
         }
         const wasEditing = Boolean(editingSavedId || workingDraftId);
