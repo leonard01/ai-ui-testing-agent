@@ -60,12 +60,12 @@ test.describe("@e2e-smoke application smoke", () => {
   async function saveApprovedFixture(page: Page, testName: string) {
     await proposeFixture(page, testName);
     await expect(page.getByRole("button", {
-      name: "Approve and save JSON test",
+      name: "Save Test",
     })).toBeDisabled();
     await page.getByRole("button", { name: "Add All", exact: true }).click();
     await expect(page.locator("#review-progress")).toHaveText("9 of 9 steps confirmed");
     await expect(page.locator("#saved")).toBeEmpty(); // approval is not persistence
-    await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+    await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     return page.getByLabel("Test script", { exact: true }).inputValue();
   }
@@ -95,9 +95,9 @@ test.describe("@e2e-smoke application smoke", () => {
     await proposeFixture(page, "Smoke - unfinished draft");
     await page.locator("#step-list .step input[type=checkbox]").nth(0).check();
     await page.locator("#step-list .step input[type=checkbox]").nth(1).check();
-    await page.getByRole("button", { name: "Save Working Draft" }).click();
+    await page.getByRole("button", { name: "Save Draft" }).click();
     await expect(page.locator("#draft-save-status")).toContainText("2/9 approved");
-    await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
 
     await page.reload();
     await expect(page.locator("#draft-select option")).toHaveCount(2);
@@ -105,7 +105,7 @@ test.describe("@e2e-smoke application smoke", () => {
     await page.getByRole("button", { name: "Resume draft" }).click();
     await expect(page.locator("#review-progress")).toHaveText("2 of 9 steps confirmed");
     await expect(page.getByLabel("Your test instructions")).toHaveValue(instructions);
-    await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
   });
 
