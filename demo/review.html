@@ -62,6 +62,10 @@
     .error { background:#fff1f2; color:#9c2335; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .error:empty, .success:empty { display:none; }
+    #draft-quality-warnings { white-space:pre-wrap; border-left:4px solid #c07d12; font-size:13px; }
+    #generation-diagnostics { margin:12px 0; padding:12px 14px; border:1px solid #bfd0e0; border-radius:9px; background:#f8fbfe; }
+    #generation-diagnostics summary { cursor:pointer; font-weight:650; font-size:13px; color:#205e86; }
+    #generation-diagnostics pre { max-height:250px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.45 ui-monospace,Consolas,monospace; background:#eff3f8; border-radius:7px; padding:10px; }
     .step { border:1px solid #d7e0ea; border-radius:10px; padding:15px; margin:12px 0; }
     .step header { background:none; padding:0; color:#20364f; display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .pill { border-radius:100px; background:#ebf2f8; color:#345773; font-size:11px; padding:3px 8px; display:inline-block; margin-left:6px; }
@@ -281,6 +285,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
+        <div id="draft-quality-warnings" class="note" role="status" hidden></div>
+        <details id="generation-diagnostics" hidden>
+          <summary id="generation-diagnostics-summary">Generation diagnostics</summary>
+          <p id="generation-diagnostics-meta" class="muted"></p>
+          <p class="muted">These are the initial page observations provided to the model, not the full DOM or the page after later steps. Cross-origin resources may be blocked during inspection. Page text can be sensitive; review it before sharing diagnostics.</p>
+          <strong>Page snapshot / inspection metadata</strong>
+          <pre id="generation-diagnostics-snapshot"></pre>
+          <strong>Validated generated JSON</strong>
+          <pre id="generation-diagnostics-output"></pre>
+        </details>
         <div class="actions" style="margin:12px 0">
           <button type="button" id="review-add-all" class="secondary">Add All</button>
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
@@ -2453,6 +2467,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("step-list").replaceChildren();
       $("draft-title").textContent = "";
       $("draft-hint").textContent = "";
+      $("draft-quality-warnings").hidden = true;
+      $("draft-quality-warnings").textContent = "";
+      $("generation-diagnostics").hidden = true;
+      $("generation-diagnostics").open = false;
+      $("generation-diagnostics-snapshot").textContent = "";
+      $("generation-diagnostics-output").textContent = "";
       $("draft-save-status").textContent = "";
       $("review-progress").textContent = "";
       $("requirement-lines").value = "";
@@ -2486,6 +2506,30 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         status.textContent = error.message || String(error);
       }
     });
+    function renderGenerationDiagnostics(data) {
+      const evidence = data.diagnostics;
+      if (!evidence || !evidence.snapshot) return;
+      const warnings = Array.isArray(evidence.warnings)
+        ? evidence.warnings.filter(item => typeof item === "string") : [];
+      const notice = $("draft-quality-warnings");
+      notice.textContent = warnings.length
+        ? "Review before approving — " + warnings.length + " potential quality issue(s):\n" +
+          warnings.map((warning, i) => (i + 1) + ". " + warning).join("\n")
+        : "";
+      notice.hidden = warnings.length === 0;
+      const details = $("generation-diagnostics");
+      details.hidden = false;
+      $("generation-diagnostics-summary").textContent =
+        "Generation diagnostics — initial page evidence" +
+        (warnings.length ? " (" + warnings.length + " warning(s))" : "");
+      $("generation-diagnostics-meta").textContent =
+        "Provider: " + evidence.provider + " | Model: " + evidence.model +
+        " | Requests: " + evidence.attempts + ".";
+      $("generation-diagnostics-snapshot").textContent =
+        JSON.stringify(evidence.snapshot, null, 2);
+      $("generation-diagnostics-output").textContent =
+        JSON.stringify(data.definition, null, 2);
+    }
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       clearGenerationPreview();
@@ -2560,13 +2604,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("generation-review-status").textContent = "";
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
         $("draft-hint").textContent = data.message;
+        renderGenerationDiagnostics(data);
         const memoryHints = $("use-application-memory").checked ? data.memorySuggestions ?? [] : [];
         $("application-memory-status").textContent = memoryHints.length
           ? memoryHints.map(item => item.text).join(" ")
           : "No relevant verified prerequisite memory was used for this generation.";
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
-          (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "");
+          (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
+          (data.diagnostics?.warnings?.length ? " Review the quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
