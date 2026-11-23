@@ -93,6 +93,38 @@ test("AI-generation output cannot retain fabricated login values", async ({ brow
     .toThrow(/Credential values require tester review/);
 });
 
+test("incremental regeneration scrubs only new credentials, preserving approved prefix", async ({ browser }) => {
+  const original = proposedLogin();
+  const username = original.steps[1].action;
+  const password = original.steps[2].action;
+  if (username.kind === "fill") username.value = "previously-confirmed-username";
+  if (password.kind === "fill") password.value = "previously-confirmed-password";
+  const { generateIncrementalProposal } = await import("../src/incremental-generation.js");
+  const proposal = await generateIncrementalProposal({
+    definition: original, baseURL: site, stepId: "password", mode: "step",
+    instructions: "Replace the password step with the new login password",
+    approvedStepIds: original.steps.map(step => step.id),
+    model: "mock",
+  }, async () => JSON.stringify({
+    steps: [{ id: "ai-password", description: "Enter password", action: {
+      kind: "fill", target: { by: "label", value: "Password" },
+      value: "AI_INVENTED_SECRET",
+    } }],
+  }), browser);
+  expect(proposal.definition.steps[1].action).toMatchObject({
+    kind: "fill", value: "previously-confirmed-username",
+  });
+  expect(proposal.replacement[0].action).toMatchObject({
+    kind: "fill", value: PASSWORD_REVIEW_PLACEHOLDER,
+  });
+  expect(proposal.preservedApprovedStepIds).toContain("username");
+  expect(proposal.preservedApprovedStepIds).not.toContain("password");
+  expect(proposal.warnings.join(" ")).toContain("review placeholders");
+  expect(original.steps[2].action).toMatchObject({
+    kind: "fill", value: "previously-confirmed-password",
+  });
+});
+
 test("server rejects executable placeholder but permits partial working draft", async ({ page, browser }) => {
   const dir = await mkdtemp(join(tmpdir(), "credential-guard-"));
   const server = await createReviewServer(dir, browser);
