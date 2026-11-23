@@ -34,6 +34,7 @@ test("restore missing search fill from an explicit quoted search requirement", (
   });
   assert.deepEqual(definition.steps[2].action.target, definition.steps[1].action.target);
   assert.notEqual(definition.steps[1].id, definition.steps[2].id);
+  assert.equal(definition.steps[2].description, "Submit search by pressing Enter");
   assert.equal(restoreMissingSearchFill(definition, instructions), false);
 });
 
