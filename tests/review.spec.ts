@@ -1058,6 +1058,67 @@ test("requires a human test name and offers previous application URLs", async ({
   await expect(page.locator("#base-url")).toHaveValue("http://127.0.0.1:3000/");
 });
 
+test("saving a new website test switches Run Tests from the previous suite to its own URL", async ({ page }) => {
+  // An existing locally saved test is selected before another website is used.
+  await generateFixture(page);
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await expect(page.getByLabel("Test suite (website URL)"))
+    .toHaveValue("http://127.0.0.1:3000");
+
+  const ebay = "https://www.ebay.com/";
+  const proposal = {
+    schemaVersion: 1, id: "ebay-search", title: "Search products", version: 1,
+    steps: [
+      { id: "open", description: "Open eBay", action: { kind: "navigate", url: ebay } },
+      { id: "search", description: "Enter Wooden Abacus", action: {
+        kind: "fill", target: { by: "intent", value: "Search for anything", role: "textbox" },
+        value: "Wooden Abacus",
+      } },
+      { id: "submit", description: "Submit search", action: {
+        kind: "press", target: { by: "intent", value: "Search for anything", role: "textbox" },
+        key: "Enter",
+      } },
+      { id: "verify", description: "Verify result text", action: {
+        kind: "assert-visible", target: { by: "text", value: "Wooden Abacus" },
+        provenance: "requirements",
+      } },
+    ],
+  };
+  // This is a selector-state regression test, not a live eBay or AI request.
+  await page.route("**/api/generate", (route) => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({
+      definition: proposal, provider: "groq", generationAttempts: 1,
+      needsReview: true, memorySuggestions: [], message: "AI-generated draft.",
+    }),
+  }));
+  await page.getByLabel("Application URL").fill(ebay);
+  await page.getByLabel("Your test instructions").fill(
+    "search for 'Wooden Abacus' and verify a result contains both words",
+  );
+  await page.locator("#test-name").fill("eBay search smoke");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+
+  const suite = page.getByLabel("Test suite (website URL)");
+  const script = page.getByLabel("Test script", { exact: true });
+  await expect(suite).toHaveValue("https://www.ebay.com");
+  await expect(script).not.toHaveValue("");
+  await expect(page.getByLabel("Application URL")).toHaveValue(ebay);
+  await expect(page.locator("#suite-site-note")).toContainText(
+    "saved test scripts for https://www.ebay.com",
+  );
+  const savedId = await script.inputValue();
+  const catalog = await (await page.request.get(url + "/api/tests")).json();
+  expect(catalog.tests.find((item: { id: string }) => item.id === savedId))
+    .toMatchObject({ sourceUrl: ebay, siteUrl: "https://www.ebay.com" });
+});
+
 test("save API rejects missing or whitespace-only tester names", async ({ page }) => {
   const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
   for (const testName of [undefined, "  "]) {
