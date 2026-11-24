@@ -78,20 +78,27 @@
     .error { background:#fff1f2; color:#9c2335; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .error:empty, .success:empty { display:none; }
-    #draft-quality-warnings { white-space:pre-wrap; border-left:4px solid #c07d12; font-size:13px; }
-    .scope-advisory { font-size:12px; line-height:1.45; color:#78591d;
-      background:#fffaf0; border:1px solid #efdcaa; border-radius:7px;
-      margin:9px 0; padding:8px 11px; }
-    .scope-advisory[hidden] { display:none; }
-    .critical-blockers { margin:14px 0; padding:16px 18px; background:#fff0f1;
-      border:2px solid #b42339; border-left:7px solid #b42339; border-radius:10px;
-      color:#811b2b; }
-    .critical-blockers[hidden] { display:none; }
-    .critical-blockers h3 { margin:0 0 8px; font-size:17px; color:#811b2b; }
-    .critical-blockers p { margin:8px 0; font-size:13px; line-height:1.6; }
+    /* One review panel: blockers are visually distinct and always precede advice. */
+    .review-feedback { margin:12px 0 16px; border:1px solid #d2dbe7;
+      border-radius:10px; overflow:hidden; background:#fff; }
+    .review-feedback[hidden], .review-advisories[hidden],
+    .critical-blockers[hidden], .scope-advisory[hidden] { display:none; }
+    .critical-blockers { margin:0; padding:14px 17px; background:#fff0f1;
+      border-left:5px solid #b42339; color:#811b2b; }
+    .critical-blockers h3 { margin:0 0 6px; font-size:16px; color:#811b2b; }
+    .critical-blockers p { margin:5px 0; font-size:13px; line-height:1.5; }
+    .critical-blockers .actions { margin-top:9px; }
     .critical-blockers .actions button { background:#fff; color:#8d1b2e;
       border:1px solid #b42339; }
     .critical-blockers .actions button:focus-visible { outline:3px solid #b42339; outline-offset:2px; }
+    .review-advisories { padding:12px 17px; border-top:1px solid #efdcb8;
+      border-left:5px solid #cf9f48; background:#fffbf2; color:#78591d; }
+    .review-advisories h3 { margin:0 0 3px; font-size:14px; color:#78591d; }
+    .review-advisories > p { margin:4px 0 9px; font-size:12px; line-height:1.5; }
+    .scope-advisory { font-size:12px; line-height:1.5; color:#78591d; margin:6px 0; }
+    #draft-quality-warnings { white-space:pre-wrap; font-size:12px; line-height:1.5;
+      margin:8px 0 0; padding:0; background:transparent; color:inherit; }
+    #generation-page-error-summary { margin-top:9px; color:#78591d; }
     #generation-diagnostics { margin:12px 0; padding:12px 14px; border:1px solid #bfd0e0; border-radius:9px; background:#f8fbfe; }
     #generation-diagnostics summary { cursor:pointer; font-weight:650; font-size:13px; color:#205e86; }
     #generation-diagnostics pre { max-height:250px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.45 ui-monospace,Consolas,monospace; background:#eff3f8; border-radius:7px; padding:10px; }
@@ -327,10 +334,19 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
-        <p id="draft-dom-wide-summary" class="scope-advisory" role="note" hidden></p>
-        <div id="draft-critical-blockers" class="critical-blockers" role="alert" aria-live="polite" hidden></div>
-        <div id="draft-quality-warnings" class="note" role="status" hidden></div>
-        <p id="generation-page-error-summary" class="muted" role="status" hidden></p>
+        <section id="draft-review-feedback" class="review-feedback"
+          aria-label="Test review errors and warnings" hidden>
+          <div id="draft-critical-blockers" class="critical-blockers" role="alert"
+            aria-live="polite" hidden></div>
+          <div id="draft-review-advisories" class="review-advisories" hidden>
+            <h3>⚠ Warnings — review against your test intent</h3>
+            <p>These do not block saving or running, but may indicate that a generated check
+              could verify something different from what you intended.</p>
+            <p id="draft-dom-wide-summary" class="scope-advisory" role="note" hidden></p>
+            <div id="draft-quality-warnings" role="status" hidden></div>
+            <p id="generation-page-error-summary" role="status" hidden></p>
+          </div>
+        </section>
         <details id="generation-diagnostics" hidden>
           <summary id="generation-diagnostics-summary">Generation diagnostics</summary>
           <p id="generation-diagnostics-meta" class="muted"></p>
@@ -1026,13 +1042,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         action.kind === "assert-visible" || action.kind === "assert-count";
     }
     const domWideExplanation = "Page-root locator: this check is not restricted to a specific product, row, or container. This may be intentional.";
+    function syncReviewFeedback() {
+      const warnings = ["draft-dom-wide-summary", "draft-quality-warnings",
+        "generation-page-error-summary"].some(id => !$(id).hidden);
+      $("draft-review-advisories").hidden = !warnings;
+      $("draft-review-feedback").hidden = $("draft-critical-blockers").hidden && !warnings;
+    }
     function renderDomWideSummary() {
       const count = (definition?.steps ?? []).filter(step =>
         isDomWideAssertion(step.action)).length;
       const note = $("draft-dom-wide-summary");
       note.hidden = count === 0;
-      note.textContent = count ? "⚠ " + count + " DOM-wide assertion" +
-        (count === 1 ? "" : "s") + " — these checks search from the page root, not within a specific container. Review repeated items; page-wide scope may be intentional." : "";
+      note.textContent = count ? count + " DOM-wide assertion" +
+        (count === 1 ? "" : "s") + " — these checks search from the page root rather than a specific container, so a match elsewhere on the page could hide a problem with the intended item. Page-wide scope may still be correct." : "";
+      syncReviewFeedback();
     }
     function renderSteps() {
       incrementalRevision++;
@@ -1405,15 +1428,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const panel = $("draft-critical-blockers");
       panel.replaceChildren();
       panel.hidden = steps.length === 0;
-      if (!steps.length) return;
+      if (!steps.length) {
+        syncReviewFeedback();
+        return;
+      }
       panel.append(make("h3", "⛔ Cannot save or run — " + steps.length +
         " unresolved login credential " + (steps.length === 1 ? "step" : "steps")));
-      panel.append(make("p",
-        "AI-proposed login values were replaced with placeholders for safety. " +
-        "Save Test and Save & Run are disabled until you enter approved credentials " +
-        "and review the affected steps. Save Draft is still allowed."));
-      panel.append(make("p", "Action required: fix step" + (steps.length === 1 ? " " : "s ") +
-        steps.join(", ") + ". This is a blocking validation issue, not a test execution failure."));
+      panel.append(make("p", "Blocking errors: replace the generated credential placeholders " +
+        "with approved test values in step" + (steps.length === 1 ? " " : "s ") +
+        steps.join(", ") + ". Save Test and Save & Run remain disabled until reviewed. " +
+        "You can still Save Draft."));
       const buttons = make("div", null, "actions");
       for (const number of steps) {
         const review = make("button", "Edit step " + number, "secondary");
@@ -1429,6 +1453,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         buttons.append(review);
       }
       panel.append(buttons);
+      syncReviewFeedback();
     }
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
@@ -2694,6 +2719,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("draft-dom-wide-summary").textContent = "";
       $("draft-quality-warnings").hidden = true;
       $("draft-quality-warnings").textContent = "";
+      $("generation-page-error-summary").hidden = true;
+      $("generation-page-error-summary").textContent = "";
+      $("draft-critical-blockers").hidden = true;
+      $("draft-critical-blockers").replaceChildren();
+      $("draft-review-advisories").hidden = true;
+      $("draft-review-feedback").hidden = true;
       $("generation-diagnostics").hidden = true;
       $("generation-diagnostics").open = false;
       $("generation-diagnostics-snapshot").textContent = "";
@@ -2743,7 +2774,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         ? evidence.warnings.filter(item => typeof item === "string") : [];
       const notice = $("draft-quality-warnings");
       notice.textContent = warnings.length
-        ? "Advisory review notes — " + warnings.length + " potential quality issue(s):\n" +
+        ? "Other quality checks (" + warnings.length + "):\n" +
           warnings.map((warning, i) => (i + 1) + ". " + warning).join("\n")
         : "";
       notice.hidden = warnings.length === 0;
@@ -2757,6 +2788,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           " This is not evidence that a test step failed. Use the read-only selector check below to verify known starting-page targets."
         : "";
       errorNotice.hidden = !pageErrors;
+      syncReviewFeedback();
       const details = $("generation-diagnostics");
       details.hidden = false;
       $("generation-diagnostics-summary").textContent =
