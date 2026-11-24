@@ -111,6 +111,38 @@ test("suffix proposal preserves prefix and strips requirement links to removed I
   expect(data.definition.steps.slice(2).every((step:{id:string}) => step.id.startsWith("regen-"))).toBe(true);
 });
 
+test("AI replacement invalidates old instruction links with specific step evidence and leaves amendment unmapped", async () => {
+  mockSteps = [newStatus];
+  const definition = await original();
+  definition.instructionCoverage = {
+    source: "Verify task count is zero.",
+    entries: [{
+      id: "R1", text: "Verify task count is zero.",
+      interpretation: "Check current task count", stepIds: ["empty"],
+      issue: "", availability: "identified", confirmed: false,
+    }],
+    prerequisiteStepIds: [],
+  };
+  const res = await regenerate({
+    definition, stepId: "empty", mode: "step",
+    instructions: "Verify the count includes zero",
+    approvedStepIds: ["open", "empty"],
+  });
+  expect(res.status).toBe(200);
+  const data = await res.json();
+  expect(data.definition.instructionCoverage.entries).toHaveLength(2);
+  const [originalRow, amendmentRow] = data.definition.instructionCoverage.entries;
+  expect(originalRow.id).toBe("R1");
+  expect(originalRow.stepIds).toEqual([]);
+  expect(originalRow.issue).toContain("Previous mapping referenced replaced step ID(s): empty");
+  expect(amendmentRow.id).toBe("R2");
+  expect(amendmentRow.stepIds).toEqual([]);
+  expect(amendmentRow.issue).toContain("New amendment requires explicit coverage review");
+  expect(data.warnings.join(" ")).toContain("mappings need explicit review");
+  expect(data.definition.steps.some((step:{id:string})=>step.id==="empty")).toBe(false);
+  expect(data.preservedApprovedStepIds).toEqual(["open"]);
+});
+
 test("unsafe and malformed proposals cannot alter or approve a test", async () => {
   const bad = await regenerate({ stepId: "not-a-step" });
   expect(bad.status).toBe(422);

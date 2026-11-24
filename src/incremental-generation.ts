@@ -170,7 +170,16 @@ export async function generateIncrementalProposal(
           const old=oldCoverage.entries.find(entry=>entry.id===row.id&&entry.text===row.text);
           if(!old) return {...row,interpretation:"",stepIds:[],issue:"New amendment requires explicit coverage review.",confirmed:false};
           const stepIds=old.stepIds.filter(id=>retained.has(id));
-          return {...old,stepIds,confirmed:old.confirmed&&stepIds.length===old.stepIds.length};
+          const replacedIds=old.stepIds.filter(id=>!retained.has(id));
+          return {
+            ...old, stepIds,
+            ...(replacedIds.length ? {
+              issue: [old.issue, "Previous mapping referenced replaced step ID(s): " +
+                replacedIds.join(", ") + ". Link the revised executable step(s) after review."]
+                .filter(Boolean).join(" "),
+            } : {}),
+            confirmed:old.confirmed&&stepIds.length===old.stepIds.length,
+          };
         }),
         prerequisiteStepIds:oldCoverage.prerequisiteStepIds.filter(id=>retained.has(id)),
       } : undefined;
@@ -189,6 +198,10 @@ export async function generateIncrementalProposal(
       ];
       if (original.requirements?.some(item => item.stepIds.some(id => !retained.has(id)))) {
         warnings.push("Requirement links to replaced steps were cleared; remap coverage after review.");
+      }
+      if (instructionCoverage?.entries.some(row => !row.stepIds.length ||
+          (row.issue && row.availability !== "later-state" && row.availability !== "selector-uncertain"))) {
+        warnings.push("Instruction-to-step mappings need explicit review before the revised test can be saved or run. Review each source statement after applying the replacement.");
       }
       if (options.mode === "step" && suffix.length) {
         warnings.push("Later steps are unchanged but may depend on the replaced step; review dependencies.");
