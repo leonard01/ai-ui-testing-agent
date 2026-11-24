@@ -11,6 +11,10 @@
     header { background:#153655; color:#fff; padding:22px max(calc((100% - 1060px)/2),24px); }
     header h1 { margin:0 0 5px; font-size:22px; letter-spacing:-.02em; }
     header p { margin:0; color:#d6e2ed; font-size:14px; }
+    .welcome-note { max-width:1020px; margin:16px auto 0; padding:14px 18px; background:white; border:1px solid #cbd9e5; border-radius:10px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+    .welcome-note[hidden] { display:none; }
+    .welcome-note div { flex:1; min-width:220px; }
+    .welcome-note p { font-size:13px; margin:5px 0; line-height:1.5; }
     .app-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
     #help-open { background:#fff; color:#153655; border:1px solid #cbd9e5; white-space:nowrap; }
     #help-open:hover, #help-open:focus-visible { background:#e8f3fc; }
@@ -206,6 +210,12 @@
       <button type="button" id="help-open" aria-haspopup="dialog" aria-controls="help-dialog">? Help</button>
     </div>
   </header>
+  <aside id="welcome-note" class="welcome-note" aria-labelledby="welcome-title" hidden>
+    <div><strong id="welcome-title">AI proposes. You approve. The runner executes.</strong>
+    <p><strong>AI generation (non-deterministic):</strong> The same instructions can produce different steps. Check that every instruction is covered.</p>
+    <p><strong>Test execution (deterministic):</strong> Approved steps run as written, without AI. Results depend on the website and test data; a pass only proves the executed checks passed.</p></div>
+    <button type="button" id="welcome-dismiss" class="secondary">Got it</button>
+  </aside>
   <dialog id="help-dialog" aria-labelledby="help-title" aria-describedby="help-intro">
     <div class="help-inner">
       <div class="help-head">
@@ -225,6 +235,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p>Using the prewritten demonstration and executing already approved tests does <strong>not</strong> require an API key.</p>
       </aside>
       <p id="help-intro">This is a prototype for creating and running browser tests from plain-English instructions. You review and approve every generated step before it becomes an executable test.</p>
+      <h3>AI generation versus test execution</h3>
+      <p>AI generation (non-deterministic) may produce different steps from the same instructions. Approved tests execute as written (deterministic), without AI; outcomes can vary with the website and data. A pass only proves the executed checks passed.</p>
       <h3>Quick start</h3>
       <ol>
         <li>Enter a test name, the application URL, and the actions and checks you want performed.</li>
@@ -531,6 +543,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
+    const WELCOME_KEY = "ai-ui-testing-execution-explainer-v1";
+    try { $("welcome-note").hidden = localStorage.getItem(WELCOME_KEY) === "seen"; }
+    catch { $("welcome-note").hidden = false; }
+    $("welcome-dismiss").addEventListener("click", () => {
+      $("welcome-note").hidden = true;
+      try { localStorage.setItem(WELCOME_KEY, "seen"); } catch {}
+    });
     $("help-open").addEventListener("click", () => $("help-dialog").showModal());
     $("help-close").addEventListener("click", () => $("help-dialog").close());
     $("help-dialog").addEventListener("click", (event) => {
