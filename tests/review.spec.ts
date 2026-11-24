@@ -26,6 +26,14 @@ test.afterAll(async () => {
   await rm(outputDir, { recursive: true, force: true });
 });
 
+// All generated tests now require a name, not just tests that are saved.
+async function clickGenerateDraft(page: import("@playwright/test").Page) {
+  if (!(await page.locator("#test-name").inputValue()).trim()) {
+    await page.locator("#test-name").fill(test.info().title.slice(0, 200));
+  }
+  await page.getByRole("button", { name: "Generate draft" }).click();
+}
+
 
 test("initial page JavaScript exception is explained separately from selector defects", async ({ page }) => {
   const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
@@ -52,7 +60,7 @@ test("initial page JavaScript exception is explained separately from selector de
   }));
   await page.getByLabel("Your test instructions").fill("Add a task");
   await page.getByLabel("Generate with").selectOption("groq");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#draft-quality-warnings")).toContainText(
     "does NOT mean a test step or selector has failed");
   await expect(page.locator("#generation-page-error-summary")).toContainText(
@@ -103,7 +111,7 @@ test("unverified login placeholders are critical blockers, not amber advisory wa
   await page.getByLabel("Your test instructions").fill("Log in and verify Products");
   await page.locator("#test-name").fill("Login validation");
   await page.getByLabel("Generate with").selectOption("groq");
-  await page.getByRole("button",{name:"Generate draft"}).click();
+  await clickGenerateDraft(page);
   const panel = page.locator("#draft-critical-blockers");
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Cannot save or run");
@@ -193,7 +201,7 @@ test("JavaScript page warnings stay advisory, never incorrectly labelled as bloc
   }));
   await page.getByLabel("Your test instructions").fill("Open the page");
   await page.getByLabel("Generate with").selectOption("groq");
-  await page.getByRole("button",{name:"Generate draft"}).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#draft-critical-blockers")).toBeHidden();
   await expect(page.locator("#draft-review-feedback")).toBeVisible();
   await expect(page.locator("#draft-critical-blockers")).toBeHidden();
@@ -209,7 +217,7 @@ async function generateFixture(page: import("@playwright/test").Page) {
     "Add Prepare interview, complete it, then delete it and check the task count.",
   );
   await page.getByLabel("Generate with").selectOption("fixture");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(page.locator(".step")).toHaveCount(9);
   await page.locator("#test-name").fill("Add, complete and delete a task");
@@ -283,7 +291,7 @@ test("HTTP 403 target shows inspection error and no draft instead of a false-pos
       "Search for 'Wooden Abacus' and verify matching search results",
     );
     await page.getByLabel("Generate with").selectOption("fixture");
-    await page.getByRole("button", { name: "Generate draft" }).click();
+    await clickGenerateDraft(page);
     await expect(page.locator("#generation-error")).toContainText(
       "Possible automation block by the website under test (HTTP 403 Forbidden)",
       { timeout: 20_000 });
@@ -1141,7 +1149,7 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
     await page.getByLabel("Your test instructions").fill(
       'Open the task list, add "Buy groceries", complete it, delete it and verify each count.',
     );
-    await page.getByRole("button", { name: "Generate draft" }).click();
+    await clickGenerateDraft(page);
     await expect(page.locator("#generation-status")).toContainText("Draft ready", { timeout: 25000 });
     await expect(page.locator("#generation-status")).toContainText("One extra AI call");
     await expect(page.locator("#generation-error")).toBeEmpty();
@@ -1183,7 +1191,7 @@ test("two malformed responses stop after one bounded retry with safe step diagno
   try {
     await page.goto(tempURL);
     await page.getByLabel("Your test instructions").fill("Open and verify initial task count");
-    await page.getByRole("button", { name: "Generate draft" }).click();
+    await clickGenerateDraft(page);
     await expect(page.locator("#generation-error")).toContainText("schema-validation", { timeout: 25000 });
     await expect(page.locator("#generation-error")).toContainText("steps[1]: expected object, received string");
     await expect(page.locator("#generation-error")).toContainText("Attempts: 2");
@@ -1222,7 +1230,7 @@ test("Test 1 Groq upstream 400 is identified correctly in the generator UI witho
   try {
     await page.goto(tempURL);
     await page.getByLabel("Your test instructions").fill(testOneInstructions);
-    await page.getByRole("button", { name: "Generate draft" }).click();
+    await clickGenerateDraft(page);
     await expect(page.locator("#generation-error")).toContainText("GroqCloud rejected the request (provider HTTP 400)", { timeout: 15_000 });
     await expect(page.locator("#generation-error")).toContainText("json_validate_failed");
     await expect(page.locator("#generation-error")).toContainText("json-generation");
@@ -1333,7 +1341,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
   );
   await page.locator("#test-name").fill("eBay search smoke");
   await page.getByLabel("Generate with").selectOption("groq");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await page.getByRole("button", { name: "Save Test" }).click();
@@ -1547,16 +1555,17 @@ test("approved test retains source instructions and Save as New keeps original",
   expect(copy.definition.workingInstructions).toContain("Additional notes for new version.");
 });
 
-test("approval and save readiness clearly explain required name and confirmations", async ({ page }) => {
+test("approval and save readiness require a test name before generation and confirmations before save", async ({ page }) => {
   await page.goto(url);
   await page.getByLabel("Your test instructions").fill("Add a task and verify it is listed");
   await page.getByLabel("Generate with").selectOption("fixture");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.getByRole("button", { name: "Generate draft" })).toBeDisabled();
+  await page.locator("#test-name").fill("Approval regression check");
+  await expect(page.getByRole("button", { name: "Generate draft" })).toBeEnabled();
+  await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
-  await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
-  await page.locator("#test-name").fill("Approval regression check");
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await expect(page.locator("#save-readiness")).toContainText("Ready to save");
@@ -1571,7 +1580,7 @@ test("name entered before generation survives and save-area name enables approva
   await originalName.fill("Name supplied before generation");
   await page.getByLabel("Your test instructions").fill("Add a task, then verify it is visible");
   await page.getByLabel("Generate with").selectOption("fixture");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(originalName).toHaveValue("Name supplied before generation");
   const saveName = page.locator("#save-test-name");
@@ -1586,20 +1595,32 @@ test("name entered before generation survives and save-area name enables approva
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
 });
 
-test("required inputs and missing-field guidance update beside generation and save actions", async ({ page }) => {
+test("all required inputs gate Generate Draft and update readiness before save", async ({ page }) => {
   await page.goto(url);
+  const generate = page.getByRole("button", { name: "Generate draft" });
+  await expect(page.locator("#test-name")).toHaveAttribute("required", "");
   await expect(page.getByLabel("Application URL")).toHaveAttribute("required", "");
   await expect(page.locator("#requirements")).toHaveAttribute("required", "");
+  await expect(generate).toBeDisabled();
+  await expect(page.locator("#generate-readiness")).toContainText("Test name");
   await expect(page.locator("#generate-readiness")).toContainText("test instructions");
+  await expect(page.locator("#test-name")).toHaveAttribute("aria-invalid", "true");
   await expect(page.locator("#requirements")).toHaveAttribute("aria-invalid", "true");
   await page.getByLabel("Your test instructions").fill("Add a task and verify it appears");
-  await expect(page.locator("#generate-readiness")).toContainText("Required generation fields complete");
+  await expect(generate).toBeDisabled();
+  await page.locator("#test-name").fill("Task flow");
+  await expect(page.locator("#generate-readiness")).toContainText("All required fields complete");
+  await expect(generate).toBeEnabled();
+  await page.getByLabel("Application URL").fill("not a valid URL");
+  await expect(generate).toBeDisabled();
+  await expect(page.locator("#base-url")).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("Application URL").fill("http://127.0.0.1:3000");
+  await expect(generate).toBeEnabled();
   await page.getByLabel("Generate with").selectOption("fixture");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
-  await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
-  await expect(page.locator("#save-readiness")).toContainText("confirm 9 remaining steps");
-  await page.locator("#save-test-name").fill("Task flow");
+  await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
+  await page.locator("#save-test-name").fill("Task flow revised");
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await expect(page.locator("#save-readiness")).toContainText("Ready to save");
@@ -1614,7 +1635,7 @@ test("new test name entered before generation survives and permits saving and ex
     "Open the task page. Check that the initial status contains zero tasks.",
   );
   await page.getByLabel("Generate with").selectOption("fixture");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(name).toHaveValue("New test from instructions");
   const save = page.getByRole("button", { name: "Save Test" });
@@ -1651,7 +1672,7 @@ test("failed regeneration removes prior successful draft and disables saving sta
     });
   });
   await page.getByLabel("Your test instructions").fill("Add several items to basket.");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
 
   await expect(page.locator("#generation-error")).toContainText("GroqCloud request failed (timeout)");
   await expect(page.locator("#generation-review-status")).toContainText(
@@ -1666,21 +1687,20 @@ test("failed regeneration removes prior successful draft and disables saving sta
   await page.unroute("**/api/generate");
 
   await page.getByLabel("Generate with").selectOption("fixture");
-  await page.getByRole("button", { name: "Generate draft" }).click();
+  await clickGenerateDraft(page);
   await expect(page.locator("#step-list .step")).toHaveCount(9);
   await expect(page.locator("#generation-error")).toBeEmpty();
   await expect(page.locator("#generation-review-status")).toBeEmpty();
 });
 
-test("invalid new instructions also clear an earlier successful generation", async ({ page }) => {
+test("invalid instructions disable generation without destroying the previously reviewed draft", async ({ page }) => {
   await generateFixture(page);
   await expect(page.locator("#step-list .step")).toHaveCount(9);
   await page.getByLabel("Your test instructions").fill("");
-  await page.getByRole("button", { name: "Generate draft" }).click();
-  await expect(page.locator("#generation-error")).toContainText("Enter 1–12,000 characters");
-  await expect(page.locator("#draft")).toBeHidden();
-  await expect(page.locator("#step-list .step")).toHaveCount(0);
-  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Generate draft" })).toBeDisabled();
+  await expect(page.locator("#generate-readiness")).toContainText("test instructions");
+  await expect(page.locator("#draft")).toBeVisible();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
 });
 
 test("URL input and recent website selector visually indicate only one active source", async ({ page }) => {
