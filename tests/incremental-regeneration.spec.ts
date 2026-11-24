@@ -364,3 +364,44 @@ test("single-step mode rejects multiple replacements without saving a test", asy
   expect(mockCalls).toBe(2);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
+
+test("invalid reconciliation availability reports its actual field and allowed values", async () => {
+  const definition = await original();
+  definition.instructionCoverage = {
+    source: "Verify task count is zero.",
+    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
+      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
+    prerequisiteStepIds: [],
+  };
+  mockReconciliation = {
+    changes: [], additions: [],
+    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"available"}]},
+  };
+  const res = await regenerate({definition});
+  const data = await res.json();
+  expect(res.status).toBe(422);
+  expect(data.error).toContain("reconciliation.coverage.entries.0.availability");
+  expect(data.error).toContain("allowed: identified, later-state, selector-uncertain, functional-mismatch, uncertain");
+  expect(mockCalls).toBe(2);
+  expect(prompts[1]).toContain("Allowed availability: identified");
+  expect(prompts[0]).toContain("CURRENT REQUIREMENTS");
+});
+
+test("reconciliation availability may be omitted without relaxing enum validation", async () => {
+  const definition = await original();
+  definition.instructionCoverage = {
+    source: "Verify task count is zero.",
+    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
+      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
+    prerequisiteStepIds: [],
+  };
+  mockReconciliation = {
+    changes: [], additions: [],
+    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id]}]},
+  };
+  const res = await regenerate({definition});
+  const data = await res.json();
+  expect(res.status, JSON.stringify(data)).toBe(200);
+  expect(data.definition.instructionCoverage.entries[0].availability).toBe("uncertain");
+  expect(data.definition.instructionCoverage.entries[0].stepIds).toEqual([data.replacement[0].id]);
+});
