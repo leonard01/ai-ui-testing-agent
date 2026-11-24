@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { authenticationRequirementProblems, explicitAuthenticationIntent, markSuggestedAuthentication } from "./requirement-preservation.js";
 import { requireHumanCredentialValues } from "./credential-guard.js";
 import { ZodError } from "zod";
 import type { Browser } from "playwright";
@@ -108,7 +109,10 @@ export async function generateDraft(
       snapshot.inspection?.pageErrors ?? 0,
     );
   }
-  const { system, prompt } = makeGenerationPrompt(options.requirements ?? "", snapshot, options.prerequisiteHints ?? []);
+  const instructions = options.requirements ?? "";
+  const authIntent = explicitAuthenticationIntent(instructions);
+  const hints = authIntent === "unspecified" ? options.prerequisiteHints ?? [] : [];
+  const { system, prompt } = makeGenerationPrompt(instructions, snapshot, hints);
   const maxAttempts = options.retryMalformedOutput ? 2 : 1;
   let problems: string[] = [];
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -212,6 +216,11 @@ export async function generateDraft(
     }
     // A model cannot attest the provenance of login values, even if its
     // proposed credential happens to work. Require explicit tester input.
+    if (options.model !== "deterministic-fixture") {
+      const omissions = authenticationRequirementProblems(instructions, definition);
+      if (omissions.length) throw new Error(omissions.join(" "));
+      if (hints.length) markSuggestedAuthentication(definition);
+    }
     requireHumanCredentialValues(definition);
     return { definition, snapshot, needsReview: true, generationAttempts: attempt };
   }
@@ -263,6 +272,8 @@ export function makeGenerationPrompt(requirements: string, snapshot: PageSnapsho
     "The runner resolves intent from the live DOM at EACH step, including after actions that change the page.",
     "Use concise but DISTINCTIVE grounded intent descriptions: e.g. {by:'intent',value:'Add',role:'button'} for a unique button, {by:'intent',value:'Username',role:'textbox'} for a unique input.",
     "CRITICAL: For repeated row controls (checkboxes and Delete/Edit buttons), include the exact item identity stated in requirements; NEVER target only 'Complete', 'Delete', 'Edit' or 'Remove' when more than one item exists.",
+    "Explicit user instructions are authoritative. Never silently omit, replace or contradict them even if they appear mistaken or controls are missing from the initial snapshot. Preserve requested actions using reviewable live-DOM intent; if unsupported, do not substitute unrelated actions or assertions.",
+    "Memory is advisory only. Do not add login when the user explicitly prohibits it. Inferred prerequisites must be explicit executable steps and reviewed by the tester.",
     "Infer necessary UI actions from the requested outcome and known controls; users need not describe each intermediate click.",
     "To delete a named item, click its specific accessible Delete button. On the demo task list: {kind:'click',target:{by:'intent',value:'Delete Eggs',role:'button'}}.",
     "Do not invent a preceding row-selection click if the application directly exposes a Delete button.",
