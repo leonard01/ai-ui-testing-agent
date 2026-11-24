@@ -519,6 +519,11 @@ async function resolveCartAction(
   let container = title;
   for (let depth = 0; depth < 8; depth++) {
     container = container.locator("..");
+    // Never escape a recognised product card into its product list or page.
+    // A sold-out card can lack Add to cart while a neighbouring card has one.
+    const boundary = await container.evaluate((node) =>
+      node.matches('main,body,html,[role="main"],[role="list"],[role="feed"]'));
+    if (boundary) break;
     const scoped = container.getByRole("button", { name: /^add to (?:cart|basket)$/i });
     const count = await scoped.count();
     // One button inside the nearest matching container is meaningful evidence.
@@ -541,6 +546,8 @@ async function resolveCartAction(
       };
     }
     if (count > 1) break; // Reached an enclosing multi-product list: never choose first.
+    if (await container.evaluate((node) =>
+      node.matches('article,li,[role="listitem"],.inventory_item,.product-card,.product_item,[data-testid="product-card"],[data-testid="product-item"]'))) break;
   }
   return { claimed: true, detail: "No unique enabled Add to cart button found within product " +
     JSON.stringify(names[0]) + "; no action was taken" };
