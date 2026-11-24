@@ -33,9 +33,20 @@ export const draftSchema = z.object({
     });
     seen.add(id);
   }
-  if (draft.definition.sourceUrl &&
-      websiteOrigin(draft.definition.sourceUrl) !== websiteOrigin(draft.baseURL)) {
-    ctx.addIssue({ code: "custom", path: ["baseURL"], message: "Draft must stay on the original website" });
+  if (draft.definition.sourceUrl) {
+    // Field-level URL validation may already have failed. Do not let an
+    // exception from origin normalization escape Zod's validation result.
+    let originalOrigin: string;
+    let draftOrigin: string;
+    try {
+      originalOrigin = websiteOrigin(draft.definition.sourceUrl);
+      draftOrigin = websiteOrigin(draft.baseURL);
+    } catch {
+      return; // The URL field schemas already report invalid URLs.
+    }
+    if (originalOrigin !== draftOrigin) {
+      ctx.addIssue({ code: "custom", path: ["baseURL"], message: "Draft must stay on the original website" });
+    }
   }
 });
 
