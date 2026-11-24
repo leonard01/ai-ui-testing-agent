@@ -131,7 +131,7 @@ export function reconcileAmendment(
   if (!source || source.length > 12000 || sourceRequirements(source).length !== rows.length) {
     throw new Error("Reconciled instructions must contain one statement per row");
   }
-  const coverage = proposedCoverage(source, definition, parsed.coverage, false);
+  const coverage: NonNullable<TestDefinition["instructionCoverage"]> = proposedCoverage(source, definition, parsed.coverage, false);
   coverage.entries = coverage.entries.map((entry,index) => {
     const old = rows[index].old;
     return old ? {...old,id:entry.id} : entry;
