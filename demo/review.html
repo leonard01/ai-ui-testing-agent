@@ -95,6 +95,16 @@
     .critical-blockers .actions button { background:#fff; color:#8d1b2e;
       border:1px solid #b42339; }
     .critical-blockers .actions button:focus-visible { outline:3px solid #b42339; outline-offset:2px; }
+    .coverage-review-row { border-top:1px solid #eabfc5; margin-top:12px; padding-top:12px; }
+    .coverage-review-row h4 { margin:0 0 6px; font-size:14px; overflow-wrap:anywhere; }
+    .coverage-review-row .coverage-reason { font-weight:600; }
+    .coverage-options { display:grid; gap:6px; margin:9px 0; max-height:220px; overflow-y:auto; }
+    .coverage-options label { display:flex; align-items:flex-start; gap:8px; margin:0;
+      padding:6px 8px; border:1px solid #e7bfc4; border-radius:6px; background:white;
+      color:#64313a; font-size:12px; cursor:pointer; }
+    .coverage-options input { margin:2px 0 0; flex-shrink:0; }
+    .coverage-review-row button { font-size:12px; padding:8px 11px; border:1px solid #b42339;
+      color:#8d1b2e; background:white; }
     .review-advisories { padding:12px 17px; border-top:1px solid #efdcb8;
       border-left:5px solid #cf9f48; background:#fffbf2; color:#78591d; }
     .review-advisories h3 { margin:0 0 3px; font-size:14px; color:#78591d; }
@@ -1237,7 +1247,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     }
     function invalidateCoverageForStep(id) {
       for (const row of definition?.instructionCoverage?.entries ?? []) {
-        if (row.stepIds.includes(id)) row.confirmed = false; // existing step approval is also cleared
+        if (!row.stepIds.includes(id)) continue;
+        if (row.confirmed) {
+          // A manually verified association must be reviewed after a step edit.
+          row.issue = "The linked step was edited; confirm that it still satisfies this requirement.";
+        }
+        row.confirmed = false;
       }
     }
     function renderSteps() {
@@ -1651,6 +1666,67 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       panel.append(buttons);
       syncReviewFeedback();
     }
+    function renderCoverageBlockers(unresolvedCoverage) {
+      const panel = $("instruction-coverage-blockers");
+      panel.replaceChildren();
+      panel.hidden = unresolvedCoverage.length === 0;
+      if (!unresolvedCoverage.length) {
+        syncReviewFeedback();
+        return;
+      }
+      panel.append(make("h3", "⛔ Cannot save or run — " + unresolvedCoverage.length +
+        " requirement mapping" + (unresolvedCoverage.length === 1 ? "" : "s") + " need review"));
+      panel.append(make("p", "AI reinterpretation can replace step IDs without replacing the intent. " +
+        "Review each original statement and explicitly link the current step(s) that satisfy it. " +
+        "Save Draft is still available. Do not link unrelated steps just to clear a blocker."));
+      const available = new Set(definition.steps.map(step => step.id));
+      for (const row of unresolvedCoverage) {
+        const section = make("section", null, "coverage-review-row");
+        section.dataset.requirementId = row.id;
+        section.append(make("h4", row.id + " — " + row.text));
+        const missing = row.stepIds.filter(id => !available.has(id));
+        const reasons = [];
+        if (missing.length) reasons.push("Previous step reference(s) were replaced: " + missing.join(", ") + ".");
+        if (row.issue) reasons.push(row.issue);
+        if (!row.stepIds.length && !row.issue) reasons.push("No current test step is associated with this statement.");
+        section.append(make("p", reasons.join(" ") || "Review this mapping against the revised test.", "coverage-reason"));
+        section.append(make("p", "Select every current step needed to satisfy this statement:", "muted"));
+        const options = make("div", null, "coverage-options");
+        for (const [index, step] of definition.steps.entries()) {
+          const label = make("label");
+          const checkbox = make("input");
+          checkbox.type = "checkbox";
+          checkbox.value = step.id;
+          checkbox.checked = row.stepIds.includes(step.id);
+          label.append(checkbox, make("span", "Step " + (index + 1) + " — " + step.description));
+          options.append(label);
+        }
+        const confirm = make("button", "Confirm mapping for " + row.id);
+        confirm.type = "button";
+        const selectedIds = () => [...options.querySelectorAll('input[type="checkbox"]:checked')]
+          .map(input => input.value);
+        const updateConfirm = () => { confirm.disabled = selectedIds().length === 0; };
+        options.addEventListener("change", updateConfirm);
+        updateConfirm();
+        confirm.addEventListener("click", () => {
+          const selected = selectedIds();
+          const target = definition?.instructionCoverage?.entries.find(entry => entry.id === row.id);
+          if (!target || target.text !== row.text || !selected.length ||
+              selected.some(id => !definition.steps.some(step => step.id === id))) return;
+          // Human chose the association; the AI never gets to silently claim
+          // that a replacement step satisfies an existing requirement.
+          target.stepIds = selected;
+          target.issue = "";
+          target.availability = "identified";
+          target.interpretation = "Tester-confirmed association after step reinterpretation.";
+          target.confirmed = true;
+          updateApproval();
+        });
+        section.append(options, confirm);
+        panel.append(section);
+      }
+      syncReviewFeedback();
+    }
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
@@ -1664,9 +1740,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const unresolvedCredentials = unresolvedLoginCredentialSteps();
       const credentialReview = unresolvedCredentials.length > 0;
       const unresolvedCoverage = coverageBlockers();
-      const coveragePanel = $("instruction-coverage-blockers");
-      coveragePanel.hidden = !unresolvedCoverage.length;
-      coveragePanel.textContent = unresolvedCoverage.length ? "Blocking errors — "+unresolvedCoverage.length+" instruction statement(s) have unresolved mappings. Revise the test description and regenerate before saving or running." : "";
+      renderCoverageBlockers(unresolvedCoverage);
       renderCriticalBlockers(unresolvedCredentials);
       const missing = [
         ...(unresolvedCoverage.length ? ["resolve missing instruction mappings"] : []),
