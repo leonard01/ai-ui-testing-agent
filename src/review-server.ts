@@ -6,6 +6,7 @@ import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, InspectionAccessError, type ModelProvider } from "./generation.js";
+import { assertInstructionCoverageReviewed } from "./requirement-preservation.js";
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
@@ -485,6 +486,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       ? { ...definition, sourceUrl } : definition);
     // Working drafts may hold unresolved credentials; executable scripts may not.
     assertCredentialsReviewed(approved);
+    assertInstructionCoverageReviewed(approved);
     const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
     const directory = sourceUrl ? websiteDirectory(savedDir, sourceUrl) : savedDir;
     const file = join(directory, id);
@@ -1574,6 +1576,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             baseURL: input.baseURL, requirements: input.requirements, model,
             retryMalformedOutput: input.provider === "groq",
             prerequisiteHints: suggestions.map(item => item.text),
+            instructionCoverage: input.provider === "groq",
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
