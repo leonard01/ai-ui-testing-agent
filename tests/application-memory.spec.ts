@@ -20,6 +20,7 @@ test.beforeEach(async ({browser}) => {
     providerPrompt = prompt;
     return JSON.stringify({
       ...fixture,
+      coverage:{entries:[{id:"R1",interpretation:"Mock mapping for memory transport test",stepIds:fixture.steps.map((step:{id:string})=>step.id),availability:"identified"}]},
       steps:fixture.steps.map((step:{action:{provenance?:string}}) =>
         step.action.provenance === "human-confirmed"
           ? {...step,action:{...step.action,provenance:"inferred"}} : step),
