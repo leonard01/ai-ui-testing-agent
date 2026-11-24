@@ -59,6 +59,22 @@
     .muted { font-size:12px; color:#64748b; line-height:1.5; }
     .tip { padding:12px; border-radius:8px; background:#eff7f8; color:#2c5762; font-size:12px; margin-top:17px; }
     .note { padding:12px; border-radius:8px; background:#f8f4e8; color:#705c2f; font-size:12px; line-height:1.5; margin:10px 0; }
+
+    .site-memory-option { margin:0 0 19px; padding:13px 15px; border-radius:9px;
+      border:1px solid #a7c7df; border-left:4px solid #205e86; background:#eff7fc; }
+    .site-memory-row { display:flex; align-items:center; gap:9px; }
+    .site-memory-row label { margin:0; display:flex; align-items:center; gap:9px;
+      font-size:14px; font-weight:750; cursor:pointer; }
+    .site-memory-row input { width:17px; height:17px; margin:0; accent-color:#205e86; }
+    .site-memory-help-toggle { padding:0; width:25px; height:25px; border-radius:50%;
+      display:inline-flex; align-items:center; justify-content:center;
+      background:#fff; color:#205e86; border:1px solid #86aac5;
+      font-size:13px; font-weight:800; }
+    .site-memory-help-toggle:hover, .site-memory-help-toggle:focus-visible {
+      outline:2px solid #83c5d2; outline-offset:2px; }
+    .site-memory-description { border-top:1px solid #c8dce9; margin-top:12px; padding-top:10px; }
+    .site-memory-description p { margin:0 0 10px; font-size:12px; line-height:1.5; }
+    .site-memory-description button { font-size:12px; padding:8px 10px; }
     .error { background:#fff1f2; color:#9c2335; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .error:empty, .success:empty { display:none; }
@@ -225,6 +241,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
   </dialog>
   <main>
     <section aria-labelledby="instructions-heading">
+      <div id="site-memory-option" class="site-memory-option">
+        <div class="site-memory-row">
+          <label for="use-application-memory">
+            <input id="use-application-memory" type="checkbox" checked>
+            Use Site Memory
+          </label>
+          <button type="button" id="site-memory-help-toggle" class="site-memory-help-toggle"
+            aria-label="About Use Site Memory" aria-controls="site-memory-description"
+            aria-expanded="false" title="About Site Memory">?</button>
+        </div>
+        <div id="site-memory-description" class="site-memory-description" hidden>
+          <p><strong>Experimental site-specific knowledge.</strong> When enabled, the agent can use generic prerequisites learned from previous passing tests on the same website. For example, a successful login-before-shopping test may prompt it to suggest login when generating another shopping test.</p>
+          <p>Only the website origin, number of qualifying successful runs and observation time are stored. It does not remember passwords, form values, DOM snapshots, element selectors or complete workflows yet. Suggestions are advisory and still require your approval.</p>
+          <button type="button" id="check-application-memory" class="secondary">Check known prerequisites</button>
+          <p id="application-memory-status" class="muted" role="status"></p>
+        </div>
+      </div>
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required to save)</span></label>
@@ -247,15 +280,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
         <input id="requirements-file" type="file" accept=".txt,.md,text/plain,text/markdown">
         <p id="import-note" class="muted">File contents will be added to the instructions above. Max 12,000 characters total.</p>
-        <div class="note" style="margin-top:12px">
-          <label style="margin:0;display:flex;align-items:center;gap:8px" for="use-application-memory">
-            <input id="use-application-memory" type="checkbox" checked>
-            Use successful-test knowledge from this website
-          </label>
-          <p class="muted">Only generic prerequisites from previous passing executions are remembered. No passwords, form values or DOM snapshots are stored. Any suggested login still needs your approval.</p>
-          <button type="button" id="check-application-memory" class="secondary">Check known prerequisites</button>
-          <p id="application-memory-status" class="muted" role="status"></p>
-        </div>
         <label for="provider">Generate with</label>
         <select id="provider">
           <option value="groq">GroqCloud · hosted AI (free tier)</option>
@@ -2687,6 +2711,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       clearPreflight();
       updateApproval();
     }
+    $("site-memory-help-toggle").addEventListener("click", () => {
+      const panel = $("site-memory-description");
+      panel.hidden = !panel.hidden;
+      $("site-memory-help-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+    });
     $("check-application-memory").addEventListener("click", async () => {
       const status = $("application-memory-status");
       if (!$("use-application-memory").checked) {
