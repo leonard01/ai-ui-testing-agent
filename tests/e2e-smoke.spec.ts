@@ -102,6 +102,9 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
 
     await page.reload();
+    // The review workspace is intentionally hidden until the tester opens it.
+    await page.getByRole("button", { name: "Edit existing test or resume draft" }).click();
+    await expect(page.locator("#review-workspace")).toBeVisible();
     await expect(page.locator("#draft-select option")).toHaveCount(2);
     await page.locator("#draft-select").selectOption({ index: 1 });
     await page.getByRole("button", { name: "Resume draft" }).click();
