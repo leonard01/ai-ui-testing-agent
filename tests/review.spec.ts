@@ -146,6 +146,8 @@ test("unverified login placeholders are critical blockers, not amber advisory wa
   const loginDraftId = await page.locator("#draft-select").inputValue();
   expect(loginDraftId).toMatch(/^draft-/);
   await page.reload();
+  await page.getByRole("button", {name: "Edit existing test or resume draft"}).click();
+  await expect(page.locator("#review-workspace")).toBeVisible();
   await expect(page.locator('#draft-select option[value="' + loginDraftId + '"]')).toHaveCount(1);
   await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
   await page.locator("#edit-script").selectOption(loginDraftId);
@@ -1481,6 +1483,8 @@ test("Save Draft remains visible in the picker while the editor is open",async({
   // Re-open the full page: the existing-tests list must discover this draft
   // from disk, not a stateful client cache or success toast.
   await page.reload();
+  await page.getByRole("button", {name: "Edit existing test or resume draft"}).click();
+  await expect(page.locator("#review-workspace")).toBeVisible();
   await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
   await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
   await page.locator("#edit-script").selectOption(id);
