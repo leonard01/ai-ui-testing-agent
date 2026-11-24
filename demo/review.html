@@ -310,6 +310,34 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
+      <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
+        <h3 id="exception-title">Test generation blocked</h3>
+        <p id="exception-count" role="alert" class="error"></p>
+        <p id="exception-site" class="muted"></p>
+        <p>These instructions could not be confidently mapped. The inspected page may not expose all functionality. No new draft is available.</p>
+        <div id="exception-list"></div>
+        <div class="actions" style="display:grid;gap:8px">
+          <button type="button" id="exception-edit-desc" class="secondary">Edit test description</button>
+          <button type="button" id="exception-edit-reqs" class="secondary">Edit or delete problematic requirements</button>
+          <button type="button" id="exception-proceed" class="secondary">Proceed without changes</button>
+        </div>
+        <div id="exception-desc-panel" hidden>
+          <label for="exception-description">Updated test description</label>
+          <textarea id="exception-description" rows="8"></textarea>
+          <button type="button" id="exception-validate-desc">Validate updated description</button>
+        </div>
+        <div id="exception-reqs-panel" hidden>
+          <p class="muted">Only problematic requirements are editable here. All other statements are retained.</p>
+          <div id="exception-edit-list"></div>
+          <button type="button" id="exception-apply-reqs">Apply changes and validate</button>
+        </div>
+        <div id="exception-proceed-panel" hidden>
+          <p class="error"><strong>Warning — potential critical test failures.</strong> Continuing may cause missing-element errors or failed assertions. Your original instructions will be retained; every requirement must still have executable steps.</p>
+          <label><input type="checkbox" id="exception-risk"> I understand the risks and wish to proceed.</label>
+          <button type="button" id="exception-generate-anyway" disabled>Generate test anyway</button>
+        </div>
+        <p id="exception-edit-error" class="error" role="alert"></p>
+      </section>
     </section>
     <section aria-labelledby="review-heading">
       <h2 id="review-heading">Test Editor</h2>
@@ -417,11 +445,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
         </section>
         <p id="review-progress" class="muted"></p>
-        <section id="instruction-coverage-panel" hidden style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px">
-          <h3>Original instructions — coverage review</h3>
-          <p class="muted">AI-proposed links are not proof of coverage. Check the actual actions against each original statement, including any restrictions. Correct missing links or regenerate; confirm coverage separately from step approval.</p>
-          <div id="instruction-coverage-list"></div>
-        </section>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
           <h3 id="traceability-heading">Requirements traceability (optional)</h3>
           <p class="muted">One requirement per line. Click Load requirements to create a reviewable matrix, then explicitly link each requirement to its test steps and assertions. No AI-generated claim of coverage is accepted.</p>
@@ -1211,67 +1234,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function coverageBlockers() {
       const available = new Set((definition?.steps ?? []).map(step => step.id));
       return (definition?.instructionCoverage?.entries ?? []).filter(row =>
-        !row.confirmed || row.issue || !row.stepIds.length ||
+        (!definition.instructionCoverage.proceedAccepted && row.issue && !["later-state","selector-uncertain"].includes(row.availability)) || !row.stepIds.length ||
         new Set(row.stepIds).size !== row.stepIds.length || row.stepIds.some(id => !available.has(id)));
     }
     function invalidateCoverageForStep(id) {
       for (const row of definition?.instructionCoverage?.entries ?? []) {
-        if (row.stepIds.includes(id)) row.confirmed = false;
-      }
-    }
-    function renderInstructionCoverage() {
-      const coverage = definition?.instructionCoverage;
-      const panel = $("instruction-coverage-panel");
-      const list = $("instruction-coverage-list");
-      panel.hidden = !coverage;
-      list.replaceChildren();
-      if (!coverage) return;
-      for (const row of coverage.entries) {
-        const card = make("article", null, "trace-requirement");
-        card.style.marginTop = "12px";
-        card.append(make("strong", row.id + ": " + row.text));
-        if (row.interpretation) card.append(make("p", "AI interpretation: " + row.interpretation, "muted"));
-        if (row.issue) card.append(make("p", "Unresolved: " + row.issue, "error"));
-        const linked = definition.steps.filter(step => row.stepIds.includes(step.id));
-        card.append(make("p", linked.length ? "Linked: " + linked.map(step =>
-          "Step " + (definition.steps.indexOf(step)+1) + " — " + step.description).join("; ") : "No corresponding steps", "muted"));
-        const details = make("details");
-        details.append(make("summary", "Review or correct step links"));
-        for (const [index,step] of definition.steps.entries()) {
-          const label = make("label");
-          label.style.display = "flex";
-          label.style.gap = "8px";
-          const box = make("input");
-          box.type = "checkbox";
-          box.checked = row.stepIds.includes(step.id);
-          box.addEventListener("change", () => {
-            const selected = new Set(row.stepIds);
-            if (box.checked) selected.add(step.id); else selected.delete(step.id);
-            row.stepIds = definition.steps.filter(item=>selected.has(item.id)).map(item=>item.id);
-            row.confirmed = false;
-            renderInstructionCoverage();
-            updateApproval();
-          });
-          label.append(box,make("span","Step "+(index+1)+": "+step.description+" ["+step.action.kind+"]"));
-          details.append(label);
-        }
-        card.append(details);
-        const confirm = make("button",row.confirmed?"Reopen coverage review":"Confirm this instruction is covered","secondary");
-        confirm.type = "button";
-        confirm.disabled = !linked.length;
-        confirm.addEventListener("click",()=>{
-          if (row.confirmed) row.confirmed=false;
-          else {
-            row.confirmed=true;
-            // Explicit human resolution of a proposed issue; the original
-            // statement remains unchanged and its step links are retained.
-            row.issue="";
-          }
-          renderInstructionCoverage();
-          updateApproval();
-        });
-        card.append(confirm);
-        list.append(card);
+        if (row.stepIds.includes(id)) row.confirmed = false; // existing step approval is also cleared
       }
     }
     function renderSteps() {
@@ -1282,7 +1250,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const list = $("step-list");
       list.replaceChildren();
       renderTestDesignIssues();
-      renderInstructionCoverage();
       for (const [index, step] of definition.steps.entries()) {
         const card = make("article", null, "step");
         const top = make("header");
@@ -1698,10 +1665,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const unresolvedCoverage = coverageBlockers();
       const coveragePanel = $("instruction-coverage-blockers");
       coveragePanel.hidden = !unresolvedCoverage.length;
-      coveragePanel.textContent = unresolvedCoverage.length ? "Blocking errors — "+unresolvedCoverage.length+" instruction statement(s) require coverage review. Review the Original instructions panel before saving or running." : "";
+      coveragePanel.textContent = unresolvedCoverage.length ? "Blocking errors — "+unresolvedCoverage.length+" instruction statement(s) have unresolved mappings. Revise the test description and regenerate before saving or running." : "";
       renderCriticalBlockers(unresolvedCredentials);
       const missing = [
-        ...(unresolvedCoverage.length ? ["resolve and confirm instruction coverage"] : []),
+        ...(unresolvedCoverage.length ? ["resolve missing instruction mappings"] : []),
         ...(missingName ? ["enter a Test name above"] : []),
         ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
@@ -3044,13 +3011,93 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-diagnostics-output").textContent =
         JSON.stringify(data.definition, null, 2);
     }
+    let pendingException = null;
+    let exceptionRootInstructions;
+    let exceptionRequest = null;
+    function hideException() {
+      $("generation-exception").hidden=true;
+      pendingException=null;
+      for (const id of ["exception-desc-panel","exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
+      $("exception-risk").checked=false;
+      $("exception-generate-anyway").disabled=true;
+      $("exception-edit-error").textContent="";
+    }
+    function chooseExceptionMode(mode) {
+      for(const name of ["desc","reqs","proceed"]) $("exception-"+name+"-panel").hidden=name!==mode;
+      $("exception-edit-error").textContent="";
+    }
+    function showGenerationException(data, request) {
+      pendingException={data,request};
+      $("generation-exception").hidden=false;
+      $("exception-count").textContent=data.problematicIds.length+" of "+data.total+" requirements could not be confidently mapped.";
+      $("exception-site").textContent="Application: "+data.baseURL;
+      $("exception-description").value=request.requirements;
+      const list=$("exception-list"), edits=$("exception-edit-list");
+      list.replaceChildren(); edits.replaceChildren();
+      for(const row of data.requirements.filter(row=>data.problematicIds.includes(row.id))) {
+        list.append(make("p",row.id+" — "+row.text+" — "+row.issue,"error"));
+        const card=make("div");
+        const label=make("label",row.id+" — problematic requirement");
+        const field=make("textarea");
+        field.rows=3; field.value=row.text; field.id="exception-row-"+row.id; label.htmlFor=field.id;
+        const remove=make("button","Delete","secondary");
+        remove.type="button";
+        remove.addEventListener("click",()=>{
+          field.disabled=!field.disabled;
+          remove.textContent=field.disabled?"Restore":"Delete";
+        });
+        card.append(label,field,remove); edits.append(card);
+      }
+      $("generation-review-status").textContent="Test generation blocked. Choose how to resolve the instruction mismatch.";
+      $("generation-status").textContent="";
+    }
+    $("exception-edit-desc").addEventListener("click",()=>chooseExceptionMode("desc"));
+    $("exception-edit-reqs").addEventListener("click",()=>chooseExceptionMode("reqs"));
+    $("exception-proceed").addEventListener("click",()=>chooseExceptionMode("proceed"));
+    $("exception-risk").addEventListener("change",()=>{$("exception-generate-anyway").disabled=!$("exception-risk").checked;});
+    function retryException(requirements, proceed) {
+      if(!pendingException) return;
+      if(!requirements.trim() || requirements.length>12000) {
+        $("exception-edit-error").textContent="Keep at least one non-empty instruction and no more than 12,000 characters.";
+        return;
+      }
+      const request=pendingException.request;
+      $("requirements").value=requirements;
+      $("base-url").value=request.baseURL;
+      $("provider").value=request.provider;
+      $("use-application-memory").checked=request.useApplicationMemory;
+      exceptionRequest={proceed, root:exceptionRootInstructions};
+      $("generate-form").requestSubmit();
+    }
+    $("exception-validate-desc").addEventListener("click",()=>retryException($("exception-description").value.trim(),false));
+    $("exception-apply-reqs").addEventListener("click",()=>{
+      if(!pendingException) return;
+      const rows=pendingException.data.requirements;
+      const amended=[];
+      for(const row of rows){
+        const field=$("exception-row-"+row.id);
+        if(field?.disabled) continue;
+        if(field&&!field.value.trim()){
+          $("exception-edit-error").textContent="Enter text or explicitly delete the empty requirement."; return;
+        }
+        amended.push(field?field.value.trim():row.text);
+      }
+      retryException(amended.join("\n\n"),false);
+    });
+    $("exception-generate-anyway").addEventListener("click",()=>{
+      if(pendingException&&$("exception-risk").checked) retryException(pendingException.request.requirements,true);
+    });
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      const decision=exceptionRequest;
+      exceptionRequest=null;
+      hideException();
       clearGenerationPreview();
       $("generation-error").textContent = "";
       $("saved").replaceChildren();
       $("save-error").textContent = "";
       const requirements = $("requirements").value.trim();
+      exceptionRootInstructions=decision?.root ?? requirements;
       updateGenerateReadiness();
       if (!requirements || requirements.length > 12_000) {
         $("generation-error").textContent = "Enter 1–12,000 characters of test instructions.";
@@ -3073,9 +3120,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           body: JSON.stringify({
             baseURL, requirements, provider,
             useApplicationMemory: $("use-application-memory").checked,
+            proceedUnresolved: decision?.proceed === true,
           }),
         });
         const data = await response.json();
+        if (response.status===409 && data.category==="instruction-mismatch") {
+          showGenerationException(data,{baseURL,requirements,provider,useApplicationMemory:$("use-application-memory").checked});
+          if(decision?.proceed) $("exception-edit-error").textContent=data.error;
+          return;
+        }
         if (!response.ok) {
           const origin = data.source === "groqcloud"
             ? Number.isInteger(data.providerStatus)
@@ -3105,7 +3158,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         lastSavedId = "";
         savedFingerprint = "";
         if (!wasEditing) {
-          originalInstructions = requirements;
+          originalInstructions = exceptionRootInstructions ?? requirements;
           workingDraftId = null;
           editingSavedId = null;
         }
@@ -3128,7 +3181,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft").hidden = false;
         $("generation-review-status").textContent = "";
         $("draft-title").textContent = definition.title + " · " + definition.steps.length + " steps";
-        $("draft-hint").textContent = data.message;
+        $("draft-hint").textContent = data.message + (definition.instructionCoverage?.proceedAccepted ? " WARNING: You chose to proceed despite unresolved functionality. Critical test failures may occur; review every step." : "");
         renderGenerationDiagnostics(data);
         const memoryHints = $("use-application-memory").checked ? data.memorySuggestions ?? [] : [];
         $("application-memory-status").textContent = memoryHints.length
@@ -3136,7 +3189,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "No relevant verified prerequisite memory was used for this generation.";
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
-          (coverageBlockers().length ? " BLOCKED: Review original instruction coverage before saving or running." : "") +
+          (coverageBlockers().length ? " BLOCKED: Resolve missing instruction mappings before saving or running." : "") +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
           (data.diagnostics?.blockingCredentialSteps?.length
             ? " BLOCKED: Save Test and Save & Run require approved login credentials. See the red blocker panel in Test Editor."
