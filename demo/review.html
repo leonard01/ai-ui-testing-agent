@@ -259,7 +259,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     </div>
   </dialog>
   <main>
-    <section aria-labelledby="instructions-heading">
+    <section id="instructions-screen" aria-labelledby="instructions-heading">
       <div id="site-memory-option" class="site-memory-option">
         <div class="site-memory-row">
           <label for="use-application-memory">
@@ -326,11 +326,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <button type="button" id="exception-edit-desc" class="secondary">Edit test description</button>
           <button type="button" id="exception-edit-reqs" class="secondary">Edit or delete problematic requirements</button>
           <button type="button" id="exception-proceed" class="secondary">Proceed without changes</button>
-        </div>
-        <div id="exception-desc-panel" hidden>
-          <label for="exception-description">Updated test description</label>
-          <textarea id="exception-description" rows="8"></textarea>
-          <button type="button" id="exception-validate-desc">Validate updated description</button>
         </div>
         <div id="exception-reqs-panel" hidden>
           <p class="muted">Only problematic requirements are editable here. All other statements are retained.</p>
@@ -3037,17 +3032,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-exception").hidden=true;
       $("working-drafts-panel").hidden=false;
       pendingException=null;
-      for (const id of ["exception-desc-panel","exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
+      for (const id of ["exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
       $("exception-risk").checked=false;
       $("exception-generate-anyway").disabled=true;
       $("exception-edit-error").textContent="";
     }
     function chooseExceptionMode(mode) {
-      for(const name of ["desc","reqs","proceed"]) $("exception-"+name+"-panel").hidden=name!==mode;
+      for(const name of ["reqs","proceed"]) $("exception-"+name+"-panel").hidden=name!==mode;
       $("exception-edit-error").textContent="";
     }
     function showGenerationException(data, request) {
       pendingException={data,request};
+      $("instructions-screen").hidden=true;
       $("review-workspace").hidden=false;
       $("placeholder").hidden=true;
       $("draft").hidden=true;
@@ -3055,7 +3051,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-exception").hidden=false;
       $("exception-count").textContent=data.problematicIds.length+" of "+data.total+" requirements could not be confidently mapped.";
       $("exception-site").textContent="Application: "+data.baseURL;
-      $("exception-description").value=request.requirements;
       const list=$("exception-list"), edits=$("exception-edit-list");
       list.replaceChildren(); edits.replaceChildren();
       for(const row of data.requirements.filter(row=>data.problematicIds.includes(row.id))) {
@@ -3081,7 +3076,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("placeholder").hidden=!!definition;
       $("draft").hidden=!definition;
     });
-    $("exception-edit-desc").addEventListener("click",()=>chooseExceptionMode("desc"));
+    $("exception-edit-desc").addEventListener("click",()=>{
+      if (!pendingException) return;
+      const request = pendingException.request;
+      // Restore the exact description which produced this exception in the
+      // canonical editor. Its original intent remains available for audit.
+      $("requirements").value = request.requirements;
+      $("base-url").value = request.baseURL;
+      $("provider").value = request.provider;
+      $("use-application-memory").checked = request.useApplicationMemory;
+      exceptionRequest = { proceed: false, root: exceptionRootInstructions };
+      hideException();
+      $("review-workspace").hidden = true;
+      $("instructions-screen").hidden = false;
+      updateGenerateReadiness();
+      $("requirements").focus();
+      $("instructions-heading").scrollIntoView({behavior:"smooth",block:"start"});
+    });
     $("exception-edit-reqs").addEventListener("click",()=>chooseExceptionMode("reqs"));
     $("exception-proceed").addEventListener("click",()=>chooseExceptionMode("proceed"));
     $("exception-risk").addEventListener("change",()=>{$("exception-generate-anyway").disabled=!$("exception-risk").checked;});
@@ -3100,7 +3111,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       exceptionRequest={proceed, root:exceptionRootInstructions};
       $("generate-form").requestSubmit();
     }
-    $("exception-validate-desc").addEventListener("click",()=>retryException($("exception-description").value.trim(),false));
     $("exception-apply-reqs").addEventListener("click",()=>{
       if(!pendingException) return;
       const rows=pendingException.data.requirements;
@@ -3236,6 +3246,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           (data.diagnostics?.warnings?.length ? " Review the advisory quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
+        $("instructions-screen").hidden = false;
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
