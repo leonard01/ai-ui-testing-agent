@@ -137,6 +137,8 @@ test("AI replacement automatically reconciles affected instruction links", async
 
 test("adding another task automatically maps new requirements and preserves unrelated requirements", async () => {
   const definition = await original();
+  // End at the original task visibility assertion, before completion/deletion.
+  definition.steps = definition.steps.slice(0, definition.steps.findIndex((step:{id:string})=>step.id==="visible")+1);
   const last = definition.steps.at(-1);
   definition.instructionCoverage = {
     source:"Verify initial count.\nVerify original task.",
@@ -145,7 +147,7 @@ test("adding another task automatically maps new requirements and preserves unre
       {id:"R2",text:"Verify original task.",interpretation:"Original task",stepIds:[last.id],issue:"",confirmed:false}
     ],prerequisiteStepIds:[]
   };
-  const originalCheck = {...last,id:"original-check"};
+  const originalCheck = {...last,id:"original-check",action:{...last.action,provenance:"requirements"}};
   mockSteps = [originalCheck,...remainder];
   mockReconciliation = {changes:[],additions:["Add Buy groceries.","Verify Buy groceries."],
     coverage:{entries:[
@@ -154,8 +156,8 @@ test("adding another task automatically maps new requirements and preserves unre
       {id:"R4",interpretation:"Verify task",stepIds:["new-check"]}
     ]}};
   const res = await regenerate({definition,stepId:last.id,mode:"from",instructions:"Add Buy groceries and verify it."});
-  expect(res.status).toBe(200);
   const data=await res.json();
+  expect(res.status, JSON.stringify(data)).toBe(200);
   expect(data.definition.instructionCoverage.entries.map((row:{issue:string})=>row.issue)).toEqual(["","","",""]);
   expect(data.definition.instructionCoverage.entries[0]).toEqual(definition.instructionCoverage.entries[0]);
   expect(data.definition.workingInstructions).toContain("Verify Buy groceries.");
