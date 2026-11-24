@@ -76,7 +76,7 @@ test("initial page JavaScript exception is explained separately from selector de
   await expect(page.locator("#save")).toBeDisabled();
 });
 
-test("unverified login placeholders are critical blockers, not amber advisory warnings", async ({page}) => {
+test("unverified login placeholders are critical blockers, not amber advisory warnings @sanity", async ({page}) => {
   const login = {
     schemaVersion:1, id:"login", title:"Login", version:1,
     steps:[
@@ -247,7 +247,7 @@ test("test-design issues panel highlights CSS/XPath brittleness and links to ste
   await expect(page.getByRole("button",{name:"Save Test"})).toBeDisabled();
 });
 
-test("read-only selector preflight suggests an Add button when generated label is wrong", async ({ page }) => {
+test("read-only selector preflight suggests an Add button when generated label is wrong @sanity", async ({ page }) => {
   await generateFixture(page);
   const addStep = page.locator(".step").nth(3);
   await addStep.getByRole("button", { name: "Edit fields" }).click();
@@ -1014,7 +1014,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   expect(final.steps.every((step: { status: string }) => step.status === "passed")).toBe(true);
 });
 
-test("human chooses among live checkbox candidates; repaired copy reruns successfully", async ({ page }) => {
+test("human chooses among live checkbox candidates; repaired copy reruns successfully @sanity", async ({ page }) => {
   const ambiguous = {
     schemaVersion: 1,
     id: "two-task-choice",
@@ -1116,7 +1116,7 @@ test("cannot run an unsaved or arbitrary path, or access nonexistent report", as
   expect(notFound.status).toBe(404);
 });
 
-test("Test 1 repairs string-valued steps with one extra mocked Groq call", async ({ page, browser }) => {
+test("Test 1 repairs string-valued steps with one extra mocked Groq call @sanity", async ({ page, browser }) => {
   const valid = JSON.parse(await readFile("examples/add-task.json", "utf8"));
   valid.id = "groq-test-one";
   valid.title = "Buy groceries task lifecycle";
@@ -1599,7 +1599,7 @@ test("name entered before generation survives and save-area name enables approva
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
 });
 
-test("all required inputs gate Generate Draft and update readiness before save", async ({ page }) => {
+test("all required inputs gate Generate Draft and update readiness before save @sanity", async ({ page }) => {
   await page.goto(url);
   const generate = page.getByRole("button", { name: "Generate draft" });
   await expect(page.locator("#test-name")).toHaveAttribute("required", "");
