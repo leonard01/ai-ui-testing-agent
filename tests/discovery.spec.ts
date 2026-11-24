@@ -157,6 +157,65 @@ test("text mismatch searches visible product-name div, not the Add to cart butto
   }
 });
 
+test("shopping intent scopes Add to cart to the named product, never the first button", async ({ browser }) => {
+  const tab = await browser.newPage();
+  try {
+    await tab.setContent('<!doctype html><main>' +
+      '<article><div>Sauce Labs Backpack</div><button data-item="backpack">Add to cart</button></article>' +
+      '<article><div>Sauce Labs Bike Light</div><button data-item="light">Add to cart</button></article>' +
+      '<article><div>Sauce Labs Bolt T-Shirt</div><button data-item="shirt">Add to cart</button></article>' +
+      '<script>document.querySelectorAll("button").forEach(b => b.onclick = () => b.textContent = "Remove")</script>' +
+      '</main>');
+
+    // Exact phrase, even when the AI strips the suffix "to cart".
+    const backpack = await discoverTarget(tab, {
+      by: "intent", value: "Add Sauce Labs Backpack", role: "button",
+    }, "click", 350);
+    expect(backpack.evidence.locator).toContain('product "Sauce Labs Backpack"');
+    await backpack.locator.click();
+    await expect(tab.locator('[data-item="backpack"]')).toHaveText("Remove");
+    await expect(tab.locator('[data-item="light"]')).toHaveText("Add to cart");
+
+    // Partial product name and a different verb must still identify one card.
+    const light = await discoverTarget(tab, {
+      by: "intent", value: "Put the Bike Light in my basket", role: "button",
+    }, "click", 350);
+    await light.locator.click();
+    await expect(tab.locator('[data-item="light"]')).toHaveText("Remove");
+    await expect(tab.locator('[data-item="shirt"]')).toHaveText("Add to cart");
+  } finally {
+    await tab.close();
+  }
+});
+
+test("shopping intent fails closed on absent, duplicate or non-actionable products", async ({ browser }) => {
+  const tab = await browser.newPage();
+  try {
+    await tab.setContent('<main>' +
+      '<article><div>Sauce Labs Backpack</div><span>Sold out</span></article>' +
+      '<article><div>Sauce Labs Bike Light</div><button>Add to cart</button></article>' +
+      '</main>');
+    await expect(discoverTarget(tab, {
+      by: "intent", value: "Add Sauce Labs Backpack to cart", role: "button",
+    }, "click", 200)).rejects.toThrow(/No unique enabled Add to cart button within product/);
+    await expect(discoverTarget(tab, {
+      by: "intent", value: "Add Missing Widget to cart", role: "button",
+    }, "click", 200)).rejects.toThrow(/not found as a unique visible title/);
+    await expect(tab.getByRole("button", { name: "Add to cart" })).toHaveCount(1);
+
+    await tab.setContent('<main>' +
+      '<article><div>Sauce Labs Backpack</div><button>Add to cart</button></article>' +
+      '<article><div>Sauce Labs Backpack</div><button>Add to cart</button></article>' +
+      '</main>');
+    await expect(discoverTarget(tab, {
+      by: "intent", value: "Add Sauce Labs Backpack", role: "button",
+    }, "click", 200)).rejects.toThrow(/matched multiple visible titles/);
+    await expect(tab.getByRole("button", { name: "Add to cart" })).toHaveCount(2);
+  } finally {
+    await tab.close();
+  }
+});
+
 test("ambiguous intent stops safely without clicking a random button", async ({ browser }, info) => {
   const tab = await browser.newPage();
   try {
