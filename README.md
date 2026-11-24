@@ -81,6 +81,18 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 `GROQ_MODEL` is optional. Restart the server after editing. **Do not commit `.env` or share credentials.** GroqCloud quota limits apply; Fixture mode and running already approved tests do not require Groq requests.
 
+## Testing policy — Definition of Done
+
+Test creation is part of every feature, behavioural change and defect fix, not a separate backlog activity.
+
+- Assess both deterministic and live-model (non-deterministic) coverage when starting each change. Add or update every required test in the same change/PR; document why a category is not applicable rather than adding irrelevant tests.
+- Deterministic tests cover happy paths, negative paths, boundaries, state transitions, failure recovery and regressions as applicable. Use controlled fixtures and mocked provider responses; the full deterministic suite runs on every PR.
+- Changes affecting AI interpretation, prompts, model behaviour, generation, or AI-assisted repair must also update the live AI evaluation catalogue with stable case IDs, exact inputs, preconditions, numbered steps, expected outcomes, explicit pass/fail criteria and repeat-run results. Keep the catalogue current with the implementation; do not defer required test creation to the backlog.
+- Evaluate live outputs against user intent and independently verifiable behaviour, not exact generated wording or JSON. Record first-attempt outcomes separately from human-assisted recovery and infrastructure blocks. Run relevant live cases before accepting an AI-affecting change; record model, revision and evidence without secrets. Live evaluations remain separate from deterministic CI until a suitable automated gate is established.
+- A defect fix should include a regression that reproduces the defect where feasible. If an AI defect can also be reproduced with a captured or mocked response, add both deterministic and live coverage.
+- A change is not done until its required tests have been created, relevant verification has been performed and results recorded. Do not merge failing deterministic CI or treat blocked/unverified required live checks as passes. Any unmet verification remains visible on the current change, not deferred as test-creation debt.
+- Keep the full deterministic suite on every PR until execution time warrants a smaller PR subset and a full release suite.
+
 ## Independent Playwright E2E smoke suite
 
 Run a fast **application-level release smoke** check from the repository root:
