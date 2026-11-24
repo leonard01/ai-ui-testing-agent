@@ -60,9 +60,11 @@ test("website knowledge is visibly suggested but user may turn it off before gen
   await page.goto(reviewURL);
   const siteMemory = page.getByRole("checkbox", {name: "Use Site Memory"});
   await expect(siteMemory).toBeChecked();
-  const optionAboveHeading = await page.locator("#site-memory-option").evaluate(el =>
-    !!(el.compareDocumentPosition(document.querySelector("#instructions-heading")) &
-      Node.DOCUMENT_POSITION_FOLLOWING));
+  const optionAboveHeading = await page.locator("#site-memory-option").evaluate(el => {
+    const heading = document.querySelector("#instructions-heading");
+    return !!heading && !!(el.compareDocumentPosition(heading) &
+      Node.DOCUMENT_POSITION_FOLLOWING);
+  });
   expect(optionAboveHeading).toBe(true);
   const help = page.getByRole("button", {name: "About Use Site Memory"});
   await expect(help).toHaveAttribute("aria-expanded", "false");
