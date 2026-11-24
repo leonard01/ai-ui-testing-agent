@@ -134,7 +134,7 @@ test("edit/delete and full-description choices revalidate while retaining origin
       await expect(page.locator("#step-list .step")).toHaveCount(2);
       await expect(page.locator("#instruction-coverage-blockers")).toBeHidden();
       expect(await page.getByLabel("Your test instructions").inputValue()).not.toContain("Log in.");
-      await page.locator("#test-name").fill("Exception edit "+mode);
+      await expect(page.locator("#test-name")).toHaveValue("Requirement preservation 2");
       await page.getByRole("button",{name:"Add All",exact:true}).click();
       await expect(page.locator("#save")).toBeEnabled();
     }
