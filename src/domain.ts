@@ -16,6 +16,8 @@ export interface StepResult {
   description: string;
   /** Action that produced this run step; enables reliable repair UI fallbacks. */
   actionKind?: TestAction["kind"];
+  /** Advisory: this DOM assertion uses a page-root locator, not a named container. */
+  domWideAssertion?: boolean;
   status: RunStatus | "skipped";
   durationMs: number;
   expected?: string;

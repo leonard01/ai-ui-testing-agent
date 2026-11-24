@@ -14,6 +14,28 @@ async function example(): Promise<TestDefinition> {
   return JSON.parse(await readFile("examples/add-task.json", "utf8"));
 }
 
+test("only page-root DOM assertions are flagged; URL checks are exempt", async ({ browser }, info) => {
+  const definition: TestDefinition = {
+    schemaVersion: 1, id: "scope-warning", title: "Scope warning test", version: 1,
+    steps: [
+      { id: "open", description: "Open test page", action: { kind: "navigate", url: baseURL } },
+      { id: "url", description: "Verify current URL", action: {
+        kind: "assert-url", expected: baseURL + "/", provenance: "requirements",
+      } },
+      { id: "missing", description: "Check missing button count", action: {
+        kind: "assert-count", target: { by: "role", role: "button", name: "Nonexistent action" },
+        expected: 0, provenance: "requirements",
+      } },
+    ],
+  };
+  const report = await runTest(definition, { baseURL, outputDir: info.outputPath("scope") }, browser);
+  expect(report.status, report.error).toBe("passed");
+  expect(report.steps.map(step => step.domWideAssertion ?? false)).toEqual([false, false, true]);
+  expect(JSON.parse(await readFile(join(info.outputPath("scope"), "report.json"), "utf8"))
+    .steps.map((step: { domWideAssertion?:boolean }) => step.domWideAssertion ?? false))
+    .toEqual([false, false, true]);
+});
+
 test("executes the complete task lifecycle and isolates the next run", async ({
   browser,
 }, info) => {

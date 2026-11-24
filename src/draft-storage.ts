@@ -55,7 +55,11 @@ export async function saveDraft(
   if (existingId) await readDraft(savedDir, id);
   await writeFile(join(directory, id), JSON.stringify(draft, null, 2) + "\n",
     existingId ? undefined : { flag: "wx" });
-  return { id, draft };
+  // Do not claim a successful save until this exact file can be parsed again.
+  // A future schema change or serialization mismatch must fail here, not leave
+  // an invisible file that the draft listing silently drops.
+  const persisted = await readDraft(savedDir, id);
+  return { id, draft: persisted };
 }
 
 export async function readDraft(savedDir: string, id: string): Promise<SavedDraft> {
@@ -63,18 +67,21 @@ export async function readDraft(savedDir: string, id: string): Promise<SavedDraf
   return draftSchema.parse(JSON.parse(await readFile(join(savedDir, "drafts", id), "utf8")));
 }
 
-export async function listDrafts(savedDir: string) {
+export async function listDraftsWithDiagnostics(savedDir: string) {
   let names: string[];
   try { names = await readdir(join(savedDir, "drafts")); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { drafts: [], skippedInvalid: 0, skippedOverflow: 0 };
     throw error;
   }
   const drafts: Array<{
     id: string; title: string; baseURL: string; siteUrl: string;
     steps: number; approved: number; updatedAt: string;
   }> = [];
-  for (const id of names.filter(name => DRAFT_ID.test(name)).slice(0, 1000)) {
+  const validNames = names.filter(name => DRAFT_ID.test(name));
+  let skippedInvalid = 0;
+  for (const id of validNames.slice(0, 1000)) {
     try {
       const draft = await readDraft(savedDir, id);
       drafts.push({
@@ -83,9 +90,18 @@ export async function listDrafts(savedDir: string) {
         steps: draft.definition.steps.length,
         approved: draft.approvedStepIds.length, updatedAt: draft.updatedAt,
       });
-    } catch { /* Ignore invalid draft files without exposing file contents. */ }
+    } catch {
+      // Do not expose the draft contents, but reveal why a save may seem lost.
+      // Invalid drafts were previously silently filtered from the UI.
+      skippedInvalid++;
+    }
   }
-  return drafts.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return { drafts: drafts.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    skippedInvalid, skippedOverflow: Math.max(0, validNames.length - 1000) };
+}
+
+export async function listDrafts(savedDir: string) {
+  return (await listDraftsWithDiagnostics(savedDir)).drafts;
 }
 
 export async function deleteDraft(savedDir: string, id: string) {

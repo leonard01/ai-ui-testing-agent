@@ -201,7 +201,7 @@ test("UI renders and allows editing of generated new action fields without manua
 
     for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
     await page.locator("#test-name").fill("Add, complete and delete a task");
-    await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+    await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     const names = (await listApprovedIds(dir));
     expect(names).toHaveLength(1);

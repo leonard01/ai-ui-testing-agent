@@ -117,6 +117,11 @@ export async function runTest(
         id: step.id,
         description: step.description,
         actionKind: step.action.kind,
+        // Page-root assertions are allowed, but can accidentally match text
+        // in another product/card. Preserve this as advisory run evidence.
+        ...((step.action.kind === "assert-text" && step.action.scope !== "search-results") ||
+          step.action.kind === "assert-visible" || step.action.kind === "assert-count"
+          ? { domWideAssertion: true } : {}),
         status: "skipped",
         durationMs: 0,
       };

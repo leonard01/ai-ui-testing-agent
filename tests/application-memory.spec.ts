@@ -58,6 +58,21 @@ async function teachWebsite(){
 test("website knowledge is visibly suggested but user may turn it off before generation",async({page})=>{
   await teachWebsite();
   await page.goto(reviewURL);
+  const siteMemory = page.getByRole("checkbox", {name: "Use Site Memory"});
+  await expect(siteMemory).toBeChecked();
+  const optionAboveHeading = await page.locator("#site-memory-option").evaluate(el => {
+    const heading = document.querySelector("#instructions-heading");
+    return !!heading && !!(el.compareDocumentPosition(heading) &
+      Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(optionAboveHeading).toBe(true);
+  const help = page.getByRole("button", {name: "About Use Site Memory"});
+  await expect(help).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#site-memory-description")).toBeHidden();
+  await help.click();
+  await expect(help).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#site-memory-description")).toBeVisible();
+  await expect(page.locator("#site-memory-description")).toContainText("login-before-shopping");
   await page.getByLabel("Your test instructions").fill("add multiple items to basket");
   await page.getByRole("button",{name:"Check known prerequisites"}).click();
   await expect(page.locator("#application-memory-status")).toContainText("previous passing shopping test",{ignoreCase:true});
@@ -66,7 +81,7 @@ test("website knowledge is visibly suggested but user may turn it off before gen
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   expect(providerPrompt).toContain("HISTORICAL WEBSITE PREREQUISITE SUGGESTIONS");
   await expect(page.locator("#application-memory-status")).toContainText("logged in first");
-  await page.getByLabel("Use successful-test knowledge from this website").uncheck();
+  await siteMemory.uncheck();
   await page.getByRole("button",{name:"Generate draft"}).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   expect(providerPrompt).not.toContain("HISTORICAL WEBSITE PREREQUISITE SUGGESTIONS");
@@ -76,8 +91,12 @@ test("unknown website or non-shopping instructions do not gain prerequisite hint
   await teachWebsite();
   await page.goto(reviewURL);
   await page.getByLabel("Your test instructions").fill("Check heading is visible");
+  await page.getByRole("button", {name: "About Use Site Memory"}).click();
   await page.getByRole("button",{name:"Check known prerequisites"}).click();
   await expect(page.locator("#application-memory-status")).toContainText("No matching prerequisite");
+  await page.getByRole("button", {name: "About Use Site Memory"}).click();
+  await expect(page.locator("#site-memory-description")).toBeHidden();
+  await expect(page.getByRole("checkbox", {name: "Use Site Memory"})).toBeChecked();
   const response = await page.request.get(reviewURL+"/api/application-memory?"+
     new URLSearchParams({baseURL:"https://other.test",instructions:"add items to basket"}));
   expect(response.ok()).toBe(true);

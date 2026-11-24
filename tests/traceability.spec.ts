@@ -64,7 +64,7 @@ test("reviewer maps requirements, sees gaps and persists only explicit links", a
     await checkbox.check();
   }
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const savedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(dir, savedId), "utf8"));
