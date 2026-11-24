@@ -74,3 +74,38 @@ test("functional mismatch requires a decision even if an executable mapping exis
  d.instructionCoverage.entries[0].stepIds=[];
  assert.equal(instructionCoverageProblems(d).length,1);
 });
+
+test("mapping diagnostics distinguish missing, duplicate, unknown and malformed references",()=>{
+ const cases=[
+  [undefined,/did not return requirement mapping data/],
+  [{entries:[]},/did not return a mapping for this requirement/],
+  [{entries:[map("R1",[])]},/did not associate any executable steps/],
+  [{entries:[map("R1",["act"]),map("R1",["verify"])]},/multiple mappings/],
+  [{entries:[map("R1",["act","act"])]},/same executable step more than once/],
+  [{entries:[map("R1",["missing"])]},/step IDs not present in the current draft: missing/],
+  [{entries:[map("R2",["act"])]},/unknown requirement IDs: R2/],
+  [{entries:[{id:"R1",stepIds:"act"}]},/unsupported mapping structure/],
+ ];
+ for(const [proposal,expected] of cases){
+  const d=definition();
+  d.instructionCoverage=proposedCoverage("Submit.",d,proposal,false);
+  const row=d.instructionCoverage.entries[0];
+  assert.match(row.issue,expected);
+  assert.match(row.issue,/does not establish whether the draft fulfils the requirement/);
+  assert.deepEqual(row.stepIds,[]);
+  assert.equal(instructionCoverageProblems(d).length,1);
+  assert.throws(()=>assertInstructionCoverageReviewed(d),/Unresolved instruction coverage/);
+ }
+});
+
+test("invalid mapping reason is retained even when AI supplies an advisory note",()=>{
+ const d=definition();
+ d.instructionCoverage=proposedCoverage("Submit.",d,{entries:[{
+  ...map("R1",["missing"],"Target appears later"),availability:"later-state"
+ }]},false);
+ const row=d.instructionCoverage.entries[0];
+ assert.match(row.issue,/step IDs not present in the current draft: missing/);
+ assert.match(row.issue,/AI note: Target appears later/);
+ assert.equal(instructionCoverageProblems(d).length,1);
+ assert.equal(generationExceptions(d).length,1);
+});

@@ -29,16 +29,36 @@ export function proposedCoverage(instructions:string, definition:TestDefinition,
   const entries=parsed.success ? parsed.data.entries : [];
   const steps=new Set(definition.steps.map(step=>step.id));
   const ids=new Set(source.map(entry=>entry.id));
-  const malformed=entries.some(entry=>!ids.has(entry.id));
+  const unknownRequirementIds=[...new Set(entries.filter(entry=>!ids.has(entry.id)).map(entry=>entry.id))];
+  const summarizeIds=(values:string[])=>values.slice(0,5).map(id=>id.slice(0,80)).join(", ")+(values.length>5?", …":"");
   const result=source.map(row=>{
     const matches=entries.filter(entry=>entry.id===row.id);
     const entry=matches[0];
-    const valid=!!entry && matches.length===1 && !malformed &&
-      entry.stepIds.length>0 && new Set(entry.stepIds).size===entry.stepIds.length &&
-      entry.stepIds.every(id=>steps.has(id));
+    const reasons:string[]=[];
+    if(!parsed.success) {
+      if(proposal===undefined || proposal===null) {
+        reasons.push("The AI did not return requirement mapping data.");
+      } else {
+        const fields=parsed.error.issues.slice(0,3).map(issue=>issue.path.join(".")||"mapping").join(", ");
+        reasons.push("The AI returned an unsupported mapping structure ("+fields.slice(0,180)+").");
+      }
+    } else {
+      if(unknownRequirementIds.length) reasons.push("The AI referenced unknown requirement IDs: "+summarizeIds(unknownRequirementIds)+".");
+      if(!entry) reasons.push("The AI did not return a mapping for this requirement.");
+      if(matches.length>1) reasons.push("The AI returned multiple mappings for this requirement.");
+      if(entry) {
+        if(!entry.stepIds.length) reasons.push("The AI did not associate any executable steps with this requirement.");
+        if(new Set(entry.stepIds).size!==entry.stepIds.length) reasons.push("The AI referenced the same executable step more than once.");
+        const missing=[...new Set(entry.stepIds.filter(id=>!steps.has(id)))];
+        if(missing.length) reasons.push("The AI referenced step IDs not present in the current draft: "+summarizeIds(missing)+".");
+      }
+    }
+    const valid=reasons.length===0 && !!entry;
+    const explanation=entry?.issue?.trim() || (entry?.availability==="functional-mismatch"?"Requested functionality could not be confidently identified.":"");
+    const issue=valid ? explanation : (reasons.join(" ")+" This is a mapping failure; it does not establish whether the draft fulfils the requirement. Review the actual actions and assertions, then confirm the appropriate steps or regenerate."+(explanation?" AI note: "+explanation:""));
     return {...row,interpretation:entry?.interpretation||"",
       stepIds:valid?entry.stepIds:[],
-      issue:entry?.issue?.trim() || (entry?.availability==="functional-mismatch"?"Requested functionality could not be confidently identified.":valid?"":"No valid proposed step mapping. Review or regenerate."),
+      issue:issue.slice(0,1000),
       availability:entry?.availability ?? "uncertain",
       confirmed:false};
   });
