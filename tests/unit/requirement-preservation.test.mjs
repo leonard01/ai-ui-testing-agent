@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sourceRequirements, proposedCoverage, instructionCoverageProblems, assertInstructionCoverageReviewed } from "../../dist/requirement-preservation.js";
+import { sourceRequirements, proposedCoverage, generationExceptions, instructionCoverageProblems, assertInstructionCoverageReviewed } from "../../dist/requirement-preservation.js";
 const navigate={id:"open",description:"Open",action:{kind:"navigate",url:"/"}};
 const action={id:"act",description:"Perform action",action:{kind:"click",target:{by:"role",role:"button",name:"Submit"}}};
 const verify={id:"verify",description:"Verify",action:{kind:"assert-text",target:{by:"role",role:"status"},expected:"Ready",provenance:"requirements"}};
@@ -18,10 +18,10 @@ for(const instruction of ["Log in.","Add a product to the cart.","Search for an 
   assert.throws(()=>assertInstructionCoverageReviewed(d),/Unresolved instruction coverage/);
  });
 }
-test("a valid model mapping is still not human confirmation",()=>{
+test("valid mappings do not require a separate confirmation workflow",()=>{
  const d=definition(); d.instructionCoverage=proposedCoverage("Submit. Verify success.",d,{entries:[map("R1",["act"]),map("R2",["verify"])]},false);
- assert.equal(instructionCoverageProblems(d).length,2);
- d.instructionCoverage.entries.forEach(row=>row.confirmed=true);
+ assert.deepEqual(generationExceptions(d),[]);
+ assert.ok(d.instructionCoverage.entries.every(row=>!row.confirmed));
  assert.deepEqual(instructionCoverageProblems(d),[]);
 });
 test("missing, duplicate and unknown source IDs cannot disappear",()=>{
@@ -57,3 +57,20 @@ test("memory-suggested steps are separate from explicit mappings and ignored whe
  }
 });
 test("legacy and fixture definitions are unchanged",()=>assert.deepEqual(instructionCoverageProblems(definition()),[]));
+
+test("later-state and selector uncertainty with executable mappings do not interrupt generation",()=>{
+ for(const availability of ["later-state","selector-uncertain"]){
+ const d=definition();d.instructionCoverage=proposedCoverage("Submit.",d,{entries:[{...map("R1",["act"],"Target not yet observed"),availability}]},false);
+ assert.deepEqual(generationExceptions(d),[]);
+ assert.deepEqual(instructionCoverageProblems(d),[]);
+ }
+});
+test("functional mismatch requires a decision even if an executable mapping exists",()=>{
+ const d=definition();d.instructionCoverage=proposedCoverage("Submit.",d,{entries:[{...map("R1",["act"]),availability:"functional-mismatch"}]},false);
+ assert.equal(generationExceptions(d).length,1);
+ assert.equal(instructionCoverageProblems(d).length,1);
+ d.instructionCoverage.proceedAccepted=true;
+ assert.deepEqual(instructionCoverageProblems(d),[]);
+ d.instructionCoverage.entries[0].stepIds=[];
+ assert.equal(instructionCoverageProblems(d).length,1);
+});
