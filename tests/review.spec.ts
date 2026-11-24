@@ -1131,7 +1131,7 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
   const prompts: string[] = [];
   const mock = async ({ prompt }: { prompt: string }) => {
     prompts.push(prompt);
-    return JSON.stringify(prompts.length === 1 ? malformed : valid);
+    return JSON.stringify(prompts.length === 1 ? malformed : {...valid,coverage:{entries:[{id:"R1",interpretation:"Task lifecycle",stepIds:valid.steps.map((step:{id:string})=>step.id),availability:"identified"}]}});
   };
   const temporary = await createReviewServer(outputDir, browser, mock);
   await new Promise<void>((resolve) => temporary.listen(0, "127.0.0.1", resolve));
