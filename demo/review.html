@@ -1353,12 +1353,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       status.append(make("strong", malformed
         ? "The AI returned a malformed response."
         : "The AI returned an unsupported response structure."));
-      status.append(make("div", "Select Generate replacement again using the same instructions. Your existing test draft has not changed."));
+      status.append(make("div", "You may retry using the same instructions or revise them before trying again. Your existing test draft has not changed."));
       const details = document.createElement("details");
       const summary = document.createElement("summary");
       summary.textContent = "ⓘ Read more";
       details.append(summary);
-      details.append(make("p", "AI generation is non-deterministic: even valid instructions can produce a malformed or unsupported response. Resubmit the same instructions before considering changes. The application rejected the response rather than applying invalid steps."));
+      details.append(make("p", "AI generation is non-deterministic: even valid instructions can produce a malformed or unsupported response, and repeating the same request may succeed. However, ambiguous, contradictory or unsupported instructions may cause persistent failures. If the problem continues, consider clarifying or simplifying your instructions. The application rejected the response rather than applying invalid steps."));
       details.append(make("p", "Technical details: " + technical));
       status.append(details);
     }
