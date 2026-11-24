@@ -549,7 +549,7 @@ async function resolveCartAction(
     if (await container.evaluate((node) =>
       node.matches('article,li,[role="listitem"],.inventory_item,.product-card,.product_item,[data-testid="product-card"],[data-testid="product-item"]'))) break;
   }
-  return { claimed: true, detail: "No unique enabled Add to cart button found within product " +
+  return { claimed: true, detail: "No unique enabled Add to cart button within product " +
     JSON.stringify(names[0]) + "; no action was taken" };
 }
 
