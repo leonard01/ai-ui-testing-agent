@@ -170,6 +170,7 @@ test("UI renders and allows editing of generated new action fields without manua
   try {
     await page.goto(reviewURL);
     await page.locator("#base-url").fill(baseURL);
+    await page.locator("#test-name").fill("Add, complete and delete a task");
     await page.getByLabel("Your test instructions").fill("Exercise all available form actions");
     await page.getByLabel("Generate with").selectOption("groq");
     await page.getByRole("button", { name: "Generate draft" }).click();
