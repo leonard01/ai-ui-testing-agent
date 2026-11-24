@@ -188,7 +188,7 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await page.locator("#step-list .step").nth(1).locator('input[type=checkbox]').check();
   await page.getByLabel("Generate with").selectOption("groq");
   await page.locator("#step-list .step").nth(2).getByRole("button", {name:"Reinterpret with AI"}).click();
-  await page.getByLabel("Scope of changes").selectOption("from");
+  await expect(page.getByLabel("Scope of changes")).toHaveCount(0);
   await page.getByLabel("New plain-English instructions for replacement steps").fill(
     "Add a task named Buy groceries and verify it is present"
   );
@@ -404,4 +404,32 @@ test("reconciliation availability may be omitted without relaxing enum validatio
   expect(res.status, JSON.stringify(data)).toBe(200);
   expect(data.definition.instructionCoverage.entries[0].availability).toBe("uncertain");
   expect(data.definition.instructionCoverage.entries[0].stepIds).toEqual([data.replacement[0].id]);
+});
+
+test("UI explains malformed AI response and allows retry without editing instructions @sanity", async ({page}) => {
+  await page.goto(url);
+  await page.locator("#test-name").fill("Malformed response review");
+  await page.getByLabel("Your test instructions").fill("Add and verify a task");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", {name:"Generate draft"}).click();
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#step-list .step").nth(2).getByRole("button",{name:"Reinterpret with AI"}).click();
+  const instructions = page.getByLabel("New plain-English instructions for replacement steps");
+  await instructions.fill("Add another task and verify it");
+  mockSteps = ["invalid step"];
+  await page.getByRole("button",{name:"Generate replacement"}).click();
+  const status=page.locator("#incremental-status");
+  await expect(status).toContainText("unsupported response structure");
+  await expect(status).toContainText("using the same instructions");
+  await expect(status.getByText("Technical details:",{exact:false})).toBeHidden();
+  await status.locator("summary").click();
+  await expect(status.getByText("Technical details:",{exact:false})).toBeVisible();
+  await expect(status).toContainText("non-deterministic");
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  mockSteps=remainder;
+  await page.getByRole("button",{name:"Generate replacement"}).click();
+  await expect(status).toContainText("Proposal ready");
+  await expect(instructions).toHaveValue("Add another task and verify it");
+  await expect(page.locator("#incremental-proposed-steps .run-step")).toHaveCount(3);
+  expect(prompts.at(-1)).toContain("Replace the selected step and all following steps");
 });
