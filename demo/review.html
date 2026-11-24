@@ -350,6 +350,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           aria-label="Test review errors and warnings" hidden>
           <div id="draft-critical-blockers" class="critical-blockers" role="alert"
             aria-live="polite" hidden></div>
+          <div id="instruction-coverage-blockers" class="critical-blockers" role="alert" hidden></div>
           <div id="draft-review-advisories" class="review-advisories" hidden>
             <h3>⚠ Warnings — review against your test intent</h3>
             <p>These do not block saving or running, but may indicate that a generated check
@@ -416,6 +417,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
         </section>
         <p id="review-progress" class="muted"></p>
+        <section id="instruction-coverage-panel" hidden style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px">
+          <h3>Original instructions — coverage review</h3>
+          <p class="muted">AI-proposed links are not proof of coverage. Check the actual actions against each original statement, including any restrictions. Correct missing links or regenerate; confirm coverage separately from step approval.</p>
+          <div id="instruction-coverage-list"></div>
+        </section>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
           <h3 id="traceability-heading">Requirements traceability (optional)</h3>
           <p class="muted">One requirement per line. Click Load requirements to create a reviewable matrix, then explicitly link each requirement to its test steps and assertions. No AI-generated claim of coverage is accepted.</p>
@@ -1080,6 +1086,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           message.textContent = "Enter the actual locator value; an accessible name is not a CSS/XPath selector or HTML ID.";
           return;
         }
+        invalidateCoverageForStep(definition.steps[index].id);
         definition.steps[index] = clone;
         approvals.delete(index);
         clearPreflight();
@@ -1179,7 +1186,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const warnings = ["draft-dom-wide-summary", "draft-quality-warnings",
         "generation-page-error-summary"].some(id => !$(id).hidden);
       $("draft-review-advisories").hidden = !warnings;
-      $("draft-review-feedback").hidden = $("draft-critical-blockers").hidden && !warnings;
+      $("draft-review-feedback").hidden = $("draft-critical-blockers").hidden && $("instruction-coverage-blockers").hidden && !warnings;
     }
     function clearGeneratedReviewWarnings() {
       // Generated page evidence belongs to that generation, not the next
@@ -1201,6 +1208,72 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         (count === 1 ? "" : "s") + " — these checks search from the page root rather than a specific container, so a match elsewhere on the page could hide a problem with the intended item. Page-wide scope may still be correct." : "";
       syncReviewFeedback();
     }
+    function coverageBlockers() {
+      const available = new Set((definition?.steps ?? []).map(step => step.id));
+      return (definition?.instructionCoverage?.entries ?? []).filter(row =>
+        !row.confirmed || row.issue || !row.stepIds.length ||
+        new Set(row.stepIds).size !== row.stepIds.length || row.stepIds.some(id => !available.has(id)));
+    }
+    function invalidateCoverageForStep(id) {
+      for (const row of definition?.instructionCoverage?.entries ?? []) {
+        if (row.stepIds.includes(id)) row.confirmed = false;
+      }
+    }
+    function renderInstructionCoverage() {
+      const coverage = definition?.instructionCoverage;
+      const panel = $("instruction-coverage-panel");
+      const list = $("instruction-coverage-list");
+      panel.hidden = !coverage;
+      list.replaceChildren();
+      if (!coverage) return;
+      for (const row of coverage.entries) {
+        const card = make("article", null, "trace-requirement");
+        card.style.marginTop = "12px";
+        card.append(make("strong", row.id + ": " + row.text));
+        if (row.interpretation) card.append(make("p", "AI interpretation: " + row.interpretation, "muted"));
+        if (row.issue) card.append(make("p", "Unresolved: " + row.issue, "error"));
+        const linked = definition.steps.filter(step => row.stepIds.includes(step.id));
+        card.append(make("p", linked.length ? "Linked: " + linked.map(step =>
+          "Step " + (definition.steps.indexOf(step)+1) + " — " + step.description).join("; ") : "No corresponding steps", "muted"));
+        const details = make("details");
+        details.append(make("summary", "Review or correct step links"));
+        for (const [index,step] of definition.steps.entries()) {
+          const label = make("label");
+          label.style.display = "flex";
+          label.style.gap = "8px";
+          const box = make("input");
+          box.type = "checkbox";
+          box.checked = row.stepIds.includes(step.id);
+          box.addEventListener("change", () => {
+            const selected = new Set(row.stepIds);
+            if (box.checked) selected.add(step.id); else selected.delete(step.id);
+            row.stepIds = definition.steps.filter(item=>selected.has(item.id)).map(item=>item.id);
+            row.confirmed = false;
+            renderInstructionCoverage();
+            updateApproval();
+          });
+          label.append(box,make("span","Step "+(index+1)+": "+step.description+" ["+step.action.kind+"]"));
+          details.append(label);
+        }
+        card.append(details);
+        const confirm = make("button",row.confirmed?"Reopen coverage review":"Confirm this instruction is covered","secondary");
+        confirm.type = "button";
+        confirm.disabled = !linked.length;
+        confirm.addEventListener("click",()=>{
+          if (row.confirmed) row.confirmed=false;
+          else {
+            row.confirmed=true;
+            // Explicit human resolution of a proposed issue; the original
+            // statement remains unchanged and its step links are retained.
+            row.issue="";
+          }
+          renderInstructionCoverage();
+          updateApproval();
+        });
+        card.append(confirm);
+        list.append(card);
+      }
+    }
     function renderSteps() {
       incrementalRevision++;
       incrementalPending = null;
@@ -1209,6 +1282,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const list = $("step-list");
       list.replaceChildren();
       renderTestDesignIssues();
+      renderInstructionCoverage();
       for (const [index, step] of definition.steps.entries()) {
         const card = make("article", null, "step");
         const top = make("header");
@@ -1621,8 +1695,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
       const unresolvedCredentials = unresolvedLoginCredentialSteps();
       const credentialReview = unresolvedCredentials.length > 0;
+      const unresolvedCoverage = coverageBlockers();
+      const coveragePanel = $("instruction-coverage-blockers");
+      coveragePanel.hidden = !unresolvedCoverage.length;
+      coveragePanel.textContent = unresolvedCoverage.length ? "Blocking errors — "+unresolvedCoverage.length+" instruction statement(s) require coverage review. Review the Original instructions panel before saving or running." : "";
       renderCriticalBlockers(unresolvedCredentials);
       const missing = [
+        ...(unresolvedCoverage.length ? ["resolve and confirm instruction coverage"] : []),
         ...(missingName ? ["enter a Test name above"] : []),
         ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
@@ -1636,13 +1715,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "Ready to save or run. Save & Run will save the reviewed test and automatically show the execution results below.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       const cannotSave = saving || running || total === 0 || approvals.size !== total ||
-        credentialReview || !$("test-name").value.trim();
+        credentialReview || unresolvedCoverage.length > 0 || !$("test-name").value.trim();
       $("save").disabled = cannotSave;
       $("save-and-run").disabled = cannotSave;
       $("review-add-all").disabled = total === 0 || approvals.size === total;
       $("save-draft").disabled = saving || running || total === 0 || !$("test-name").value.trim();
       $("save-as-new").disabled = saving || running || total === 0 || approvals.size !== total ||
-        credentialReview || !editingSavedId || !$("test-name").value.trim();
+        credentialReview || unresolvedCoverage.length > 0 || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
       $("save-error").textContent = "";
@@ -3035,7 +3114,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         showOriginalInstructions();
         rememberRecentUrl(baseURL);
         renderRecentUrls();
-        // Requirements are displayed as candidates only. Human reviewers
+        // Manual traceability remains separate from generated instruction coverage. Human reviewers
         // explicitly load and link them; no AI mapping becomes saved metadata.
         $("requirement-lines").value = requirements;
         $("traceability-note").textContent =
@@ -3057,6 +3136,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "No relevant verified prerequisite memory was used for this generation.";
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
+          (coverageBlockers().length ? " BLOCKED: Review original instruction coverage before saving or running." : "") +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
           (data.diagnostics?.blockingCredentialSteps?.length
             ? " BLOCKED: Save Test and Save & Run require approved login credentials. See the red blocker panel in Test Editor."
@@ -3085,7 +3165,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       });
     }
     async function approveAndSave(saveAsNew = false, runAfterSave = false) {
-      if (saving || running || !definition || approvals.size !== definition.steps.length) return;
+      if (saving || running || !definition || approvals.size !== definition.steps.length || coverageBlockers().length) return;
       const testName = $("test-name").value.trim();
       if (!testName || testName.length > 200) {
         $("save-error").textContent = "Enter a test name (1–200 characters) before saving.";
