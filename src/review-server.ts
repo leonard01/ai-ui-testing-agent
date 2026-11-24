@@ -6,7 +6,7 @@ import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { generateDraft, GeneratedDraftValidationError, InspectionAccessError, type ModelProvider } from "./generation.js";
-import { assertInstructionCoverageReviewed } from "./requirement-preservation.js";
+import { assertInstructionCoverageReviewed, generationExceptions } from "./requirement-preservation.js";
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
@@ -1577,7 +1577,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             retryMalformedOutput: input.provider === "groq",
             prerequisiteHints: suggestions.map(item => item.text),
             instructionCoverage: input.provider === "groq",
+            proceedUnresolved: (body as Record<string, unknown>).proceedUnresolved === true,
           }, provider);
+          const exceptions = generationExceptions(result.definition);
+          const accepted = result.definition.instructionCoverage?.proceedAccepted === true;
+          if (exceptions.length && (!accepted || exceptions.some(row => !row.stepIds.length))) {
+            json(res, 409, {category:"instruction-mismatch", error: accepted ? "Unable to preserve every instruction as executable steps. Edit the instructions or try again." : "Test generation blocked: requested functionality could not be confidently mapped.", requirements:result.definition.instructionCoverage!.entries, total:result.definition.instructionCoverage!.entries.length, problematicIds:exceptions.map(row=>row.id), baseURL:input.baseURL});
+            return;
+          }
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
             generationAttempts: result.generationAttempts,
