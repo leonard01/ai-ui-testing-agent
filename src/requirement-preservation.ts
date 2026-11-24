@@ -82,3 +82,61 @@ export function generationExceptions(definition:TestDefinition) {
   return coverage.entries.filter(row=>!row.stepIds.length ||
     row.availability==="functional-mismatch" || (row.issue && row.availability!=="later-state" && row.availability!=="selector-uncertain"));
 }
+
+/** Reconcile only requirements affected by the editing range. Unaffected
+ * statements and mappings are copied from the previous revision, not rewritten
+ * by the model. Proposed semantic coverage still requires ordinary draft review.
+ */
+export function reconcileAmendment(
+  previous: NonNullable<TestDefinition["instructionCoverage"]>,
+  amendment: string,
+  retainedIds: Set<string>,
+  definition: TestDefinition,
+  proposal: unknown,
+) {
+  const schema = z.object({
+    changes: z.array(z.object({
+      id: z.string(),
+      operation: z.enum(["keep","replace","remove"]),
+      text: z.string().min(1).max(12000).optional(),
+      evidence: z.string().min(1).optional(),
+    }).strict()).max(40),
+    additions: z.array(z.string().min(1).max(12000)).max(40),
+    coverage: proposalSchema,
+  }).strict();
+  const parsed = schema.parse(proposal);
+  const changes = new Map(parsed.changes.map(change => [change.id, change]));
+  if (changes.size !== parsed.changes.length ||
+      [...changes.keys()].some(id => !previous.entries.some(row => row.id === id))) {
+    throw new Error("Invalid amendment requirement IDs");
+  }
+  const rows: {text:string; old?:typeof previous.entries[number]}[] = [];
+  for (const old of previous.entries) {
+    const change = changes.get(old.id);
+    const affected = old.stepIds.some(id => !retainedIds.has(id));
+    if (change && change.operation !== "keep") {
+      if (!affected || !change.evidence || !amendment.includes(change.evidence)) {
+        throw new Error("An amendment cannot silently change an unrelated requirement: " + old.id);
+      }
+      if (change.operation === "replace") {
+        if (!change.text) throw new Error("Replacement requirement text is missing");
+        rows.push({text:change.text});
+      }
+    } else {
+      rows.push({text:old.text, old:affected ? undefined : old});
+    }
+  }
+  for (const text of parsed.additions) rows.push({text});
+  const source = rows.map(row=>row.text).join("\n");
+  if (!source || source.length > 12000 || sourceRequirements(source).length !== rows.length) {
+    throw new Error("Reconciled instructions must contain one statement per row");
+  }
+  const coverage: NonNullable<TestDefinition["instructionCoverage"]> = proposedCoverage(source, definition, parsed.coverage, false);
+  coverage.entries = coverage.entries.map((entry,index) => {
+    const old = rows[index].old;
+    return old ? {...old,id:entry.id} : entry;
+  });
+  const linked = new Set(coverage.entries.flatMap(row=>row.stepIds));
+  coverage.prerequisiteStepIds = previous.prerequisiteStepIds.filter(id=>retainedIds.has(id)&&!linked.has(id));
+  return coverage;
+}

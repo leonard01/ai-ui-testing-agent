@@ -1,4 +1,4 @@
-import { sourceRequirements } from "./requirement-preservation.js";
+import { reconcileAmendment } from "./requirement-preservation.js";
 import { randomUUID } from "node:crypto";
 import { requireHumanCredentialValues } from "./credential-guard.js";
 import { z, ZodError } from "zod";
@@ -11,6 +11,7 @@ import { GroqProviderError } from "./hosted-providers.js";
 
 const patchSchema = z.object({
   steps: z.array(testStepSchema).min(1).max(25),
+  reconciliation: z.unknown().optional(),
 }).strict();
 
 export interface IncrementalOptions {
@@ -92,7 +93,8 @@ export async function generateIncrementalProposal(
     "Use grounded selectors based on the snapshot; do not invent DOM elements.",
     "Existing approved steps before the edit point must NOT be repeated in your steps array.",
     "The server will preserve all steps outside the editing range regardless of your output.",
-    "Do not include credentials, JS execution, external navigation or extra JSON fields.",
+    "Do not include credentials, JS execution, external navigation or extra JSON fields except the reconciliation object when requested.",
+    ...(original.instructionCoverage ? ["Also return reconciliation: {changes:[{id,operation, text?, evidence?}],additions:[string],coverage:{entries:[{id,interpretation,stepIds,issue?,availability?}]}}.", "For existing requirements use keep by default; only replace/remove if explicitly requested, with evidence an exact quotation of the new instruction. Add new semantic requirements, not technical locator changes. Keep unrelated requirements verbatim. Each addition or replacement must be one source statement. Number the resulting requirements R1 onward in original order excluding removals, then additions. Map each affected or new requirement to actual preserved step IDs or the unique IDs of replacement steps. If a named item must be verified, assert its identity, not just the total count. Report unresolved coverage explicitly; never weaken an assertion to fit generated steps."] : []),
   ].join("\n");
   const prompt = [
     "PATCH MODE:", options.mode === "step" ? "Replace exactly ONE step; return exactly one step." :
@@ -109,7 +111,7 @@ export async function generateIncrementalProposal(
     options.instructions,
     "INITIAL PAGE SNAPSHOT (NOT THE POST-PREFIX BROWSER STATE):",
     JSON.stringify(snapshot).slice(0, 9000),
-    "Return only a patch JSON object with a steps array.",
+    original.instructionCoverage ? "Return a patch JSON object with steps and reconciliation." : "Return only a patch JSON object with a steps array.",
   ].join("\n\n");
   const attempts = options.retryMalformedOutput ? 2 : 1;
   let problem = "invalid JSON patch";
@@ -161,31 +163,29 @@ export async function generateIncrementalProposal(
       const requirements = original.requirements?.map(item => ({
         ...item, stepIds: item.stepIds.filter(id => retained.has(id)),
       }));
-      const oldCoverage=original.instructionCoverage;
-      const source=oldCoverage ? oldCoverage.source+"\n"+options.instructions : "";
-      if(source.length>12000) throw new Error("Combined instruction coverage exceeds 12,000 characters; generate a smaller test.");
-      const instructionCoverage=oldCoverage ? {
-        source,
-        entries:sourceRequirements(source).map(row=>{
-          const old=oldCoverage.entries.find(entry=>entry.id===row.id&&entry.text===row.text);
-          if(!old) return {...row,interpretation:"",stepIds:[],issue:"New amendment requires explicit coverage review.",confirmed:false};
-          const stepIds=old.stepIds.filter(id=>retained.has(id));
-          const replacedIds=old.stepIds.filter(id=>!retained.has(id));
-          return {
-            ...old, stepIds,
-            ...(replacedIds.length ? {
-              issue: [old.issue, "Previous mapping referenced replaced step ID(s): " +
-                replacedIds.join(", ") + ". Link the revised executable step(s) after review."]
-                .filter(Boolean).join(" "),
-            } : {}),
-            confirmed:old.confirmed&&stepIds.length===old.stepIds.length,
-          };
-        }),
-        prerequisiteStepIds:oldCoverage.prerequisiteStepIds.filter(id=>retained.has(id)),
-      } : undefined;
+      const oldCoverage = original.instructionCoverage;
+      let instructionCoverage;
+      if (oldCoverage) {
+        const modelIds = parsed.steps.map(step => step.id);
+        if (new Set(modelIds).size !== modelIds.length || modelIds.some(id => retained.has(id))) {
+          throw new Error("Replacement step IDs must be unique and distinct from preserved steps");
+        }
+        const idMap = new Map(modelIds.map((id,i) => [id,replacement[i].id]));
+        // Validate model references against the pre-remapping IDs, then assign
+        // server IDs only to the validated mapping.
+        const modelDefinition = {...original, steps: [...prefix,
+          ...replacement.map((step,i)=>({...step,id:modelIds[i]})), ...suffix]};
+        const reconciled = reconcileAmendment(oldCoverage, options.instructions,
+          retained, modelDefinition, parsed.reconciliation);
+        instructionCoverage = {...reconciled, entries: reconciled.entries.map(row=>({
+          ...row, stepIds: row.stepIds.map(id=>idMap.get(id) ?? id),
+        }))};
+      }
       const definition = parseTestDefinition({
         ...original, steps, ...(requirements ? { requirements } : {}),
-        ...(instructionCoverage ? {instructionCoverage} : {}),
+        ...(instructionCoverage ? {instructionCoverage,
+          sourceInstructions: original.sourceInstructions ?? oldCoverage?.source,
+          workingInstructions: instructionCoverage.source} : {}),
       });
       const approved = new Set(options.approvedStepIds);
       const preservedApprovedStepIds = steps
