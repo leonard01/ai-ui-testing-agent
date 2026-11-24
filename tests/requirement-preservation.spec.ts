@@ -26,10 +26,15 @@ test("generation exception offers three decisions and never exposes an unmapped 
       expect(data.problematicIds).toEqual(["R1","R2","R3"]);
     }
     await page.goto(url);
+    await expect(page.locator("#review-workspace")).toBeHidden();
     await page.getByLabel("Your test instructions").fill(requirements);
     await page.getByLabel("Generate with").selectOption("groq");
     await page.getByRole("button",{name:"Generate draft"}).click();
     await expect(page.locator("#exception-count")).toContainText("3 of 3");
+    await expect(page.locator("#review-workspace")).toBeVisible();
+    await expect(page.locator("#review-workspace #generation-exception")).toBeVisible();
+    await expect(page.locator("#placeholder")).toBeHidden();
+    await expect(page.locator("#working-drafts-panel")).toBeHidden();
     await expect(page.locator("#draft")).toBeHidden();
     await page.getByRole("button",{name:"Edit test description",exact:true}).click();
     await expect(page.locator("#exception-description")).toHaveValue(requirements);
@@ -110,7 +115,8 @@ test("edit/delete and full-description choices revalidate while retaining origin
         await page.locator("#exception-edit-list").getByRole("button",{name:"Delete",exact:true}).first().click();
         await page.locator("#exception-apply-reqs").click();
       }
-      await expect(page.locator("#draft")).toBeVisible();
+      await expect(page.locator("#review-workspace #draft")).toBeVisible();
+      await expect(page.locator("#review-workspace")).toBeVisible();
       await expect(page.locator("#generation-exception")).toBeHidden();
       await expect(page.locator("#step-list .step")).toHaveCount(2);
       await expect(page.locator("#instruction-coverage-blockers")).toBeHidden();
