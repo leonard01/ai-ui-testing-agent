@@ -58,7 +58,7 @@ test("executes the complete task lifecycle and isolates the next run", async ({
   }
 });
 
-test("reports incorrect expectations, skips later steps and captures failure evidence", async ({
+test("reports incorrect expectations, skips later steps and captures failure evidence @sanity", async ({
   browser,
 }, info) => {
   const definition = await example();
