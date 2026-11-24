@@ -13,7 +13,7 @@ Instructions:
 > Verify that Sauce Labs Backpack is displayed in the cart.  
 > Verify that the cart contains exactly one item.
 
-Expected: generation rejects an omitted identifiable login command with an actionable explanation OR retains explicit login and shopping actions as unresolved reviewable intent; do not approve or run unrelated steps. If retained, missing controls must fail safely at execution; do not claim the initial snapshot proves later pages unavailable. Fail if the task-list zero-count assertion replaces the requested workflow or a passing unrelated test is presented as coverage.
+Expected: generation blocks the draft and shows problematic requirements with a count and three resolution options. No steps are exposed before a decision. Do not claim the initial snapshot proves later pages unavailable. Fail if unrelated task-list steps replace the workflow or the issue is silently omitted.
 
 ## AI-14 — explicit login overrides memory setting (P0)
 URL: https://www.saucedemo.com/; memory off. Repeat with memory on as a separate configuration.
@@ -49,6 +49,24 @@ URL: a controlled authorized multi-page fixture with a public landing page and a
 Instructions: Open the Sign in page. Log in using the demo account. Verify the account page is visible.
 Expected: preserve navigation and authentication actions even though credential inputs are not on the landing page. Never infer their absence means the user is mistaken. Review and use fixture credentials. Verify actual account page.
 
+## AI-19 — resolve by editing the complete description (P0)
+URL: local task demo; use AI-13 instructions. After the exception, choose Edit test description and replace text with "Verify that the status reads 0 tasks, 0 completed." Validate. Expected: normal editable draft, original description retained, revised working instructions recorded, no separate mapping approval.
+
+## AI-20 — edit/delete only problem requirements (P0)
+URL: local task demo. Enter these separate lines:
+> Open the task list.
+> Log in using the standard user account.
+> Add Sauce Labs Backpack to cart.
+> Verify that the status reads 0 tasks, 0 completed.
+
+Choose Edit or delete problematic requirements. Delete the login requirement and edit the cart requirement to "Verify that the Task field is visible." Validate. Expected: unchanged statements retained; revised instructions revalidated; normal editable draft. Original instructions remain visible for traceability. No automatic deletion.
+
+## AI-21 — proceed without changes (P0)
+Use AI-13 instructions and URL. Choose Proceed without changes. Expected: critical-failure warning; Generate test anyway disabled until acknowledged. Retry with unchanged instructions. Either all original requirements have executable mappings and a draft warning remains, or generation remains blocked with explanation. Never accept omitted instructions. If a draft is available, review and execute only with authorized data; missing controls should fail safely. Record generation and execution separately.
+
+## AI-22 — selector naming is not a functional mismatch (P1)
+URL: local task demo. Instructions: "Enter a task called Review report. Click the button to submit the task. Verify Review report is visible." Expected: ordinary draft using the actual Add control or executable intent, no functional mismatch merely because the user described the control differently.
+
 ## Results
 | Case | Attempt 1 | Attempt 2 | Attempt 3 | Evidence / notes |
 |---|---|---|---|---|
@@ -59,3 +77,7 @@ Expected: preserve navigation and authentication actions even though credential 
 | AI-16 | Not run | Not run | Not run | |
 | AI-17 | Not run | Not run | Not run | |
 | AI-18 | Blocked | Blocked | Blocked | Controlled fixture required |
+| AI-19 | Not run | Not run | Not run | |
+| AI-20 | Not run | Not run | Not run | |
+| AI-21 | Not run | Not run | Not run | |
+| AI-22 | Not run | Not run | Not run | |
