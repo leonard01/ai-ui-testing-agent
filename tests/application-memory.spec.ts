@@ -56,7 +56,7 @@ async function teachWebsite(){
   await observeSuccessfulRun(dataDir,site,definition,report);
 }
 
-test("website knowledge is visibly suggested but user may turn it off before generation",async({page})=>{
+test("website knowledge is visibly suggested but user may turn it off before generation @sanity",async({page})=>{
   await teachWebsite();
   await page.goto(reviewURL);
   const siteMemory = page.getByRole("checkbox", {name: "Use Site Memory"});

@@ -205,7 +205,7 @@ test("CLI exports a standalone spec without starting a browser", async ({}, info
   expect(source).not.toContain('from "./runner.js"');
 });
 
-test("review UI exports only approved saved tests and never creates an extra file", async ({ browser, page }) => {
+test("review UI exports only approved saved tests and never creates an extra file @sanity", async ({ browser, page }) => {
   const dir = await mkdtemp(join(tmpdir(), "review-export-"));
   const server: Server = await createReviewServer(dir, browser);
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));

@@ -135,7 +135,7 @@ test("AI replacement automatically reconciles affected instruction links", async
   expect(data.definition.sourceInstructions).toBe("Verify task count is zero.");
 });
 
-test("adding another task automatically maps new requirements and preserves unrelated requirements", async () => {
+test("adding another task automatically maps new requirements and preserves unrelated requirements @sanity", async () => {
   const definition = await original();
   // End at the original task visibility assertion, before completion/deletion.
   definition.steps = definition.steps.slice(0, definition.steps.findIndex((step:{id:string})=>step.id==="visible")+1);
@@ -175,7 +175,7 @@ test("unsafe and malformed proposals cannot alter or approve a test", async () =
   expect((await (await fetch(url + "/api/drafts")).json()).drafts).toHaveLength(0);
 });
 
-test("UI proposes suffix replacement, requires Apply and leaves replacement steps unapproved", async ({page}) => {
+test("UI proposes suffix replacement, requires Apply and leaves replacement steps unapproved @sanity", async ({page}) => {
   mockSteps = remainder;
   await page.goto(url);
   await page.locator("#test-name").fill("Incremental task test");

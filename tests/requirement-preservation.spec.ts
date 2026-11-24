@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 
-test("generation exception offers three decisions and never exposes an unmapped draft", async ({browser, page}) => {
+test("generation exception offers three decisions and never exposes an unmapped draft @sanity", async ({browser, page}) => {
   const dir=await mkdtemp(join(tmpdir(),"requirement-preservation-"));
   const fixture={schemaVersion:1,id:"unrelated",title:"Unrelated",version:1,steps:[
     {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
