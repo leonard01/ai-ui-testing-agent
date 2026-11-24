@@ -109,6 +109,20 @@ test("unverified login placeholders are critical blockers, not amber advisory wa
   await expect(panel).toContainText("Cannot save or run");
   await expect(panel).toContainText("step 2");
   await expect(panel).toContainText("3");
+  const sharedReview = page.locator("#draft-review-feedback");
+  await expect(sharedReview).toBeVisible();
+  await expect(sharedReview.locator("#draft-review-advisories")).toBeVisible();
+  await expect(sharedReview).toContainText("Warnings — review against your test intent");
+  await expect(sharedReview).toContainText("could verify something different from what you intended");
+  await expect(sharedReview).toContainText("1 DOM-wide assertion");
+  // Blockers are the first visible message in the shared review panel.
+  const blockerBeforeWarnings = await sharedReview.evaluate(node => {
+    const blocker = node.querySelector("#draft-critical-blockers");
+    const warning = node.querySelector("#draft-review-advisories");
+    return !!blocker && !!warning &&
+      !!(blocker.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(blockerBeforeWarnings).toBe(true);
   await expect(page.locator("#generation-status")).toContainText("BLOCKED");
   await expect(page.locator("#draft-quality-warnings")).toBeHidden();
   await page.getByRole("button",{name:"Add All",exact:true}).click();
@@ -143,6 +157,9 @@ test("unverified login placeholders are critical blockers, not amber advisory wa
   await password.getByLabel("Value to enter").fill("public-demo-password");
   await password.getByRole("button",{name:"Apply changes"}).click();
   await expect(panel).toBeHidden();
+  // Non-blocking warnings remain visible after the blocker has been resolved.
+  await expect(sharedReview).toBeVisible();
+  await expect(sharedReview.locator("#draft-review-advisories")).toBeVisible();
   await expect(page.locator("#draft-quality-warnings")).toBeHidden();
 
   // Editing invalidates approval of the changed steps; the user must confirm
@@ -178,7 +195,11 @@ test("JavaScript page warnings stay advisory, never incorrectly labelled as bloc
   await page.getByLabel("Generate with").selectOption("groq");
   await page.getByRole("button",{name:"Generate draft"}).click();
   await expect(page.locator("#draft-critical-blockers")).toBeHidden();
-  await expect(page.locator("#draft-quality-warnings")).toContainText("Advisory review notes");
+  await expect(page.locator("#draft-review-feedback")).toBeVisible();
+  await expect(page.locator("#draft-critical-blockers")).toBeHidden();
+  await expect(page.locator("#draft-review-advisories")).toContainText(
+    "Warnings — review against your test intent");
+  await expect(page.locator("#draft-quality-warnings")).toContainText("Other quality checks");
   await expect(page.locator("#draft-quality-warnings")).toContainText("JavaScript exception");
 });
 
@@ -1341,6 +1362,9 @@ test("draft and live execution identify DOM-wide assertions without treating the
   await generateFixture(page);
   await expect(page.locator("#draft-dom-wide-summary")).toBeVisible();
   await expect(page.locator("#draft-dom-wide-summary")).toContainText("4 DOM-wide assertions");
+  await expect(page.locator("#draft-review-feedback")).toBeVisible();
+  await expect(page.locator("#draft-review-advisories")).toContainText("Warnings — review against your test intent");
+  await expect(page.locator("#draft-critical-blockers")).toBeHidden();
   await expect(page.locator("#step-list .step .pill.warn")).toHaveCount(4);
   await expect(page.locator("#step-list .step").first().locator(".pill.warn")).toHaveCount(0);
   await expect(page.locator("#step-list .step").nth(1).locator(".pill.warn")).toContainText("DOM-wide");
