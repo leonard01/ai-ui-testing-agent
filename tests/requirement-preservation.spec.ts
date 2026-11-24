@@ -27,6 +27,7 @@ test("generation exception offers three decisions and never exposes an unmapped 
     }
     await page.goto(url);
     await expect(page.locator("#review-workspace")).toBeHidden();
+    await page.locator("#test-name").fill("Requirement preservation 1");
     await page.getByLabel("Your test instructions").fill(requirements);
     await page.getByLabel("Generate with").selectOption("groq");
     await page.getByRole("button",{name:"Generate draft"}).click();
@@ -100,7 +101,8 @@ test("edit/delete and full-description choices revalidate while retaining origin
   try{
     for(const mode of ["description","requirements"]){
       await page.goto(url);
-      await page.getByLabel("Your test instructions").fill(original);
+      await page.locator("#test-name").fill("Requirement preservation 2");
+    await page.getByLabel("Your test instructions").fill(original);
       await page.getByLabel("Generate with").selectOption("groq");
       await page.getByRole("button",{name:"Generate draft"}).click();
       await expect(page.locator("#exception-count")).toContainText("2 of 4");
