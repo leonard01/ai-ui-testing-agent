@@ -107,7 +107,14 @@ async function listen(server: Server): Promise<string> {
   return "http://127.0.0.1:" + (server.address() as AddressInfo).port;
 }
 async function close(server: Server) {
-  await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+  // Review UI requests can leave idle HTTP keep-alive connections open after
+  // the final assertion. Close the listener, then terminate idle sockets so
+  // test teardown cannot exceed Playwright's 30-second test timeout.
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => err ? reject(err) : resolve());
+    server.closeIdleConnections();
+    server.closeAllConnections();
+  });
 }
 
 test("runner executes dropdown, checkbox, radio, keyboard and URL/count assertions", async ({ browser }, info) => {
@@ -194,7 +201,7 @@ test("UI renders and allows editing of generated new action fields without manua
 
     for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
     await page.locator("#test-name").fill("Add, complete and delete a task");
-    await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+    await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     const names = (await listApprovedIds(dir));
     expect(names).toHaveLength(1);

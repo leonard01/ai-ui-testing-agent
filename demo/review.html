@@ -59,10 +59,46 @@
     .muted { font-size:12px; color:#64748b; line-height:1.5; }
     .tip { padding:12px; border-radius:8px; background:#eff7f8; color:#2c5762; font-size:12px; margin-top:17px; }
     .note { padding:12px; border-radius:8px; background:#f8f4e8; color:#705c2f; font-size:12px; line-height:1.5; margin:10px 0; }
+
+    .site-memory-option { margin:0 0 19px; padding:13px 15px; border-radius:9px;
+      border:1px solid #a7c7df; border-left:4px solid #205e86; background:#eff7fc; }
+    .site-memory-row { display:flex; align-items:center; gap:9px; }
+    .site-memory-row label { margin:0; display:flex; align-items:center; gap:9px;
+      font-size:14px; font-weight:750; cursor:pointer; }
+    .site-memory-row input { width:17px; height:17px; margin:0; accent-color:#205e86; }
+    .site-memory-help-toggle { padding:0; width:25px; height:25px; border-radius:50%;
+      display:inline-flex; align-items:center; justify-content:center;
+      background:#fff; color:#205e86; border:1px solid #86aac5;
+      font-size:13px; font-weight:800; }
+    .site-memory-help-toggle:hover, .site-memory-help-toggle:focus-visible {
+      outline:2px solid #83c5d2; outline-offset:2px; }
+    .site-memory-description { border-top:1px solid #c8dce9; margin-top:12px; padding-top:10px; }
+    .site-memory-description p { margin:0 0 10px; font-size:12px; line-height:1.5; }
+    .site-memory-description button { font-size:12px; padding:8px 10px; }
     .error { background:#fff1f2; color:#9c2335; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .error:empty, .success:empty { display:none; }
-    #draft-quality-warnings { white-space:pre-wrap; border-left:4px solid #c07d12; font-size:13px; }
+    /* One review panel: blockers are visually distinct and always precede advice. */
+    .review-feedback { margin:12px 0 16px; border:1px solid #d2dbe7;
+      border-radius:10px; overflow:hidden; background:#fff; }
+    .review-feedback[hidden], .review-advisories[hidden],
+    .critical-blockers[hidden], .scope-advisory[hidden] { display:none; }
+    .critical-blockers { margin:0; padding:14px 17px; background:#fff0f1;
+      border-left:5px solid #b42339; color:#811b2b; }
+    .critical-blockers h3 { margin:0 0 6px; font-size:16px; color:#811b2b; }
+    .critical-blockers p { margin:5px 0; font-size:13px; line-height:1.5; }
+    .critical-blockers .actions { margin-top:9px; }
+    .critical-blockers .actions button { background:#fff; color:#8d1b2e;
+      border:1px solid #b42339; }
+    .critical-blockers .actions button:focus-visible { outline:3px solid #b42339; outline-offset:2px; }
+    .review-advisories { padding:12px 17px; border-top:1px solid #efdcb8;
+      border-left:5px solid #cf9f48; background:#fffbf2; color:#78591d; }
+    .review-advisories h3 { margin:0 0 3px; font-size:14px; color:#78591d; }
+    .review-advisories > p { margin:4px 0 9px; font-size:12px; line-height:1.5; }
+    .scope-advisory { font-size:12px; line-height:1.5; color:#78591d; margin:6px 0; }
+    #draft-quality-warnings { white-space:pre-wrap; font-size:12px; line-height:1.5;
+      margin:8px 0 0; padding:0; background:transparent; color:inherit; }
+    #generation-page-error-summary { margin-top:9px; color:#78591d; }
     #generation-diagnostics { margin:12px 0; padding:12px 14px; border:1px solid #bfd0e0; border-radius:9px; background:#f8fbfe; }
     #generation-diagnostics summary { cursor:pointer; font-weight:650; font-size:13px; color:#205e86; }
     #generation-diagnostics pre { max-height:250px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.45 ui-monospace,Consolas,monospace; background:#eff3f8; border-radius:7px; padding:10px; }
@@ -212,6 +248,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
   </dialog>
   <main>
     <section aria-labelledby="instructions-heading">
+      <div id="site-memory-option" class="site-memory-option">
+        <div class="site-memory-row">
+          <label for="use-application-memory">
+            <input id="use-application-memory" type="checkbox" checked>
+            Use Site Memory
+          </label>
+          <button type="button" id="site-memory-help-toggle" class="site-memory-help-toggle"
+            aria-label="About Use Site Memory" aria-controls="site-memory-description"
+            aria-expanded="false" title="About Site Memory">?</button>
+        </div>
+        <div id="site-memory-description" class="site-memory-description" hidden>
+          <p><strong>Experimental site-specific knowledge.</strong> When enabled, the agent can use generic prerequisites learned from previous passing tests on the same website. For example, a successful login-before-shopping test may prompt it to suggest login when generating another shopping test.</p>
+          <p>Only the website origin, number of qualifying successful runs and observation time are stored. It does not remember passwords, form values, DOM snapshots, element selectors or complete workflows yet. Suggestions are advisory and still require your approval.</p>
+          <button type="button" id="check-application-memory" class="secondary">Check known prerequisites</button>
+          <p id="application-memory-status" class="muted" role="status"></p>
+        </div>
+      </div>
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required to save)</span></label>
@@ -234,15 +287,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <label for="requirements-file">Or import a requirements file (.txt or .md)</label>
         <input id="requirements-file" type="file" accept=".txt,.md,text/plain,text/markdown">
         <p id="import-note" class="muted">File contents will be added to the instructions above. Max 12,000 characters total.</p>
-        <div class="note" style="margin-top:12px">
-          <label style="margin:0;display:flex;align-items:center;gap:8px" for="use-application-memory">
-            <input id="use-application-memory" type="checkbox" checked>
-            Use successful-test knowledge from this website
-          </label>
-          <p class="muted">Only generic prerequisites from previous passing executions are remembered. No passwords, form values or DOM snapshots are stored. Any suggested login still needs your approval.</p>
-          <button type="button" id="check-application-memory" class="secondary">Check known prerequisites</button>
-          <p id="application-memory-status" class="muted" role="status"></p>
-        </div>
         <label for="provider">Generate with</label>
         <select id="provider">
           <option value="groq">GroqCloud · hosted AI (free tier)</option>
@@ -261,31 +305,48 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
-        <p class="muted">Choose a saved website suite and test script, or reopen an unfinished working draft. To create a new test, enter instructions on the left.</p>
+        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, enter instructions on the left.</p>
         <div class="run-test-selectors">
           <div>
             <label for="edit-suite">Test suite</label>
             <select id="edit-suite"><option value="">Select a test suite</option></select>
           </div>
           <div>
-            <label for="edit-script">Existing test script</label>
+            <label for="edit-script">Existing test script or draft</label>
             <select id="edit-script" disabled><option value="">Select a suite first</option></select>
           </div>
         </div>
         <div class="actions"><button type="button" id="edit-load" class="secondary" disabled>Load selected test</button></div>
-        <label for="draft-select">Saved working drafts</label>
+        <p id="edit-scripts-summary" class="muted" role="status"></p>
+      </div>
+      <section id="working-drafts-panel" aria-label="Saved working drafts" style="padding:12px 0;margin:12px 0;border-top:1px solid #d5dce3">
+        <h3>Saved working drafts</h3>
+        <p class="muted">Working drafts can contain unfinished steps and are not executable until approved. Saved drafts remain available while a test is open in the editor.</p>
+        <label for="draft-select">Choose saved working draft</label>
         <select id="draft-select"><option value="">Select a working draft</option></select>
         <div class="actions">
           <button type="button" id="draft-load" class="secondary" disabled>Resume draft</button>
           <button type="button" id="draft-refresh" class="secondary">Refresh drafts</button>
         </div>
         <p id="draft-list-status" class="muted" role="status"></p>
-      </div>
+      </section>
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
-        <div id="draft-quality-warnings" class="note" role="status" hidden></div>
+        <section id="draft-review-feedback" class="review-feedback"
+          aria-label="Test review errors and warnings" hidden>
+          <div id="draft-critical-blockers" class="critical-blockers" role="alert"
+            aria-live="polite" hidden></div>
+          <div id="draft-review-advisories" class="review-advisories" hidden>
+            <h3>⚠ Warnings — review against your test intent</h3>
+            <p>These do not block saving or running, but may indicate that a generated check
+              could verify something different from what you intended.</p>
+            <p id="draft-dom-wide-summary" class="scope-advisory" role="note" hidden></p>
+            <div id="draft-quality-warnings" role="status" hidden></div>
+            <p id="generation-page-error-summary" role="status" hidden></p>
+          </div>
+        </section>
         <details id="generation-diagnostics" hidden>
           <summary id="generation-diagnostics-summary">Generation diagnostics</summary>
           <p id="generation-diagnostics-meta" class="muted"></p>
@@ -300,6 +361,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p class="muted">These are potential problems with the test definition, not results from an executed test. Locators on later pages cannot be verified from the initial page. Review warnings before approval.</p>
           <div id="test-design-issues-list"></div>
         </details>
+        <div style="padding:12px 0" id="draft-preflight-panel">
+          <h3>Check draft targets before execution</h3>
+          <p class="muted">Check the selectors against the starting page before approving. Confirmed matches, missing or ambiguous elements, and suggested fixes appear by step. Targets that depend on login, navigation or other earlier actions are marked <strong>deferred</strong>, not incorrectly marked as broken. Nothing is clicked, filled, saved or executed.</p>
+          <button type="button" id="selector-preflight" class="secondary">Check selectors (read-only)</button>
+          <p id="selector-preflight-status" class="status" role="status"></p>
+          <div id="selector-preflight-results"></div>
+        </div>
         <div class="actions" style="margin:12px 0">
           <button type="button" id="review-add-all" class="secondary">Add All</button>
           <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
@@ -346,20 +414,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="traceability-summary" class="muted"></p>
           <div id="traceability-list"></div>
         </section>
-        <div style="padding:12px 0">
-          <button type="button" id="selector-preflight" class="secondary">Check selectors (read-only)</button>
-          <p class="muted">Optional: inspect the starting page before approval. Later dynamic targets may be deferred; no test actions or AI calls are made.</p>
-          <p id="selector-preflight-status" class="status" role="status"></p>
-          <div id="selector-preflight-results"></div>
-        </div>
         <div class="actions">
-          <button type="button" id="save-draft" class="secondary" disabled>Save Working Draft</button>
+          <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
         <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
         <input id="save-test-name" type="text" maxlength="200" placeholder="Required — e.g. Add two tasks" autocomplete="off">
-        <button id="save" disabled style="width:100%">Approve and save JSON test</button>
+        <div class="actions" style="display:flex;gap:10px;margin-top:10px">
+          <button type="button" id="save" class="secondary" disabled style="flex:1">Save Test</button>
+          <button type="button" id="save-and-run" disabled style="flex:1">Save &amp; Run</button>
+        </div>
         <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
         <div id="saved" class="success" style="margin-top:12px"></div>
@@ -427,7 +492,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <div id="suite-results"></div>
         <div id="suite-artifacts" class="artifact-links"></div>
       </div>
-      <div id="run-status" class="status" role="status">Select an approved test to execute.</div>
+      <div id="run-status" class="status" role="status" tabindex="-1">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
       <div id="run-results" hidden>
         <h2 id="run-summary" style="margin-top:18px"></h2>
@@ -476,8 +541,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let selectedBaseURL = "";
     let activeURLSource = "manual";
     let running = false;
+    let saving = false;
+    let savedFingerprint = "";
+    let lastSavedId = "";
     let selectedApprovedId = "";
     let approvedCatalog = [];
+    let draftCatalog = [];
     let editingSavedId = null;
     let workingDraftId = null;
     let originalInstructions = undefined;
@@ -556,7 +625,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const script = $("edit-script");
       const priorSuite = suite.value;
       const priorScript = script.value;
-      const sites = [...new Set(approvedCatalog.map(test => test.siteUrl || "__legacy__"))].sort();
+      const sites = [...new Set([
+        ...approvedCatalog.map(test => test.siteUrl || "__legacy__"),
+        ...draftCatalog.map(draft => draft.siteUrl),
+      ])].sort();
       suite.replaceChildren();
       const blank = make("option", "Select a test suite");
       blank.value = "";
@@ -576,25 +648,45 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const placeholder = make("option", suite ? "Select a test script" : "Select a suite first");
       placeholder.value = "";
       script.append(placeholder);
-      const matching = approvedCatalog.filter(item => (item.siteUrl || "__legacy__") === suite);
-      for (const item of matching) {
-        const option = make("option", item.title + " (" + item.steps + " steps)");
+      const approved = approvedCatalog.filter(item =>
+        (item.siteUrl || "__legacy__") === suite);
+      const drafts = draftCatalog.filter(item => item.siteUrl === suite);
+      for (const item of approved) {
+        const option = make("option", "[Approved] " + item.title + " (" + item.steps + " steps)");
         option.value = item.id;
         script.append(option);
       }
-      if (matching.some(item => item.id === selected)) script.value = selected;
+      for (const item of drafts) {
+        const option = make("option", "[Draft — not runnable] " + item.title +
+          " (" + item.approved + "/" + item.steps + " approved)");
+        option.value = item.id;
+        script.append(option);
+      }
+      if ([...approved, ...drafts].some(item => item.id === selected)) script.value = selected;
       script.disabled = !suite;
-      $("edit-load").disabled = !script.value;
+      $("edit-scripts-summary").textContent = suite
+        ? approved.length + " approved test(s), " + drafts.length +
+          " working draft(s). Drafts cannot be run."
+        : "Select a website suite to see approved tests and working drafts.";
+      updateEditLoadButton();
     }
     $("edit-suite").addEventListener("change", () => renderExistingScripts());
-    $("edit-script").addEventListener("change", () => {
-      $("edit-load").disabled = !$("edit-script").value;
-    });
+    function updateEditLoadButton() {
+      const id = $("edit-script").value;
+      $("edit-load").disabled = !id || running;
+      $("edit-load").textContent = id.startsWith("draft-")
+        ? "Resume selected draft" : "Load selected test";
+    }
+    $("edit-script").addEventListener("change", updateEditLoadButton);
     $("edit-load").addEventListener("click", () => {
-      void loadSavedForEditing($("edit-script").value);
+      const id = $("edit-script").value;
+      if (!id) return;
+      if (id.startsWith("draft-")) void loadWorkingDraft(id);
+      else void loadSavedForEditing(id);
     });
     async function refreshDraftPicker(selected = $("draft-select").value) {
       const data = await requestJSON("/api/drafts");
+      draftCatalog = data.drafts;
       const select = $("draft-select");
       select.replaceChildren();
       const blank = make("option", "Select a working draft");
@@ -609,7 +701,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (data.drafts.some(item => item.id === selected)) select.value = selected;
       $("draft-load").disabled = !select.value;
       $("draft-list-status").textContent = data.drafts.length +
-        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available.";
+        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available." +
+        (data.skippedInvalid ? " WARNING: " + data.skippedInvalid +
+          " saved draft file(s) could not be read; the server did not include them." : "") +
+        (data.skippedOverflow ? " WARNING: " + data.skippedOverflow +
+          " draft(s) exceed the current index limit." : "");
+      $("draft-list-status").classList.toggle("error",
+        Boolean(data.skippedInvalid || data.skippedOverflow));
+      renderExistingEditorChoices();
+      if (selected) {
+        const item = draftCatalog.find(item => item.id === selected);
+        if (item) {
+          $("edit-suite").value = item.siteUrl;
+          renderExistingScripts(item.id);
+        }
+      }
     }
     $("draft-select").addEventListener("change", () => {
       $("draft-load").disabled = !$("draft-select").value;
@@ -619,12 +725,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft-list-status").textContent = error.message || String(error);
       });
     });
-    $("draft-load").addEventListener("click", async () => {
-      const id = $("draft-select").value;
-      if (!id || running) return;
+    async function loadWorkingDraft(id) {
+      if (!id || running || !draftCatalog.some(item => item.id === id)) return;
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
+        lastSavedId = "";
+        savedFingerprint = "";
         workingDraftId = id;
         editingSavedId = data.draft.sourceApprovedId || null;
         originalInstructions = data.draft.sourceInstructions;
@@ -638,6 +745,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           .map(item => item.text).join("\n");
         showOriginalInstructions();
         clearPreflight();
+        clearGeneratedReviewWarnings();
         $("placeholder").hidden = true;
         $("draft").hidden = false;
         $("draft-title").textContent = "Working draft: " + definition.title;
@@ -648,11 +756,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } catch (error) {
         $("draft-list-status").textContent = error.message || String(error);
       }
+    }
+    $("draft-load").addEventListener("click", () => {
+      void loadWorkingDraft($("draft-select").value);
     });
     $("back-to-selector").addEventListener("click", () => {
       // Returning to the test picker also ends the edit session. Otherwise
       // generating a *new* test could unexpectedly replace the old script.
       definition = null;
+      lastSavedId = "";
+      savedFingerprint = "";
       approvals = new Set();
       editingSavedId = null;
       workingDraftId = null;
@@ -668,6 +781,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     $("save-draft").addEventListener("click", async () => {
       if (!definition || !$("test-name").value.trim()) return;
+      $("draft-save-status").classList.remove("error");
       $("draft-save-status").textContent = "Saving working draft...";
       try {
         const name = $("test-name").value.trim();
@@ -682,12 +796,26 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             ...(editingSavedId ? { sourceApprovedId: editingSavedId } : {}),
           }),
         });
+        if (!result.listed || !result.id || !result.file) {
+          throw new Error("The server did not verify that this working draft is saved and listed.");
+        }
         workingDraftId = result.id;
-        $("draft-save-status").textContent =
-          "Working draft saved (" + approvals.size + "/" + definition.steps.length +
-          " approved). You can resume it after restarting the server.";
         await refreshDraftPicker(result.id);
+        const listed = draftCatalog.some(item => item.id === result.id) &&
+          $("draft-select").value === result.id &&
+          $("edit-script").value === result.id;
+        if (!listed) {
+          throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and try Refresh drafts.");
+        }
+        $("draft-save-status").classList.remove("error");
+        $("draft-save-status").textContent = "Working draft saved and verified (" +
+          approvals.size + "/" + definition.steps.length + " approved). " +
+          "Listed as [Draft — not runnable] in Edit Existing Test, and selected " +
+          "under Saved working drafts. File: " + result.file;
+        $("working-drafts-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+        $("draft-select").focus({ preventScroll: true });
       } catch(error) {
+        $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
       }
     });
@@ -1021,6 +1149,39 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
 
+    function isDomWideAssertion(action) {
+      // Mirrors src/runner.ts: a page-root locator is not equivalent to a
+      // specific product/container. This is advisory, not a failure.
+      return (action.kind === "assert-text" && action.scope !== "search-results") ||
+        action.kind === "assert-visible" || action.kind === "assert-count";
+    }
+    const domWideExplanation = "Page-root locator: this check is not restricted to a specific product, row, or container. This may be intentional.";
+    function syncReviewFeedback() {
+      const warnings = ["draft-dom-wide-summary", "draft-quality-warnings",
+        "generation-page-error-summary"].some(id => !$(id).hidden);
+      $("draft-review-advisories").hidden = !warnings;
+      $("draft-review-feedback").hidden = $("draft-critical-blockers").hidden && !warnings;
+    }
+    function clearGeneratedReviewWarnings() {
+      // Generated page evidence belongs to that generation, not the next
+      // approved test or working draft the user opens in this editor.
+      for (const id of ["draft-quality-warnings", "generation-page-error-summary"]) {
+        $(id).hidden = true;
+        $(id).textContent = "";
+      }
+      $("generation-diagnostics").hidden = true;
+      $("generation-diagnostics").open = false;
+      syncReviewFeedback();
+    }
+    function renderDomWideSummary() {
+      const count = (definition?.steps ?? []).filter(step =>
+        isDomWideAssertion(step.action)).length;
+      const note = $("draft-dom-wide-summary");
+      note.hidden = count === 0;
+      note.textContent = count ? count + " DOM-wide assertion" +
+        (count === 1 ? "" : "s") + " — these checks search from the page root rather than a specific container, so a match elsewhere on the page could hide a problem with the intended item. Page-wide scope may still be correct." : "";
+      syncReviewFeedback();
+    }
     function renderSteps() {
       incrementalRevision++;
       incrementalPending = null;
@@ -1035,6 +1196,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         top.append(make("strong", "Step " + (index + 1)));
         const tag = make("span", step.action.kind, "pill");
         top.append(tag);
+        if (isDomWideAssertion(step.action)) {
+          const scopeBadge = make("span", "DOM-wide", "pill warn");
+          scopeBadge.title = domWideExplanation;
+          top.append(scopeBadge);
+        }
         card.append(top);
         card.append(make("p", step.description));
         card.append(make("div", describeAction(step.action), "action"));
@@ -1098,6 +1264,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         card.append(label);
         list.append(card);
       }
+      renderDomWideSummary();
       updateApproval();
       if (definition) renderTraceability();
     }
@@ -1249,6 +1416,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             "): " + finding.message, finding.status === "warning" ? "note" : "muted");
           note.style.marginTop = "8px";
           $("selector-preflight-results").append(note);
+          if (finding.status === "warning") {
+            const review = make("button", "Review step " + finding.stepNumber, "secondary");
+            review.type = "button";
+            review.style.marginTop = "6px";
+            review.addEventListener("click", () => {
+              const card = document.querySelectorAll("#step-list .step")[finding.stepNumber - 1];
+              if (!card) return;
+              card.scrollIntoView({ behavior: "smooth", block: "center" });
+              const editButton = Array.from(card.querySelectorAll("button"))
+                .find(button => button.textContent.trim() === "Edit fields");
+              if (editButton) editButton.click();
+            });
+            $("selector-preflight-results").append(review);
+          }
         }
       } catch (error) {
         if (revision === preflightRevision) {
@@ -1354,6 +1535,61 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         (cleared ? " " + cleared + " changed requirements had their previous links cleared." : "");
       renderTraceability();
     });
+    // Mirrors the server-side credential safety gate. Check field descriptions
+    // and explicit placeholders only: never send values to a model or diagnostic.
+    function unresolvedLoginCredentialSteps() {
+      if (!definition) return [];
+      const descriptor = step => {
+        const target = step.action.target;
+        const name = target && ("value" in target ? target.value : target.name || "");
+        return (name || "") + " " + step.description;
+      };
+      const passwordField = /\b(pass[\s_-]?(?:word|code)|pwd|one[\s_-]?time[\s_-]?(?:password|code)|otp|verification[\s_-]?code|auth[\s_-]?token)\b/i;
+      const usernameField = /\b(user[\s_-]?name|login[\s_-]?(?:id|name)|account[\s_-]?name)\b/i;
+      const loginFlow = definition.steps.some(step =>
+        /\b(log[\s_-]?in|sign[\s_-]?in|authenticate|authentication)\b/i.test(step.description) ||
+        (step.action.kind === "fill" && /\b(pass[\s_-]?word|pwd)\b/i.test(descriptor(step))));
+      return definition.steps.flatMap((step, index) => {
+        if (step.action.kind !== "fill") return [];
+        const value = step.action.value.trim();
+        const placeholder = /^(?:REPLACE_WITH_.*|YOUR_(?:USERNAME|PASSWORD)|ENTER_(?:USERNAME|PASSWORD)|<[^>]+>)$/i.test(value);
+        const label = descriptor(step);
+        const isCredential = passwordField.test(label) || usernameField.test(label) ||
+          (loginFlow && /\b(user|email|email[\s_-]?address)\b/i.test(label));
+        return placeholder || (isCredential && !value) ? [index + 1] : [];
+      });
+    }
+    function renderCriticalBlockers(steps) {
+      const panel = $("draft-critical-blockers");
+      panel.replaceChildren();
+      panel.hidden = steps.length === 0;
+      if (!steps.length) {
+        syncReviewFeedback();
+        return;
+      }
+      panel.append(make("h3", "⛔ Cannot save or run — " + steps.length +
+        " unresolved login credential " + (steps.length === 1 ? "step" : "steps")));
+      panel.append(make("p", "Blocking errors: replace the generated credential placeholders " +
+        "with approved test values in step" + (steps.length === 1 ? " " : "s ") +
+        steps.join(", ") + ". Save Test and Save & Run remain disabled until reviewed. " +
+        "You can still Save Draft."));
+      const buttons = make("div", null, "actions");
+      for (const number of steps) {
+        const review = make("button", "Edit step " + number, "secondary");
+        review.type = "button";
+        review.addEventListener("click", () => {
+          const card = document.querySelectorAll("#step-list .step")[number - 1];
+          if (!card) return;
+          card.scrollIntoView({ behavior:"smooth", block:"center" });
+          const edit = Array.from(card.querySelectorAll("button"))
+            .find(button => button.textContent.trim() === "Edit fields");
+          if (edit) edit.click();
+        });
+        buttons.append(review);
+      }
+      panel.append(buttons);
+      syncReviewFeedback();
+    }
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
@@ -1364,8 +1600,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const remaining = Math.max(0, total - approvals.size);
       $("save-test-name").classList.toggle("missing-field", total > 0 && missingName);
       $("save-test-name").setAttribute("aria-invalid", total > 0 && missingName ? "true" : "false");
+      const unresolvedCredentials = unresolvedLoginCredentialSteps();
+      const credentialReview = unresolvedCredentials.length > 0;
+      renderCriticalBlockers(unresolvedCredentials);
       const missing = [
         ...(missingName ? ["enter a Test name above"] : []),
+        ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
           (remaining === 1 ? "" : "s")] : []),
       ];
@@ -1373,15 +1613,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         ? "Generate a test to begin review."
         : missing.length
           ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
-            ". Save Working Draft to continue later once a name is entered."
-          : "Ready to save. The test will then appear in Run Tests for execution.";
+            ". Save Draft is available for unfinished work once a name is entered."
+          : "Ready to save or run. Save & Run will save the reviewed test and automatically show the execution results below.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
-      $("save").disabled = total === 0 || approvals.size !== total ||
-        !$("test-name").value.trim();
+      const cannotSave = saving || running || total === 0 || approvals.size !== total ||
+        credentialReview || !$("test-name").value.trim();
+      $("save").disabled = cannotSave;
+      $("save-and-run").disabled = cannotSave;
       $("review-add-all").disabled = total === 0 || approvals.size === total;
-      $("save-draft").disabled = total === 0 || !$("test-name").value.trim();
-      $("save-as-new").disabled = total === 0 || approvals.size !== total ||
-        !editingSavedId || !$("test-name").value.trim();
+      $("save-draft").disabled = saving || running || total === 0 || !$("test-name").value.trim();
+      $("save-as-new").disabled = saving || running || total === 0 || approvals.size !== total ||
+        credentialReview || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
       $("save-error").textContent = "";
@@ -1611,6 +1853,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const heading = make("div");
         heading.append(make("strong", "Step " + (index + 1) + " · " + step.description));
         heading.append(make("span", step.status, "verdict " + step.status));
+        if (step.domWideAssertion) {
+          const scopeBadge = make("span", "DOM-wide", "pill warn");
+          scopeBadge.title = domWideExplanation;
+          heading.append(scopeBadge);
+        }
         head.append(heading, make("span", step.durationMs + " ms", "muted"));
         card.append(head);
         if (step.expected !== undefined) card.append(make("p", "Expected: " + step.expected));
@@ -2425,6 +2672,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (running || !id) return;
       running = true;
       updateRunButton();
+      updateApproval();
       $("run-error").textContent = "";
       $("run-results").hidden = true;
       $("run-status").textContent = "Starting Playwright test...";
@@ -2444,6 +2692,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } finally {
         running = false;
         updateRunButton();
+        updateApproval();
       }
     }
     $("run-test").addEventListener("click", () => { void executeApproved(selectedApprovedId); });
@@ -2510,6 +2759,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       try {
         const payload = await requestJSON("/api/tests/" + encodeURIComponent(id));
         definition = payload.definition;
+        lastSavedId = "";
+        savedFingerprint = "";
         workingDraftId = null;
         originalInstructions = definition.sourceInstructions;
         $("requirements").value = definition.workingInstructions ?? definition.sourceInstructions ?? "";
@@ -2522,6 +2773,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         editingSavedId = id;
         approvals = new Set();
         clearPreflight();
+        clearGeneratedReviewWarnings();
         selectedBaseURL = definition.sourceUrl || $("base-url").value;
         $("saved").replaceChildren();
         $("save-error").textContent = "";
@@ -2599,8 +2851,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("step-list").replaceChildren();
       $("draft-title").textContent = "";
       $("draft-hint").textContent = "";
+      $("draft-dom-wide-summary").hidden = true;
+      $("draft-dom-wide-summary").textContent = "";
       $("draft-quality-warnings").hidden = true;
       $("draft-quality-warnings").textContent = "";
+      $("generation-page-error-summary").hidden = true;
+      $("generation-page-error-summary").textContent = "";
+      $("draft-critical-blockers").hidden = true;
+      $("draft-critical-blockers").replaceChildren();
+      $("draft-review-advisories").hidden = true;
+      $("draft-review-feedback").hidden = true;
       $("generation-diagnostics").hidden = true;
       $("generation-diagnostics").open = false;
       $("generation-diagnostics-snapshot").textContent = "";
@@ -2618,6 +2878,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       clearPreflight();
       updateApproval();
     }
+    $("site-memory-help-toggle").addEventListener("click", () => {
+      const panel = $("site-memory-description");
+      panel.hidden = !panel.hidden;
+      $("site-memory-help-toggle").setAttribute("aria-expanded", String(!panel.hidden));
+    });
     $("check-application-memory").addEventListener("click", async () => {
       const status = $("application-memory-status");
       if (!$("use-application-memory").checked) {
@@ -2645,18 +2910,37 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         ? evidence.warnings.filter(item => typeof item === "string") : [];
       const notice = $("draft-quality-warnings");
       notice.textContent = warnings.length
-        ? "Review before approving — " + warnings.length + " potential quality issue(s):\n" +
+        ? "Other quality checks (" + warnings.length + "):\n" +
           warnings.map((warning, i) => (i + 1) + ". " + warning).join("\n")
         : "";
       notice.hidden = warnings.length === 0;
+      const errorNotice = $("generation-page-error-summary");
+      const pageErrors = evidence.snapshot.inspection?.pageErrors ?? 0;
+      const summaries = evidence.snapshot.inspection?.pageErrorSummaries ?? [];
+      errorNotice.textContent = pageErrors
+        ? "Initial page JavaScript exception" + (pageErrors === 1 ? "" : "s") +
+          " (" + pageErrors + "): " +
+          (summaries.length ? summaries.join(" | ") : "No details captured.") +
+          " This is not evidence that a test step failed. Use the read-only selector check below to verify known starting-page targets."
+        : "";
+      errorNotice.hidden = !pageErrors;
+      syncReviewFeedback();
       const details = $("generation-diagnostics");
       details.hidden = false;
       $("generation-diagnostics-summary").textContent =
         "Generation diagnostics — initial page evidence" +
         (warnings.length ? " (" + warnings.length + " warning(s))" : "");
+      const inspection = evidence.snapshot.inspection;
+      const blocked = inspection?.blockedCrossOriginRequests ?? 0;
+      const blockedKinds = inspection?.blockedRequestKinds || {};
+      const breakdown = Object.entries(blockedKinds)
+        .map(([kind, count]) => kind + " × " + count).join(", ");
       $("generation-diagnostics-meta").textContent =
         "Provider: " + evidence.provider + " | Model: " + evidence.model +
-        " | Requests: " + evidence.attempts + ".";
+        " | Requests: " + evidence.attempts + "." +
+        (blocked ? " Inspector safely blocked " + blocked +
+          " third-party request(s)" + (breakdown ? " (" + breakdown + ")" : "") +
+          ". This is informational, not proof of a broken test; review the initial-page evidence." : "");
       $("generation-diagnostics-snapshot").textContent =
         JSON.stringify(evidence.snapshot, null, 2);
       $("generation-diagnostics-output").textContent =
@@ -2720,6 +3004,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         const wasEditing = Boolean(editingSavedId || workingDraftId);
         definition = data.definition;
+        lastSavedId = "";
+        savedFingerprint = "";
         if (!wasEditing) {
           originalInstructions = requirements;
           workingDraftId = null;
@@ -2753,7 +3039,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
-          (data.diagnostics?.warnings?.length ? " Review the quality warnings in Test Editor." : "");
+          (data.diagnostics?.blockingCredentialSteps?.length
+            ? " BLOCKED: Save Test and Save & Run require approved login credentials. See the red blocker panel in Test Editor."
+            : "") +
+          (data.diagnostics?.warnings?.length ? " Review the advisory quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
@@ -2764,8 +3053,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("generate").disabled = false;
       }
     });
-    async function approveAndSave(saveAsNew = false) {
-      if (!definition || approvals.size !== definition.steps.length) return;
+    function currentSaveFingerprint(testName) {
+      return JSON.stringify({
+        definition: {
+          ...definition,
+          title: testName,
+          sourceInstructions: originalInstructions,
+          workingInstructions: $("requirements").value,
+        },
+        testName,
+        baseURL: selectedBaseURL,
+      });
+    }
+    async function approveAndSave(saveAsNew = false, runAfterSave = false) {
+      if (saving || running || !definition || approvals.size !== definition.steps.length) return;
       const testName = $("test-name").value.trim();
       if (!testName || testName.length > 200) {
         $("save-error").textContent = "Enter a test name (1–200 characters) before saving.";
@@ -2779,11 +3080,24 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           return;
         }
       }
-      $("save").disabled = true;
+      saving = true;
+      updateApproval();
       $("save-error").textContent = "";
       $("saved").replaceChildren();
+      let approvedId = "";
       try {
-        const response = await fetch("/api/save", {
+        const fingerprint = currentSaveFingerprint(testName);
+        if (!saveAsNew && lastSavedId && savedFingerprint === fingerprint) {
+          // Re-running an unchanged approved test must not create or replace a file.
+          const existing = approvedCatalog.find(item => item.id === lastSavedId);
+          if (!existing) throw new Error("Previously saved test is no longer available. Save the test again.");
+          approvedId = lastSavedId;
+          await refreshApprovedTests(approvedId, existing.siteUrl || "");
+          $("saved").textContent = runAfterSave
+            ? "This test is unchanged. Starting the previously saved approved test."
+            : "This test is unchanged. Using the previously saved approved test.";
+        } else {
+          const response = await fetch("/api/save", {
           method: "POST", headers: {"Content-Type":"application/json"},
           body: JSON.stringify({
             definition: {
@@ -2792,7 +3106,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               workingInstructions: $("requirements").value,
             },
             testName, baseURL: selectedBaseURL,
-            ...(!saveAsNew && editingSavedId ? { replaceId: editingSavedId } : {}),
+            ...(!saveAsNew && (editingSavedId || lastSavedId)
+              ? { replaceId: editingSavedId || lastSavedId } : {}),
           }),
         });
         const data = await response.json();
@@ -2805,17 +3120,24 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         selectedBaseURL = data.sourceUrl;
         $("base-url").value = data.sourceUrl;
         await refreshApprovedTests(data.id, data.siteUrl);
+        approvedId = data.id;
+        lastSavedId = data.id;
+        savedFingerprint = currentSaveFingerprint(testName);
         if (data.replacedId) {
           $("run-results").hidden = true;
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
         }
-        $("saved").append(make("strong", data.replacedId
-          ? "Amended test saved; old version removed from the list. Ready to execute."
-          : "Saved and ready to execute. The test has NOT been executed."));
+        $("saved").append(make("strong", runAfterSave
+          ? "Test saved successfully. Starting execution below."
+          : data.replacedId
+            ? "Amended test saved; old version removed from the list. Ready to execute."
+            : "Saved and ready to execute. The test has NOT been executed."));
         $("saved").append(make("p", "JSON file: " + data.file));
         const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
         const pre = make("pre", command);
-        $("saved").append(make("p", "Use Run selected test in section 3, or run via the CLI:"));
+        $("saved").append(make("p", runAfterSave
+          ? "Execution will start below. To run again later, use Run Tests. CLI command:"
+          : "Use Run selected test in section 3, or run via the CLI:"));
         $("saved").append(pre);
         const copy = make("button", "Copy run command", "secondary");
         copy.onclick = async () => {
@@ -2823,13 +3145,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           catch { copy.textContent = "Select the command above to copy"; }
         };
         $("saved").append(copy);
+        }
       } catch(error) {
         $("save-error").textContent = error.message || String(error);
       } finally {
+        saving = false;
         updateApproval();
+      }
+      if (runAfterSave && approvedId) {
+        // Execution always references the saved approved ID, never an unsaved draft.
+        // Focus the live status before the asynchronous browser run begins.
+        $("execution-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+        $("run-status").focus({ preventScroll: true });
+        await executeApproved(approvedId);
       }
     }
     $("save").addEventListener("click", () => { void approveAndSave(false); });
+    $("save-and-run").addEventListener("click", () => { void approveAndSave(false, true); });
     $("save-as-new").addEventListener("click", () => { void approveAndSave(true); });
   </script>
 </body>

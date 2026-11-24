@@ -64,6 +64,9 @@ for (const result of ["match", "unrelated", "none"] as const) {
         baseURL: url, outputDir: info.outputPath("run"), timeoutMs: 650,
       }, browser);
       const assertion = report.steps[3];
+      // Recognised result-card assertions are deliberately scoped and must not
+      // be labelled DOM-wide, even though they start from the page object.
+      expect(assertion.domWideAssertion).toBeUndefined();
       if (result === "match") {
         expect(report.status).toBe("passed");
         expect(assertion).toMatchObject({ status: "passed", textMatch: "contains" });

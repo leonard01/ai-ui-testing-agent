@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { createReviewServer } from "../src/review-server.js";
 import { generatePlaywrightSpec } from "../src/export.js";
 import type { TestDefinition } from "../src/domain.js";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 test.use({ trace: "off" });
@@ -75,6 +75,44 @@ test("portable TypeScript passes in a separate Playwright process with live inte
   expect(source).not.toContain("GROQ_API_KEY");
   const result = await executePortable(source, info.outputPath("portable"));
   expect(result.stdout + result.stderr).toMatch(/1 passed/);
+});
+
+test("portable export selects the correct product-scoped Add to cart button", async ({}, info) => {
+  const fixture: Server = createServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end('<!doctype html><main>' +
+      '<article><div>Sauce Labs Bike Light</div><button onclick="document.getElementById(\'cart\').textContent=\'Sauce Labs Bike Light\'">Add to cart</button></article>' +
+      '<article><div>Sauce Labs Backpack</div><button onclick="document.getElementById(\'cart\').textContent=\'Sauce Labs Backpack\'">Add to cart</button></article>' +
+      '<div role="status" aria-label="Cart" id="cart">empty</div>' +
+      '</main>');
+  });
+  await new Promise<void>((resolve) => fixture.listen(0, "127.0.0.1", resolve));
+  const url = "http://127.0.0.1:" + (fixture.address() as AddressInfo).port;
+  try {
+    const definition: TestDefinition = {
+      schemaVersion: 1, id: "portable-cart", title: "Scoped cart action",
+      version: 1, steps: [
+        { id: "open", description: "Open", action: { kind: "navigate", url: "/" } },
+        { id: "add", description: "Add Sauce Labs Backpack to cart", action: {
+          kind: "click", target: { by: "intent", value: "Add Sauce Labs Backpack", role: "button" },
+        } },
+        { id: "verify", description: "Verify Backpack", action: {
+          kind: "assert-text", target: { by: "role", role: "status", name: "Cart" },
+          expected: "Sauce Labs Backpack", provenance: "requirements",
+        } },
+      ],
+    };
+    const source = generatePlaywrightSpec(definition, { baseURL: url, timeoutMs: 1500 });
+    expect(source).toContain("async function resolveCartAction(");
+    expect(source).toContain("async function productTitles(");
+    const result = await executePortable(source, info.outputPath("portable-cart"), url);
+    expect(result.stdout + result.stderr).toMatch(/1 passed/);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      fixture.close((error) => error ? reject(error) : resolve());
+      fixture.closeAllConnections();
+    });
+  }
 });
 
 test("exported assertion mismatch fails independently without weakening the expectation", async ({}, info) => {
@@ -185,7 +223,7 @@ test("review UI exports only approved saved tests and never creates an extra fil
       await checkbox.check();
     }
     await page.locator("#test-name").fill("Add, complete and delete a task");
-    await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+    await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     await expect(link).toBeVisible();
     const href = await link.getAttribute("href");

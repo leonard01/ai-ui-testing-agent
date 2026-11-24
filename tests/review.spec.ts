@@ -26,6 +26,183 @@ test.afterAll(async () => {
   await rm(outputDir, { recursive: true, force: true });
 });
 
+
+test("initial page JavaScript exception is explained separately from selector defects", async ({ page }) => {
+  const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  const snapshot = {
+    url: "http://127.0.0.1:3000/", title: "Test app",
+    headings: ["Task list"], controls: [], statusText: [], sampleText: [],
+    inspection: {
+      mainDocumentStatus: 200, pageErrors: 1,
+      allowedCrossOriginRequests: 0, blockedCrossOriginRequests: 0,
+      pageErrorSummaries: ["TypeError: Cannot read properties of undefined"],
+    },
+  };
+  await page.goto(url);
+  await page.route("**/api/generate", route => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({
+      definition, needsReview: true, provider: "groq", generationAttempts: 1,
+      memorySuggestions: [], diagnostics: {
+        provider: "groq", model: "mock", attempts: 1, snapshot,
+        warnings: ["The website raised 1 JavaScript exception(s) while loading. This does NOT mean a test step or selector has failed. Open Generation diagnostics for the redacted error summary, then use Check selectors (read-only) to inspect starting-page targets before approving."],
+      },
+      message: "AI-generated draft",
+    }),
+  }));
+  await page.getByLabel("Your test instructions").fill("Add a task");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#draft-quality-warnings")).toContainText(
+    "does NOT mean a test step or selector has failed");
+  await expect(page.locator("#generation-page-error-summary")).toContainText(
+    "TypeError: Cannot read properties of undefined");
+  await expect(page.locator("#draft-preflight-panel")).toBeVisible();
+  const preflightBeforeSteps = await page.locator("#draft-preflight-panel").evaluate(
+    element => {
+      const steps = document.querySelector("#step-list");
+      return !!steps && !!(element.compareDocumentPosition(steps) &
+        Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+  expect(preflightBeforeSteps).toBe(true);
+  await expect(page.locator("#save")).toBeDisabled();
+});
+
+test("unverified login placeholders are critical blockers, not amber advisory warnings", async ({page}) => {
+  const login = {
+    schemaVersion:1, id:"login", title:"Login", version:1,
+    steps:[
+      {id:"open", description:"Open login page",action:{kind:"navigate",url:"http://127.0.0.1:3000"}},
+      {id:"user",description:"Enter username",action:{
+        kind:"fill",target:{by:"label",value:"Username"},value:"REPLACE_WITH_YOUR_USERNAME"}},
+      {id:"pass",description:"Enter password",action:{
+        kind:"fill",target:{by:"label",value:"Password"},value:"REPLACE_WITH_YOUR_PASSWORD"}},
+      {id:"login",description:"Click Login",action:{
+        kind:"click",target:{by:"role",role:"button",name:"Login"}}},
+      {id:"verify",description:"Verify Products",action:{
+        kind:"assert-visible",target:{by:"text",value:"Products"},provenance:"requirements"}},
+    ],
+  };
+  await page.goto(url);
+  await page.route("**/api/generate",route => route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({
+      definition:login,needsReview:true,provider:"groq",generationAttempts:1,
+      memorySuggestions:[],
+      diagnostics:{
+        provider:"groq",model:"mock",attempts:1,
+        snapshot:{url:"http://127.0.0.1:3000",title:"Login",headings:["Login"],
+          controls:[],statusText:[],sampleText:[],
+          inspection:{mainDocumentStatus:200,blockedCrossOriginRequests:0,
+            allowedCrossOriginRequests:0,pageErrors:0}},
+        warnings:[],blockingCredentialSteps:[2,3],
+      },
+      message:"AI-generated draft",
+    }),
+  }));
+  await page.getByLabel("Your test instructions").fill("Log in and verify Products");
+  await page.locator("#test-name").fill("Login validation");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button",{name:"Generate draft"}).click();
+  const panel = page.locator("#draft-critical-blockers");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Cannot save or run");
+  await expect(panel).toContainText("step 2");
+  await expect(panel).toContainText("3");
+  const sharedReview = page.locator("#draft-review-feedback");
+  await expect(sharedReview).toBeVisible();
+  await expect(sharedReview.locator("#draft-review-advisories")).toBeVisible();
+  await expect(sharedReview).toContainText("Warnings — review against your test intent");
+  await expect(sharedReview).toContainText("could verify something different from what you intended");
+  await expect(sharedReview).toContainText("1 DOM-wide assertion");
+  // Blockers are the first visible message in the shared review panel.
+  const blockerBeforeWarnings = await sharedReview.evaluate(node => {
+    const blocker = node.querySelector("#draft-critical-blockers");
+    const warning = node.querySelector("#draft-review-advisories");
+    return !!blocker && !!warning &&
+      !!(blocker.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(blockerBeforeWarnings).toBe(true);
+  await expect(page.locator("#generation-status")).toContainText("BLOCKED");
+  await expect(page.locator("#draft-quality-warnings")).toBeHidden();
+  await page.getByRole("button",{name:"Add All",exact:true}).click();
+  await expect(page.locator("#save")).toBeDisabled();
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await expect(page.locator("#save-draft")).toBeEnabled();
+
+  // Reproduces the user-reported login-memory case: an incomplete login test
+  // with credential placeholders must be saved, rediscovered after reload,
+  // and reopenable as a draft (never a runnable approved test).
+  await page.getByRole("button",{name:"Save Draft",exact:true}).click();
+  await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+  const loginDraftId = await page.locator("#draft-select").inputValue();
+  expect(loginDraftId).toMatch(/^draft-/);
+  await page.reload();
+  await expect(page.locator('#draft-select option[value="' + loginDraftId + '"]')).toHaveCount(1);
+  await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
+  await page.locator("#edit-script").selectOption(loginDraftId);
+  await page.getByRole("button",{name:"Resume selected draft"}).click();
+  await expect(panel).toBeVisible();
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+
+  await panel.getByRole("button",{name:"Edit step 2"}).click();
+  const username = page.locator("#step-list .step").nth(1);
+  await username.getByLabel("Value to enter").fill("public-demo-user");
+  await username.getByRole("button",{name:"Apply changes"}).click();
+  await expect(panel).toContainText("1 unresolved login credential step");
+  await expect(panel).not.toContainText("Edit step 2");
+  await expect(panel.getByRole("button",{name:"Edit step 3"})).toBeVisible();
+  await panel.getByRole("button",{name:"Edit step 3"}).click();
+  const password = page.locator("#step-list .step").nth(2);
+  await password.getByLabel("Value to enter").fill("public-demo-password");
+  await password.getByRole("button",{name:"Apply changes"}).click();
+  await expect(panel).toBeHidden();
+  // Non-blocking warnings remain visible after the blocker has been resolved.
+  await expect(sharedReview).toBeVisible();
+  await expect(sharedReview.locator("#draft-review-advisories")).toBeVisible();
+  await expect(page.locator("#draft-quality-warnings")).toBeHidden();
+
+  // Editing invalidates approval of the changed steps; the user must confirm
+  // them again before creating an executable test.
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await page.getByRole("button",{name:"Add All",exact:true}).click();
+  await expect(page.locator("#save")).toBeEnabled();
+  await expect(page.locator("#save-and-run")).toBeEnabled();
+});
+
+test("JavaScript page warnings stay advisory, never incorrectly labelled as blockers", async ({page}) => {
+  await page.goto(url);
+  await page.route("**/api/generate",route => route.fulfill({
+    status:200,contentType:"application/json",
+    body:JSON.stringify({
+      definition:{
+        schemaVersion:1,id:"simple",title:"Simple",version:1,
+        steps:[{id:"open",description:"Open site",action:{kind:"navigate",url:"http://127.0.0.1:3000"}}],
+      },
+      needsReview:true,provider:"groq",generationAttempts:1,memorySuggestions:[],
+      diagnostics:{provider:"groq",model:"mock",attempts:1,
+        snapshot:{url:"http://127.0.0.1:3000",title:"Todo",headings:["Todo"],
+          controls:[],statusText:[],sampleText:[],
+          inspection:{mainDocumentStatus:200,blockedCrossOriginRequests:0,
+            allowedCrossOriginRequests:0,pageErrors:1,
+            pageErrorSummaries:["TypeError: demo script issue"]}},
+        blockingCredentialSteps:[],
+        warnings:["The website raised a JavaScript exception while loading; no test-step failure is implied."]},
+      message:"AI-generated draft",
+    }),
+  }));
+  await page.getByLabel("Your test instructions").fill("Open the page");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button",{name:"Generate draft"}).click();
+  await expect(page.locator("#draft-critical-blockers")).toBeHidden();
+  await expect(page.locator("#draft-review-feedback")).toBeVisible();
+  await expect(page.locator("#draft-critical-blockers")).toBeHidden();
+  await expect(page.locator("#draft-review-advisories")).toContainText(
+    "Warnings — review against your test intent");
+  await expect(page.locator("#draft-quality-warnings")).toContainText("Other quality checks");
+  await expect(page.locator("#draft-quality-warnings")).toContainText("JavaScript exception");
+});
+
 async function generateFixture(page: import("@playwright/test").Page) {
   await page.goto(url);
   await page.getByLabel("Your test instructions").fill(
@@ -79,7 +256,9 @@ test("read-only selector preflight suggests an Add button when generated label i
   await expect(page.locator("#saved")).toBeEmpty();
   await expect(page.locator("#run-status")).toContainText("Select an approved test");
 
-  await addStep.getByRole("button", { name: "Edit fields" }).click();
+  // The warning links directly to its editable step, before any execution.
+  await page.getByRole("button", { name: "Review step 4" }).click();
+  await expect(addStep.getByLabel("Locator strategy")).toHaveValue("label");
   await addStep.getByLabel("Locator strategy").selectOption("role");
   await addStep.getByRole("button", { name: "Apply changes" }).click();
   await expect(page.locator("#selector-preflight-status")).toBeEmpty();
@@ -128,7 +307,7 @@ test("plain-English input produces a readable review-only fixture draft", async 
   await expect(page.getByText("Fixture is a prewritten demonstration, not AI-generated.")).toBeVisible();
   await expect(page.locator(".step").nth(2)).toContainText("Enter");
   await expect(page.locator(".step").nth(2)).toContainText("Prepare interview");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
   for (const box of await page.locator(".step input[type=checkbox]").all()) {
     await box.check();
@@ -149,7 +328,7 @@ test("Add All explicitly confirms every proposed step without auto-saving or hid
   const previouslySaved = (await listApprovedIds(outputDir)).length;
   await generateFixture(page);
   const addAll = page.getByRole("button", { name: "Add All", exact: true });
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(addAll).toBeEnabled();
   await expect(save).toBeDisabled();
   await expect(page.locator("#review-progress")).toHaveText("0 of 9 steps confirmed");
@@ -214,7 +393,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const files = await listApprovedIds(outputDir);
   const drafts = await Promise.all(files.map(async (file) => JSON.parse(
@@ -227,7 +406,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 async function approveDraft(page: import("@playwright/test").Page) {
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
 }
@@ -427,7 +606,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
   await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   await expect(page.locator(".step")).toHaveCount(9);
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
   const fourth = page.locator(".step").nth(3);
   await fourth.getByRole("button", { name: "Edit fields" }).click();
   await fourth.getByLabel("Description").fill("Add a task via the button");
@@ -437,7 +616,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
     await box.check();
   }
   await page.locator("#test-name").fill("Add, complete and delete a task");
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("old version removed from the list");
   const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
   expect(revisedId).not.toBe(originalId);
@@ -972,7 +1151,7 @@ test("Test 1 repairs string-valued steps with one extra mocked Groq call", async
     expect(prompts[1]).toContain("steps[4]");
     expect(prompts[1]).toContain("expected object, received string");
     expect(prompts[1]).toContain("COMPLETE test definition");
-    await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
   } finally {
     // Close the Playwright page's idle HTTP connections before awaiting shutdown.
     // Otherwise server.close can hang on CI and consume the entire test timeout.
@@ -1093,7 +1272,7 @@ test("review server rejects malformed instructions and off-origin writes", async
 test("requires a human test name and offers previous application URLs", async ({ page }) => {
   await generateFixture(page);
   const name = page.locator("#test-name");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await name.fill("  ");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await expect(save).toBeDisabled();
@@ -1117,7 +1296,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
   // An existing locally saved test is selected before another website is used.
   await generateFixture(page);
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.getByLabel("Test suite (website URL)"))
     .toHaveValue("http://127.0.0.1:3000");
 
@@ -1157,7 +1336,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
 
   const suite = page.getByLabel("Test suite (website URL)");
@@ -1194,27 +1373,132 @@ test("reviewer selects Contains and saved assertion preserves its explicit compa
   for (const checkbox of await page.locator(".step input[type=checkbox]").all()) {
     await checkbox.check();
   }
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const id = await page.getByLabel("Test script", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, id), "utf8"));
   expect(saved.steps[1].action.match).toBe("contains");
 });
 
+test("draft and live execution identify DOM-wide assertions without treating them as failures", async ({ page }) => {
+  await generateFixture(page);
+  await expect(page.locator("#draft-dom-wide-summary")).toBeVisible();
+  await expect(page.locator("#draft-dom-wide-summary")).toContainText("4 DOM-wide assertions");
+  await expect(page.locator("#draft-review-feedback")).toBeVisible();
+  await expect(page.locator("#draft-review-advisories")).toContainText("Warnings — review against your test intent");
+  await expect(page.locator("#draft-critical-blockers")).toBeHidden();
+  await expect(page.locator("#step-list .step .pill.warn")).toHaveCount(4);
+  await expect(page.locator("#step-list .step").first().locator(".pill.warn")).toHaveCount(0);
+  await expect(page.locator("#step-list .step").nth(1).locator(".pill.warn")).toContainText("DOM-wide");
+  await expect(page.locator("#step-list .step").nth(4).locator(".pill.warn")).toContainText("DOM-wide");
+
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save & Run" })).toBeEnabled();
+  await page.getByRole("button", { name: "Save & Run" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  await expect(page.locator("#run-steps .pill.warn")).toHaveCount(4);
+  await expect(page.locator("#run-steps .run-step").nth(1).locator(".pill.warn")).toContainText("DOM-wide");
+  await expect(page.locator("#run-steps .run-step").first().locator(".pill.warn")).toHaveCount(0);
+  const reportPath = await page.locator('#run-artifacts a').first().getAttribute("href");
+  expect(reportPath).toMatch(/\/api\/runs\/.*\/report\.json$/);
+  const report = await (await page.request.get(url + reportPath)).json();
+  expect(report.steps.filter((step: {domWideAssertion?:boolean}) => step.domWideAssertion)).toHaveLength(4);
+  expect(report.status).toBe("passed");
+});
+
+test("Save & Run persists once, focuses execution and reuses unchanged approved test", async ({ page }) => {
+  await generateFixture(page);
+  const before = (await (await page.request.get(url + "/api/tests")).json()).tests.length;
+  await page.getByRole("button", {name:"Add All",exact:true}).click();
+  const save = page.getByRole("button",{name:"Save Test",exact:true});
+  const saveAndRun = page.getByRole("button",{name:"Save & Run",exact:true});
+  await expect(save).toBeEnabled();
+  await expect(saveAndRun).toBeEnabled();
+  await saveAndRun.click();
+  await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+  await expect(page.locator("#run-status")).toBeFocused();
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  const first = (await (await page.request.get(url + "/api/tests")).json()).tests;
+  expect(first).toHaveLength(before + 1);
+  const firstId = await page.locator("#approved-tests").inputValue();
+  expect(firstId).toMatch(/^reviewed-/);
+  await expect(saveAndRun).toBeEnabled();
+  await saveAndRun.click();
+  await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+  const second = (await (await page.request.get(url + "/api/tests")).json()).tests;
+  expect(second).toHaveLength(first.length);
+  expect(await page.locator("#approved-tests").inputValue()).toBe(firstId);
+  await expect(page.locator("#saved")).toContainText("previously saved approved test");
+});
+
+test("Save & Run is disabled for unreviewed drafts and does not run after a save failure", async ({page}) => {
+  await generateFixture(page);
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+  await page.getByRole("button",{name:"Add All",exact:true}).click();
+  await expect(page.locator("#save-and-run")).toBeEnabled();
+  let runs = 0;
+  await page.route("**/api/run",route => {runs++;return route.abort();});
+  await page.route("**/api/save",route => route.fulfill({
+    status:409,contentType:"application/json",
+    body:JSON.stringify({error:"Duplicate test name — please choose another"}),
+  }));
+  await page.locator("#save-and-run").click();
+  await expect(page.locator("#save-error")).toContainText("Duplicate test name");
+  expect(runs).toBe(0);
+  await expect(page.locator("#run-status")).toContainText("Select an approved test to execute");
+});
+
+test("Save Draft remains visible in the picker while the editor is open",async({page})=>{
+  await generateFixture(page);
+  const beforeDraftCount = (await (await page.request.get(url + "/api/drafts")).json()).drafts.length;
+  await page.locator("#step-list .step").first().locator('input[type="checkbox"]').check();
+  await page.getByRole("button",{name:"Save Draft",exact:true}).click();
+  await expect(page.locator("#draft-save-status")).toContainText("selected under Saved working drafts");
+  await expect(page.locator("#working-drafts-panel")).toBeVisible();
+  await expect(page.locator("#draft-select")).toBeVisible();
+  await expect(page.locator("#draft-select")).not.toHaveValue("");
+  await expect(page.locator("#draft-load")).toBeEnabled();
+  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
+  const id = await page.locator("#draft-select").inputValue();
+  expect(id).toMatch(/^draft-[a-f0-9-]{36}[.]json$/);
+  const stored = JSON.parse(await readFile(join(outputDir,"drafts",id),"utf8"));
+  expect(stored.definition.title).toBe("Add, complete and delete a task");
+  await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+  await expect(page.locator("#edit-script")).toHaveValue(id);
+  await expect(page.locator("#edit-script option:checked")).toContainText("[Draft — not runnable]");
+  // Saving a working draft must not accidentally approve or run it.
+  await expect(page.locator("#save-and-run")).toBeDisabled();
+
+  // Re-open the full page: the existing-tests list must discover this draft
+  // from disk, not a stateful client cache or success toast.
+  await page.reload();
+  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
+  await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
+  await page.locator("#edit-script").selectOption(id);
+  await expect(page.getByRole("button",{name:"Resume selected draft"})).toBeEnabled();
+  await page.getByRole("button",{name:"Resume selected draft"}).click();
+  await expect(page.locator("#review-progress")).toContainText("1 of 9 steps confirmed");
+  await expect(page.locator("#run-test")).toBeDisabled();
+});
+
 test("working draft preserves partial approvals and original instructions without becoming runnable", async ({ page }) => {
   await generateFixture(page);
   const approvedBeforeDraft = (await (await page.request.get(url + "/api/tests")).json()).tests.length;
+  const beforeDraftCount = (await (await page.request.get(url + "/api/drafts")).json()).drafts.length;
   const original = await page.getByLabel("Your test instructions").inputValue();
   const steps = page.locator("#step-list .step");
   await steps.nth(0).locator('input[type="checkbox"]').check();
   await steps.nth(1).locator('input[type="checkbox"]').check();
-  await page.getByRole("button", { name: "Save Working Draft" }).click();
+  await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/9 approved");
-  await expect(page.locator("#draft-select option")).toHaveCount(2);
+  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
   const list = await page.request.get(url + "/api/drafts");
   const drafts = (await list.json()).drafts;
-  expect(drafts).toHaveLength(1);
-  const saved = await (await page.request.get(url + "/api/drafts/" + drafts[0].id)).json();
+  expect(drafts).toHaveLength(beforeDraftCount + 1);
+  const selectedDraftId = await page.locator("#draft-select").inputValue();
+  expect(drafts.some((draft: {id:string}) => draft.id === selectedDraftId)).toBe(true);
+  const saved = await (await page.request.get(url + "/api/drafts/" + selectedDraftId)).json();
   expect(saved.draft.sourceInstructions).toBe(original);
   expect(saved.draft.approvedStepIds).toEqual(["open", "empty"]);
   expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(approvedBeforeDraft);
@@ -1231,7 +1515,7 @@ test("approved test retains source instructions and Save as New keeps original",
   await generateFixture(page);
   const instructions = await page.getByLabel("Your test instructions").inputValue();
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await page.getByRole("button", { name: "Approve and save JSON test" }).click();
+  await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const before = await (await page.request.get(url + "/api/tests")).json();
   const originalId = await page.getByLabel("Test script", { exact: true }).inputValue();
@@ -1269,7 +1553,7 @@ test("approval and save readiness clearly explain required name and confirmation
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
   await expect(page.locator("#save-readiness")).toContainText("enter a Test name");
   await page.locator("#test-name").fill("Approval regression check");
@@ -1293,7 +1577,7 @@ test("name entered before generation survives and save-area name enables approva
   const saveName = page.locator("#save-test-name");
   await expect(saveName).toHaveValue("Name supplied before generation");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeEnabled();
   await saveName.fill("Name edited next to save");
   await expect(originalName).toHaveValue("Name edited next to save");
@@ -1319,7 +1603,7 @@ test("required inputs and missing-field guidance update beside generation and sa
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await expect(page.locator("#save-readiness")).toContainText("Ready to save");
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Test" })).toBeEnabled();
 });
 
 test("new test name entered before generation survives and permits saving and execution", async ({ page }) => {
@@ -1333,7 +1617,7 @@ test("new test name entered before generation survives and permits saving and ex
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(name).toHaveValue("New test from instructions");
-  const save = page.getByRole("button", { name: "Approve and save JSON test" });
+  const save = page.getByRole("button", { name: "Save Test" });
   await expect(save).toBeDisabled();
   await expect(page.locator("#save-readiness")).toContainText("Confirm 9 remaining steps");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
@@ -1353,7 +1637,7 @@ test("new test name entered before generation survives and permits saving and ex
 test("failed regeneration removes prior successful draft and disables saving stale steps", async ({ page }) => {
   await generateFixture(page);
   await page.getByRole("button", { name: "Add All", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Approve and save JSON test" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Test" })).toBeEnabled();
   await expect(page.locator("#step-list .step")).toHaveCount(9);
 
   await page.route("**/api/generate", async (route) => {

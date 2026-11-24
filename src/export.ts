@@ -2,6 +2,7 @@ import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { parseTestDefinition } from "./schema.js";
+import { assertCredentialsReviewed } from "./credential-guard.js";
 
 /** Generating source is deterministic and never launches a browser or contacts a model. */
 export interface PlaywrightExportOptions {
@@ -61,6 +62,83 @@ function candidateScore(candidate: Candidate, query: string[]): number | null {
       query.every((word) => nameTerms.includes(word))) score += 50;
   return score;
 }
+
+/** Keep exported intent semantics consistent with src/discovery.ts. */
+function cartProductPhrase(value: string): { product: string; explicitCart: boolean } | null {
+  const input = value.replace(/\s+/g, " ").trim();
+  const match = /^(?:add|put)\s+(.+)$/i.exec(input);
+  if (!match) return null;
+  const explicitCart = /\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(match[1]);
+  const product = match[1]
+    .replace(/\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i, "")
+    .replace(/^(?:the|a)\s+/i, "").trim();
+  if (!product || /^(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(product))
+    return null;
+  return { product, explicitCart };
+}
+
+async function productTitles(page: Page, product: string): Promise<string[]> {
+  return page.evaluate((raw) => {
+    const clean = (value: string) => value.replace(/\s+/g, " ").trim();
+    const query = clean(raw).toLocaleLowerCase();
+    const found: string[] = [];
+    for (const node of Array.from(document.querySelectorAll<HTMLElement>("body *")).slice(0, 12000)) {
+      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,button,[role="button"],[contenteditable="true"]')) continue;
+      if (!node.getClientRects().length || getComputedStyle(node).visibility !== "visible") continue;
+      const value = clean(node.innerText || "");
+      if (value.length < 3 || value.length > 120 || value.split(" ").length > 10) continue;
+      const lowered = value.toLocaleLowerCase();
+      if (lowered !== query && !lowered.endsWith(" " + query)) continue;
+      if (Array.from(node.children).some((child) =>
+        clean((child as HTMLElement).innerText || "").toLocaleLowerCase() === lowered &&
+        !!(child as HTMLElement).getClientRects().length)) continue;
+      found.push(value);
+      if (found.length > 20) break;
+    }
+    return found;
+  }, product);
+}
+
+async function resolveCartAction(
+  page: Page, target: IntentQuery,
+): Promise<{ claimed: boolean; detail?: string; locator?: Locator }> {
+  const parsed = cartProductPhrase(target.value);
+  if (!parsed || (target.role && target.role !== "button")) return { claimed: false };
+  const actions = page.getByRole("button", { name: /^add to (?:cart|basket)$/i });
+  const buttonCount = await actions.count();
+  if (!buttonCount && !parsed.explicitCart) return { claimed: false };
+  const names = await productTitles(page, parsed.product);
+  if (!parsed.explicitCart && names.length === 0) return { claimed: false };
+  if (names.length !== 1) return {
+    claimed: true, detail: names.length
+      ? "Product " + JSON.stringify(parsed.product) + " matched multiple visible titles"
+      : "Product " + JSON.stringify(parsed.product) + " was not found as a unique visible title",
+  };
+  const title = page.getByText(names[0], { exact: true });
+  if (await title.count() !== 1 || !await title.isVisible()) return {
+    claimed: true, detail: "Product " + JSON.stringify(names[0]) +
+      " did not have a unique, visible title locator",
+  };
+  let container = title;
+  for (let depth = 0; depth < 8; depth++) {
+    container = container.locator("..");
+    // Never escape a recognised product card into its product list or page.
+    // A sold-out card can lack Add to cart while a neighbouring card has one.
+    const boundary = await container.evaluate((node) =>
+      node.matches('main,body,html,[role="main"],[role="list"],[role="feed"]'));
+    if (boundary) break;
+    const scoped = container.getByRole("button", { name: /^add to (?:cart|basket)$/i });
+    const count = await scoped.count();
+    if (count === 1 && await scoped.isVisible() && await scoped.isEnabled())
+      return { claimed: true, locator: scoped };
+    if (count > 1) break;
+    if (await container.evaluate((node) =>
+      node.matches('article,li,[role="listitem"],.inventory_item,.product-card,.product_item,[data-testid="product-card"],[data-testid="product-item"]'))) break;
+  }
+  return { claimed: true, detail: "No unique enabled Add to cart button within product " +
+    JSON.stringify(names[0]) };
+}
+
 async function intentLocator(
   page: Page,
   intent: IntentQuery,
@@ -72,6 +150,18 @@ async function intentLocator(
   }
   const deadline = Date.now() + STEP_TIMEOUT;
   while (true) {
+    if (operation === "click") {
+      const scoped = await resolveCartAction(page, intent);
+      if (scoped.claimed) {
+        if (scoped.locator) return scoped.locator;
+        if (Date.now() >= deadline) {
+          throw new Error("Could not resolve intent: " +
+            (scoped.detail ?? "Product-scoped cart action not uniquely verified"));
+        }
+        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
+        continue;
+      }
+    }
     const { selector, candidates } = await page.evaluate((op) => {
       const selectors: Record<IntentOperation, string> = {
         click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], input[type=radio], [role=button], [role=link], [role=checkbox], [role=radio]",
@@ -259,6 +349,7 @@ export function generatePlaywrightSpec(
   options: PlaywrightExportOptions,
 ): string {
   const definition: TestDefinition = parseTestDefinition(input);
+  assertCredentialsReviewed(definition);
   const base = new URL(options.baseURL);
   ensureAllowedNavigation(base.href, base);
   for (const step of definition.steps) {

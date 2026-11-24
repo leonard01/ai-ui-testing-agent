@@ -10,6 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { assertCredentialsReviewed } from "./credential-guard.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
@@ -82,6 +83,8 @@ export async function runTest(
   let tracing = false;
   try {
     const definition = parseTestDefinition(input);
+    // Fail before opening a browser if a draft placeholder reached the runner.
+    assertCredentialsReviewed(definition);
     report.testId = definition.id;
     report.title = definition.title;
     const timeout = options.timeoutMs ?? 5000;
@@ -118,6 +121,11 @@ export async function runTest(
         id: step.id,
         description: step.description,
         actionKind: step.action.kind,
+        // Page-root assertions are allowed, but can accidentally match text
+        // in another product/card. Preserve this as advisory run evidence.
+        ...((step.action.kind === "assert-text" && step.action.scope !== "search-results") ||
+          step.action.kind === "assert-visible" || step.action.kind === "assert-count"
+          ? { domWideAssertion: true } : {}),
         status: "skipped",
         durationMs: 0,
       };
