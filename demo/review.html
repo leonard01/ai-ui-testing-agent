@@ -1449,7 +1449,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const scope = mode === "step" ? "one step" : "remaining steps";
       const amendment = "Incremental amendment (" + scope + "): " + instructions;
       const current = $("requirements").value;
-      $("requirements").value = [current, amendment].filter(Boolean).join("\n\n");
+      $("requirements").value = definition.instructionCoverage ? definition.instructionCoverage.source : [current, amendment].filter(Boolean).join("\n\n");
       definition.workingInstructions = $("requirements").value;
       $("working-instructions-note").hidden = false;
       clearPreflight();
