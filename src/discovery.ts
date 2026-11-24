@@ -446,6 +446,106 @@ export function searchCapturedAssertionText(
   };
 }
 
+
+/**
+ * Shopping instructions name both an object and an action. Never treat
+ * "Add Sauce Labs Backpack" as the accessible name of an Add to cart button.
+ * Resolve the product TITLE first, then look for a single button in its
+ * closest logical container. This is bounded, live-DOM-only, and fail-closed.
+ */
+function cartProductPhrase(value: string): { product: string; explicitCart: boolean } | null {
+  const input = value.replace(/\s+/g, " ").trim();
+  const match = /^(?:add|put)\s+(.+)$/i.exec(input);
+  if (!match) return null;
+  const explicitCart = /\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(match[1]);
+  const product = match[1]
+    .replace(/\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i, "")
+    .replace(/^(?:the|a)\s+/i, "").trim();
+  if (!product || /^(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(product))
+    return null;
+  return { product, explicitCart };
+}
+
+async function productTitles(page: Page, product: string): Promise<string[]> {
+  return page.evaluate((raw) => {
+    const clean = (value: string) => value.replace(/\s+/g, " ").trim();
+    const query = clean(raw).toLocaleLowerCase();
+    const found: string[] = [];
+    // Titles may be <div>, <span> or headings, not necessarily semantic headings.
+    // Reject ancestor text that merely contains an entire product list.
+    for (const node of Array.from(document.querySelectorAll<HTMLElement>("body *")).slice(0, 12000)) {
+      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,button,[role="button"],[contenteditable="true"]')) continue;
+      if (!node.getClientRects().length || getComputedStyle(node).visibility !== "visible") continue;
+      const value = clean(node.innerText || "");
+      if (value.length < 3 || value.length > 120 || value.split(" ").length > 10) continue;
+      const lowered = value.toLocaleLowerCase();
+      if (lowered !== query && !lowered.endsWith(" " + query)) continue;
+      // Prefer the exact, leaf-most visible name rather than wrappers.
+      if (Array.from(node.children).some((child) =>
+        clean((child as HTMLElement).innerText || "").toLocaleLowerCase() === lowered &&
+        !!(child as HTMLElement).getClientRects().length)) continue;
+      found.push(value);
+      if (found.length > 20) break;
+    }
+    return found;
+  }, product);
+}
+
+async function resolveCartAction(
+  page: Page,
+  target: IntentTarget,
+): Promise<{
+  claimed: boolean;
+  detail?: string;
+  resolved?: { locator: Locator; evidence: DiscoveryEvidence };
+}> {
+  const parsed = cartProductPhrase(target.value);
+  if (!parsed || (target.role && target.role !== "button")) return { claimed: false };
+  const actions = page.getByRole("button", { name: /^add to (?:cart|basket)$/i });
+  const buttonCount = await actions.count();
+  if (!buttonCount && !parsed.explicitCart) return { claimed: false };
+  const names = await productTitles(page, parsed.product);
+  if (!parsed.explicitCart && names.length === 0) return { claimed: false };
+  if (names.length !== 1) {
+    return { claimed: true, detail: names.length
+      ? "Product " + JSON.stringify(parsed.product) + " matched multiple visible titles; no action was taken"
+      : "Product " + JSON.stringify(parsed.product) + " was not found as a unique visible title" };
+  }
+  const title = page.getByText(names[0], { exact: true });
+  if (await title.count() !== 1 || !await title.isVisible()) {
+    return { claimed: true, detail: "Product " + JSON.stringify(names[0]) +
+      " did not have a unique, visible title locator" };
+  }
+  let container = title;
+  for (let depth = 0; depth < 8; depth++) {
+    container = container.locator("..");
+    const scoped = container.getByRole("button", { name: /^add to (?:cart|basket)$/i });
+    const count = await scoped.count();
+    // One button inside the nearest matching container is meaningful evidence.
+    if (count === 1 && await scoped.isVisible() && await scoped.isEnabled()) {
+      const name = await scoped.innerText();
+      const nearby = await scoped.evaluate((element) =>
+        (element.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180));
+      return {
+        claimed: true,
+        resolved: {
+          locator: scoped,
+          evidence: {
+            intent: target.value, method: "live-dom",
+            tag: "button", role: "button", name: name.trim(), nearby,
+            locator: "product " + JSON.stringify(names[0]) +
+              " → closest card's unique Add to cart button",
+            candidatesInspected: buttonCount,
+          },
+        },
+      };
+    }
+    if (count > 1) break; // Reached an enclosing multi-product list: never choose first.
+  }
+  return { claimed: true, detail: "No unique enabled Add to cart button found within product " +
+    JSON.stringify(names[0]) + "; no action was taken" };
+}
+
 function cssAttribute(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 }
@@ -468,6 +568,16 @@ export async function discoverTarget(
   const deadline = Date.now() + timeoutMs;
   let detail = "No matching visible elements";
   while (true) {
+    if (operation === "click") {
+      const scoped = await resolveCartAction(page, target);
+      if (scoped.claimed) {
+        if (scoped.resolved) return scoped.resolved;
+        detail = scoped.detail ?? "Product-scoped cart action could not be verified";
+        if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
+        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
+        continue;
+      }
+    }
     const { selector, candidates } = await inspectCandidates(page, operation);
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
     const ranked = considered.flatMap((candidate) => {
