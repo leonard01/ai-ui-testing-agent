@@ -63,6 +63,10 @@
     .success { background:#edf9f0; color:#216745; padding:12px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
     .error:empty, .success:empty { display:none; }
     #draft-quality-warnings { white-space:pre-wrap; border-left:4px solid #c07d12; font-size:13px; }
+    .scope-advisory { font-size:12px; line-height:1.45; color:#78591d;
+      background:#fffaf0; border:1px solid #efdcaa; border-radius:7px;
+      margin:9px 0; padding:8px 11px; }
+    .scope-advisory[hidden] { display:none; }
     .critical-blockers { margin:14px 0; padding:16px 18px; background:#fff0f1;
       border:2px solid #b42339; border-left:7px solid #b42339; border-radius:10px;
       color:#811b2b; }
@@ -299,6 +303,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
         <p id="draft-hint" class="muted"></p>
+        <p id="draft-dom-wide-summary" class="scope-advisory" role="note" hidden></p>
         <div id="draft-critical-blockers" class="critical-blockers" role="alert" aria-live="polite" hidden></div>
         <div id="draft-quality-warnings" class="note" role="status" hidden></div>
         <p id="generation-page-error-summary" class="muted" role="status" hidden></p>
@@ -990,6 +995,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       edits.append(buttons);
       card.append(edits);
     }
+    function isDomWideAssertion(action) {
+      // Mirrors src/runner.ts: a page-root locator is not equivalent to a
+      // specific product/container. This is advisory, not a failure.
+      return (action.kind === "assert-text" && action.scope !== "search-results") ||
+        action.kind === "assert-visible" || action.kind === "assert-count";
+    }
+    const domWideExplanation = "Page-root locator: this check is not restricted to a specific product, row, or container. This may be intentional.";
+    function renderDomWideSummary() {
+      const count = (definition?.steps ?? []).filter(step =>
+        isDomWideAssertion(step.action)).length;
+      const note = $("draft-dom-wide-summary");
+      note.hidden = count === 0;
+      note.textContent = count ? "⚠ " + count + " DOM-wide assertion" +
+        (count === 1 ? "" : "s") + " — these checks search from the page root, not within a specific container. Review repeated items; page-wide scope may be intentional." : "";
+    }
     function renderSteps() {
       incrementalRevision++;
       incrementalPending = null;
@@ -1003,6 +1023,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         top.append(make("strong", "Step " + (index + 1)));
         const tag = make("span", step.action.kind, "pill");
         top.append(tag);
+        if (isDomWideAssertion(step.action)) {
+          const scopeBadge = make("span", "DOM-wide", "pill warn");
+          scopeBadge.title = domWideExplanation;
+          top.append(scopeBadge);
+        }
         card.append(top);
         card.append(make("p", step.description));
         card.append(make("div", describeAction(step.action), "action"));
@@ -1061,6 +1086,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         card.append(label);
         list.append(card);
       }
+      renderDomWideSummary();
       updateApproval();
       if (definition) renderTraceability();
     }
@@ -1643,6 +1669,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const heading = make("div");
         heading.append(make("strong", "Step " + (index + 1) + " · " + step.description));
         heading.append(make("span", step.status, "verdict " + step.status));
+        if (step.domWideAssertion) {
+          const scopeBadge = make("span", "DOM-wide", "pill warn");
+          scopeBadge.title = domWideExplanation;
+          heading.append(scopeBadge);
+        }
         head.append(heading, make("span", step.durationMs + " ms", "muted"));
         card.append(head);
         if (step.expected !== undefined) card.append(make("p", "Expected: " + step.expected));
@@ -2635,6 +2666,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("step-list").replaceChildren();
       $("draft-title").textContent = "";
       $("draft-hint").textContent = "";
+      $("draft-dom-wide-summary").hidden = true;
+      $("draft-dom-wide-summary").textContent = "";
       $("draft-quality-warnings").hidden = true;
       $("draft-quality-warnings").textContent = "";
       $("generation-diagnostics").hidden = true;
