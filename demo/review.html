@@ -279,8 +279,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </div>
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
-      <label for="test-name">Test name <span class="required-marker">(required to save)</span></label>
-      <input id="test-name" type="text" maxlength="200" placeholder="Required for saving — e.g. SD-001 — Successful login" autocomplete="off" required>
+      <label for="test-name">Test name <span class="required-marker">(required)</span></label>
+      <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" required>
       <form id="generate-form" novalidate>
         <label for="base-url">Application URL <span class="required-marker">(required)</span></label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
@@ -822,6 +822,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       originalInstructions = undefined;
       $("test-name").value = "";
       $("requirements").value = "";
+      updateGenerateReadiness();
       showOriginalInstructions();
       $("draft-save-status").textContent = "";
       $("draft").hidden = true;
@@ -1698,22 +1699,31 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("test-name").addEventListener("input", () => {
       $("save-error").textContent = "";
       updateApproval();
+      updateGenerateReadiness();
     });
+    let generatingDraft = false;
     function updateGenerateReadiness() {
-      const missing = [];
-      if (!validRecentUrl($("base-url").value)) missing.push("a valid Application URL");
+      const name = $("test-name").value.trim();
       const instructions = $("requirements").value.trim();
-      if (!instructions || instructions.length > 12000) missing.push("test instructions (1–12,000 characters)");
+      const invalid = {
+        "test-name": !name || name.length > 200,
+        "base-url": !validRecentUrl($("base-url").value),
+        "requirements": !instructions || instructions.length > 12000,
+      };
+      const missing = [];
+      if (invalid["test-name"]) missing.push("a Test name (1–200 characters)");
+      if (invalid["base-url"]) missing.push("a valid Application URL");
+      if (invalid.requirements) missing.push("test instructions (1–12,000 characters)");
       $("generate-readiness").textContent = missing.length
-        ? "Before generating, enter " + missing.join(" and ") + "."
-        : "Required generation fields complete.";
+        ? "Before generating, enter " + missing.join(", ") + "."
+        : "All required fields complete. Ready to generate.";
       $("generate-readiness").classList.toggle("ready", !missing.length);
-      for (const id of ["base-url", "requirements"]) {
-        const invalid = id === "base-url" ? !validRecentUrl($("base-url").value) :
-          !instructions || instructions.length > 12000;
-        $(id).classList.toggle("missing-field", invalid);
-        $(id).setAttribute("aria-invalid", String(invalid));
+      $("generate").disabled = generatingDraft || missing.length > 0;
+      for (const id of ["test-name", "base-url", "requirements"]) {
+        $(id).classList.toggle("missing-field", invalid[id]);
+        $(id).setAttribute("aria-invalid", String(Boolean(invalid[id])));
       }
+      return missing.length === 0;
     }
     function updateIncrementalReadiness() {
       const instructions = $("incremental-instructions").value.trim();
@@ -1735,6 +1745,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("test-name").value = $("save-test-name").value;
       $("save-error").textContent = "";
       updateApproval();
+      updateGenerateReadiness();
     });
     $("review-add-all").addEventListener("click", () => {
       if (!definition?.steps.length) return;
@@ -2736,6 +2747,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         setActiveURLSource("manual");
       }
       updateRunButton();
+      updateGenerateReadiness();
     });
     $("run-timeout").addEventListener("change", updateRunButton);
     async function executeApproved(id) {
@@ -2903,6 +2915,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         return;
       }
       $("requirements").value = combined;
+      updateGenerateReadiness();
       $("import-note").textContent = "Added " + file.name + " to instructions. You can edit them before generating.";
       $("generation-error").textContent = "";
       event.target.value = "";
@@ -3081,6 +3094,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const request=pendingException.request;
       $("requirements").value=requirements;
       $("base-url").value=request.baseURL;
+      updateGenerateReadiness();
       $("provider").value=request.provider;
       $("use-application-memory").checked=request.useApplicationMemory;
       exceptionRequest={proceed, root:exceptionRootInstructions};
@@ -3106,6 +3120,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      // Guard keyboard/programmatic submissions as well as the disabled button.
+      if (generatingDraft || !updateGenerateReadiness()) {
+        $("generation-error").textContent = "Complete the Test name, Application URL and test instructions before generating.";
+        const first = ["test-name", "base-url", "requirements"].find(id =>
+          $(id).getAttribute("aria-invalid") === "true");
+        if (first) $(first).focus();
+        return;
+      }
+      generatingDraft = true;
+      updateGenerateReadiness();
       const decision=exceptionRequest;
       exceptionRequest=null;
       hideException();
@@ -3115,7 +3139,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("save-error").textContent = "";
       const requirements = $("requirements").value.trim();
       exceptionRootInstructions=decision?.root ?? requirements;
-      updateGenerateReadiness();
       if (!requirements || requirements.length > 12_000) {
         $("generation-error").textContent = "Enter 1–12,000 characters of test instructions.";
         return;
@@ -3126,7 +3149,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         return;
       }
       const provider = $("provider").value;
-      $("generate").disabled = true;
       $("generation-status").classList.add("ai-progress");
       $("generation-status").textContent = "Generating test steps with AI… Inspecting the application and preparing a draft. No test has been modified.";
       $("generation-review-status").textContent = "Generating a new draft; previous steps have been cleared.";
@@ -3219,7 +3241,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("generation-status").textContent = "";
       } finally {
         $("generation-status").classList.remove("ai-progress");
-        $("generate").disabled = false;
+        generatingDraft = false;
+        updateGenerateReadiness();
       }
     });
     function currentSaveFingerprint(testName) {
