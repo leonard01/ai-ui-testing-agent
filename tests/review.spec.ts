@@ -234,7 +234,7 @@ test("test-design issues panel highlights CSS/XPath brittleness and links to ste
   await card.getByRole("button", { name: "Apply changes" }).click();
   await expect(card).toContainText("XPath fallback");
   await expect(panel).toContainText("XPath uses positional or structural relationships");
-  await expect(page.getByRole("button",{name:"Approve and save JSON test"})).toBeDisabled();
+  await expect(page.getByRole("button",{name:"Save Test"})).toBeDisabled();
 });
 
 test("read-only selector preflight suggests an Add button when generated label is wrong", async ({ page }) => {
