@@ -1,46 +1,72 @@
-import type { TestDefinition, TestStep } from "./domain.js";
+import { z } from "zod";
+import type { TestDefinition } from "./domain.js";
 
-// Deliberately bounded checks, not a general natural-language coverage oracle.
-// Recognise explicit authentication commands rather than references to login
-// in assertions, descriptions of page state, or arbitrary field values.
-const AUTH = /\b(?:log[ -]?in|sign[ -]?in|authenticate)\b/i;
-const NEGATIVE = /\b(?:do not|don't|never|without|no need to|must not|should not|skip)\s+(?:ever\s+)?(?:log[ -]?in|sign[ -]?in|authenticate|logging in|signing in|authentication)\b/i;
-const POSITIVE = /(?:^|[\n.!?;]|\bthen\b|\band\b)\s*(?:\d+[.)]\s*)?(?:please\s+)?(?:log[ -]?in|sign[ -]?in|authenticate)\b/i;
-
-function targetLabel(step: TestStep): string {
-  if (!("target" in step.action)) return "";
-  const target = step.action.target;
-  return "value" in target ? target.value : target.name ?? "";
-}
-function isAuthenticationSubmit(step: TestStep): boolean {
-  // Never accept a description claiming login on an unrelated click.
-  return (step.action.kind === "click" && AUTH.test(targetLabel(step))) ||
-    (step.action.kind === "press" && step.action.key === "Enter" &&
-      /\b(?:password|passcode|pwd)\b/i.test(targetLabel(step)));
-}
-export function explicitAuthenticationIntent(instructions: string): "required" | "forbidden" | "conflict" | "unspecified" {
-  const negative = NEGATIVE.test(instructions);
-  const positive = POSITIVE.test(instructions);
-  return positive && negative ? "conflict" : negative ? "forbidden" : positive ? "required" : "unspecified";
-}
-export function authenticationRequirementProblems(instructions: string, definition: TestDefinition): string[] {
-  const intent = explicitAuthenticationIntent(instructions);
-  const submit = definition.steps.findIndex(isAuthenticationSubmit);
-  if (intent === "conflict") return ["Instructions contain conflicting login requirements. Clarify whether authentication is required."];
-  if (intent === "required" && submit === -1) return ["Explicit login instruction is not represented by an identifiable executable login step. The initial page may not expose the login controls; clarify the workflow or regenerate. Do not replace it with an unrelated test."];
-  if (intent === "forbidden" && submit !== -1) return ["The draft includes a login action despite an explicit instruction not to log in. Remove the conflicting action or clarify the instruction."];
-  return [];
-}
-/** Mark identifiable authentication actions from a memory-assisted proposal.
- * This identifies suggestions, not proof that memory caused the model output. */
-export function markSuggestedAuthentication(definition: TestDefinition): void {
-  const submit = definition.steps.findIndex(isAuthenticationSubmit);
-  if (submit < 0) return;
-  for (const [index,step] of definition.steps.entries()) {
-    if (index !== submit && !(index < submit && step.action.kind === "fill" &&
-      /\b(?:user[ _-]?name|user|email|password|passcode|pwd|login[ _-]?id)\b/i.test(targetLabel(step)))) continue;
-    if (!step.description.startsWith("[Suggested prerequisite] ")) {
-      step.description = ("[Suggested prerequisite] " + step.description).slice(0,2000);
-    }
+// Keep the tester's exact text independent of any model interpretation.
+// Splitting is deliberately syntax-only; compound requirements remain visible
+// in their original wording and must be reviewed as a whole.
+export function sourceRequirements(instructions: string) {
+  const lines = instructions.split(/\r?\n/).flatMap(line =>
+    line.trim().split(/(?<=[.!?])\s+(?=[A-Z])/).map(text => text.trim()).filter(Boolean));
+  if (lines.length > 40 || lines.some(line => line.length > 12000)) {
+    throw new Error("Too many instruction statements. Split the test into smaller workflows.");
   }
+  return lines.map((text,index) => ({id:"R"+(index+1),text}));
+}
+const proposalSchema = z.object({
+  entries: z.array(z.object({
+    id:z.string(),
+    interpretation:z.string().max(2000),
+    stepIds:z.array(z.string()).max(100),
+    issue:z.string().max(1000).optional(),
+  }).strict()).max(40),
+  prerequisiteStepIds:z.array(z.string()).max(100).optional(),
+}).strict();
+
+export function proposedCoverage(instructions:string, definition:TestDefinition, proposal:unknown, hasMemoryHints:boolean) {
+  const source=sourceRequirements(instructions);
+  const parsed=proposalSchema.safeParse(proposal);
+  const entries=parsed.success ? parsed.data.entries : [];
+  const steps=new Set(definition.steps.map(step=>step.id));
+  const ids=new Set(source.map(entry=>entry.id));
+  const malformed=entries.some(entry=>!ids.has(entry.id));
+  const result=source.map(row=>{
+    const matches=entries.filter(entry=>entry.id===row.id);
+    const entry=matches[0];
+    const valid=!!entry && matches.length===1 && !malformed &&
+      entry.stepIds.length>0 && new Set(entry.stepIds).size===entry.stepIds.length &&
+      entry.stepIds.every(id=>steps.has(id));
+    return {...row,interpretation:entry?.interpretation||"",
+      stepIds:valid?entry.stepIds:[],
+      issue:entry?.issue?.trim() || (valid?"":"No valid proposed step mapping. Review or regenerate."),
+      confirmed:false};
+  });
+  // A memory hint is advisory. Label only valid, unmapped prerequisite IDs
+  // proposed by the model, never a step claimed to fulfill an explicit request.
+  const linked=new Set(result.flatMap(entry=>entry.stepIds));
+  const prerequisiteStepIds=hasMemoryHints && parsed.success
+    ? [...new Set(parsed.data.prerequisiteStepIds??[])].filter(id=>steps.has(id)&&!linked.has(id))
+    : [];
+  for(const step of definition.steps) {
+    if(prerequisiteStepIds.includes(step.id))
+      step.description=("[Suggested prerequisite] "+step.description).slice(0,2000);
+  }
+  return {source:instructions,entries:result,prerequisiteStepIds};
+}
+
+export function instructionCoverageProblems(definition:TestDefinition):string[] {
+  const coverage=definition.instructionCoverage;
+  if(!coverage) return []; // legacy/manual/fixture scripts have no generated coverage metadata
+  const original=sourceRequirements(coverage.source);
+  const available=new Set(definition.steps.map(step=>step.id));
+  if(coverage.entries.length!==original.length ||
+      original.some((row,index)=>coverage.entries[index]?.id!==row.id || coverage.entries[index]?.text!==row.text))
+    return ["Original instruction statements changed or are missing. Regenerate from the intended instructions."];
+  return coverage.entries.flatMap(row=>
+    row.issue || !row.stepIds.length || new Set(row.stepIds).size!==row.stepIds.length ||
+      row.stepIds.some(id=>!available.has(id)) || !row.confirmed
+      ? [row.id+": "+(row.issue||"Review and confirm valid step coverage.")] : []);
+}
+export function assertInstructionCoverageReviewed(definition:TestDefinition):void {
+  const problems=instructionCoverageProblems(definition);
+  if(problems.length) throw new Error("Unresolved instruction coverage: "+problems.join("; "));
 }
