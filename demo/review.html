@@ -424,22 +424,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <section id="incremental-panel" class="incremental-editor" hidden aria-labelledby="incremental-heading">
           <h3 id="incremental-heading">Reinterpret steps with AI</h3>
           <p id="incremental-context" class="muted"></p>
-          <label for="incremental-mode">Scope of changes</label>
-          <select id="incremental-mode">
-            <option value="step">Replace this step only</option>
-            <option value="from">Replace this step and all following steps</option>
-          </select>
+          <p class="note">AI will reinterpret the selected step and all following steps. One instruction may generate several executable actions. Use Edit fields to change one executable step directly.</p>
           <label for="incremental-instructions">New plain-English instructions for replacement steps <span class="required-marker">(required)</span></label>
           <textarea id="incremental-instructions" rows="4" maxlength="12000" placeholder="Required — describe what should happen from this point onwards."></textarea>
           <p class="muted">GroqCloud is used only when you click Generate replacement. Earlier approved steps stay unchanged. No test steps run during regeneration.</p>
-          <p class="note">Applying a replacement appends an amendment to Working test instructions; it does not erase superseded wording. The reviewed steps, not the combined prose, define what will execute.</p>
+          <p class="note">Applying a replacement updates the working instructions and requirement mappings where available. Your original test instructions remain preserved. Review the proposed steps before applying them.</p>
           <div class="actions">
             <button type="button" id="incremental-generate">Generate replacement</button>
             <button type="button" id="incremental-cancel" class="secondary">Cancel</button>
           </div>
           <p id="incremental-readiness" class="field-readiness" role="status"></p>
           <p id="incremental-progress" class="ai-progress" role="status" aria-live="polite" hidden>Generating replacement steps with AI… This can take up to 90 seconds per attempt. Your existing steps remain unchanged.</p>
-          <p id="incremental-status" role="status" class="ai-feedback" hidden></p>
+          <div id="incremental-status" role="status" class="ai-feedback" hidden></div>
           <div id="incremental-preview" hidden>
             <h4>Review proposed replacement</h4>
             <p id="incremental-diff" class="muted"></p>
@@ -1344,6 +1340,28 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       updateApproval();
       if (definition) renderTraceability();
     }
+    function showIncrementalError(error) {
+      const status = $("incremental-status");
+      const technical = error.message || String(error);
+      const malformed = error.category === "json-generation" || /Malformed JSON response|json_validate_failed/i.test(technical);
+      const schema = error.category === "response-schema" || /Response schema validation:/.test(technical);
+      if (!malformed && !schema) {
+        status.textContent = technical;
+        return;
+      }
+      status.replaceChildren();
+      status.append(make("strong", malformed
+        ? "The AI returned a malformed response."
+        : "The AI returned an unsupported response structure."));
+      status.append(make("div", "Select Generate replacement again using the same instructions. Your existing test draft has not changed."));
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "ⓘ Read more";
+      details.append(summary);
+      details.append(make("p", "AI generation is non-deterministic: even valid instructions can produce a malformed or unsupported response. Resubmit the same instructions before considering changes. The application rejected the response rather than applying invalid steps."));
+      details.append(make("p", "Technical details: " + technical));
+      status.append(details);
+    }
     function closeIncremental() {
       incrementalRevision++;
       incrementalPending = null;
@@ -1365,7 +1383,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("incremental-status").textContent =
         "Scope or instructions changed. Generate another proposal before applying.";
     }
-    $("incremental-mode").addEventListener("change", invalidateIncrementalPreview);
     $("incremental-instructions").addEventListener("input", invalidateIncrementalPreview);
     $("incremental-generate").addEventListener("click", async () => {
       if (!definition || !incrementalSelectedId || running) return;
@@ -1384,7 +1401,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("incremental-preview").hidden = true;
       const revision = ++incrementalRevision;
       const stepId = incrementalSelectedId;
-      const mode = $("incremental-mode").value;
+      const mode = "from";
       const sourceSignature = JSON.stringify({ definition, approvals: [...approvals].sort() });
       $("incremental-generate").disabled = true;
       $("incremental-progress").hidden = false;
@@ -1422,7 +1439,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } catch (error) {
         if (revision === incrementalRevision) {
           $("incremental-status").hidden = false;
-          $("incremental-status").textContent = error.message || String(error);
+          showIncrementalError(error);
         }
       } finally {
         $("incremental-progress").hidden = true;
@@ -1826,7 +1843,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     async function requestJSON(url, options) {
       const response = await fetch(url, options);
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Request failed (" + response.status + ")");
+      if (!response.ok) {
+        const error = new Error(payload.error || "Request failed (" + response.status + ")");
+        error.category = payload.category;
+        throw error;
+      }
       return payload;
     }
     function suiteSelectedIds() {
