@@ -81,17 +81,33 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 `GROQ_MODEL` is optional. Restart the server after editing. **Do not commit `.env` or share credentials.** GroqCloud quota limits apply; Fixture mode and running already approved tests do not require Groq requests.
 
-## Testing policy — Definition of Done
+## Development branches and testing gates
 
-Test creation is part of every feature, behavioural change and defect fix, not a separate backlog activity.
+Users frequently clone `main` rather than install tagged releases. Treat `main` as the stable, release-quality branch.
 
-- Assess both deterministic and live-model (non-deterministic) coverage when starting each change. Add or update every required test in the same change/PR; document why a category is not applicable rather than adding irrelevant tests.
-- Deterministic tests cover happy paths, negative paths, boundaries, state transitions, failure recovery and regressions as applicable. Use controlled fixtures and mocked provider responses; the full deterministic suite runs on every PR.
-- Changes affecting AI interpretation, prompts, model behaviour, generation, or AI-assisted repair must also update the live AI evaluation catalogue with stable case IDs, exact inputs, preconditions, numbered steps, expected outcomes, explicit pass/fail criteria and repeat-run results. Keep the catalogue current with the implementation; do not defer required test creation to the backlog.
-- Evaluate live outputs against user intent and independently verifiable behaviour, not exact generated wording or JSON. Record first-attempt outcomes separately from human-assisted recovery and infrastructure blocks. Run relevant live cases before accepting an AI-affecting change; record model, revision and evidence without secrets. Live evaluations remain separate from deterministic CI until a suitable automated gate is established.
-- A defect fix should include a regression that reproduces the defect where feasible. If an AI defect can also be reproduced with a captured or mocked response, add both deterministic and live coverage.
-- A change is not done until its required tests have been created, relevant verification has been performed and results recorded. Do not merge failing deterministic CI or treat blocked/unverified required live checks as passes. Any unmet verification remains visible on the current change, not deferred as test-creation debt.
-- Keep the full deterministic suite on every PR until execution time warrants a smaller PR subset and a full release suite.
+- Create a feature integration branch from stable `main` for each feature or planned release scope (for example, `feature/application-memory`). Create short-lived task/fix branches from that integration branch and target their PRs at the integration branch, not `main`.
+- Integrate related changes and fix regressions within the feature branch. Do not merge unfinished functionality into `main`. Promote the completed feature through a separate PR to `main`, with the full acceptance gate below. Urgent production fixes use an isolated hotfix branch and the same promotion quality gate; propagate the fix to active feature branches.
+- Test creation belongs to the same PR as the change, never a separate backlog item. Consider deterministic and live-model coverage for every change; document non-applicability rather than creating irrelevant tests.
+
+| Verification | Task/fix PR into feature branch | Feature/hotfix PR into main |
+| --- | --- | --- |
+| New or updated required tests | Mandatory in the same change | Confirm completeness |
+| Automated deterministic tests | Relevant tests required; run full suite in CI for now | Full suite must pass |
+| Smoke tests | Run in CI | Full smoke gate must pass |
+| Manual functional/regression tests | Relevant cases only | Full applicable manual regression suite must pass |
+| Live AI evaluations | Relevant cases only where applicable | Full applicable non-deterministic catalogue must pass its defined acceptance criteria |
+| Evidence | Record relevant results | Record complete results against promotion candidate |
+
+Keep the current full automated CI suite for all PRs while runtime is acceptable. If execution becomes too costly, introduce a targeted internal-PR subset without weakening the full main promotion gate. A green deterministic CI run alone does not establish manual or live AI acceptance.
+
+### Definition of Done
+
+- Add happy-path, negative, boundary, state-transition, recovery and regression tests as applicable. Use controlled fixtures and mocked responses for deterministic coverage.
+- Update the live AI evaluation catalogue in the same change whenever AI interpretation, prompts, model behaviour, generation or AI-assisted repair is affected. Use stable case IDs, exact inputs, explicit prerequisites, numbered steps, expected outcomes, pass/fail criteria and repeat-run results.
+- Evaluate AI outputs by user intent and independently verifiable behaviour, not identical wording or JSON. Record first-attempt outcomes separately from human-assisted recovery and infrastructure blocks. Record model, revision and redacted evidence.
+- Reproduce defects with permanent regression tests where feasible. For AI defects, use both live evaluation and deterministic captured/mock-response coverage where applicable.
+- Do not merge failing CI. Do not count blocked or unverified required checks as passes. Complete the verification appropriate to the PR destination before merging; keep outstanding required checks visible on the current change rather than deferring test creation.
+- Before promotion to main, verify the complete integrated candidate, including any changes from main incorporated since earlier testing. Record the manual and live evaluation results on the promotion PR. Live evaluations remain separate from automated CI until a suitable gate exists.
 
 ## Independent Playwright E2E smoke suite
 
