@@ -74,6 +74,7 @@ test("website knowledge is visibly suggested but user may turn it off before gen
   await expect(help).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#site-memory-description")).toBeVisible();
   await expect(page.locator("#site-memory-description")).toContainText("login-before-shopping");
+  await page.locator("#test-name").fill("Site memory shopping test");
   await page.getByLabel("Your test instructions").fill("add multiple items to basket");
   await page.getByRole("button",{name:"Check known prerequisites"}).click();
   await expect(page.locator("#application-memory-status")).toContainText("previous passing shopping test",{ignoreCase:true});
