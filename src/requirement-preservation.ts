@@ -38,7 +38,7 @@ export function proposedCoverage(instructions:string, definition:TestDefinition,
       entry.stepIds.every(id=>steps.has(id));
     return {...row,interpretation:entry?.interpretation||"",
       stepIds:valid?entry.stepIds:[],
-      issue:entry?.issue?.trim() || (valid?"":"No valid proposed step mapping. Review or regenerate."),
+      issue:entry?.issue?.trim() || (entry?.availability==="functional-mismatch"?"Requested functionality could not be confidently identified.":valid?"":"No valid proposed step mapping. Review or regenerate."),
       availability:entry?.availability ?? "uncertain",
       confirmed:false};
   });
@@ -64,7 +64,7 @@ export function instructionCoverageProblems(definition:TestDefinition):string[] 
       original.some((row,index)=>coverage.entries[index]?.id!==row.id || coverage.entries[index]?.text!==row.text))
     return ["Original instruction statements changed or are missing. Regenerate from the intended instructions."];
   return coverage.entries.flatMap(row=>
-    (!coverage.proceedAccepted && row.issue && row.availability !== "later-state" && row.availability !== "selector-uncertain") || !row.stepIds.length || new Set(row.stepIds).size!==row.stepIds.length ||
+    (!coverage.proceedAccepted && (row.availability === "functional-mismatch" || (row.issue && row.availability !== "later-state" && row.availability !== "selector-uncertain"))) || !row.stepIds.length || new Set(row.stepIds).size!==row.stepIds.length ||
       row.stepIds.some(id=>!available.has(id))
       ? [row.id+": "+(row.issue||"No valid executable step mapping.")] : []);
 }
@@ -80,5 +80,5 @@ export function generationExceptions(definition:TestDefinition) {
   const coverage=definition.instructionCoverage;
   if(!coverage) return [];
   return coverage.entries.filter(row=>!row.stepIds.length ||
-    (row.issue && row.availability!=="later-state" && row.availability!=="selector-uncertain"));
+    row.availability==="functional-mismatch" || (row.issue && row.availability!=="later-state" && row.availability!=="selector-uncertain"));
 }
