@@ -420,11 +420,12 @@ test("UI explains malformed AI response and allows retry without editing instruc
   await page.getByRole("button",{name:"Generate replacement"}).click();
   const status=page.locator("#incremental-status");
   await expect(status).toContainText("unsupported response structure");
-  await expect(status).toContainText("using the same instructions");
+  await expect(status).toContainText("retry using the same instructions or revise them");
   await expect(status.getByText("Technical details:",{exact:false})).toBeHidden();
   await status.locator("summary").click();
   await expect(status.getByText("Technical details:",{exact:false})).toBeVisible();
   await expect(status).toContainText("non-deterministic");
+  await expect(status).toContainText("persistent failures");
   await expect(page.locator("#step-list .step")).toHaveCount(9);
   mockSteps=remainder;
   await page.getByRole("button",{name:"Generate replacement"}).click();
