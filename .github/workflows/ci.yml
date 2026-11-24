@@ -2,8 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'chore/**'
+      - 'feat/**'
+      - 'test/**'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
 
 permissions:
@@ -15,6 +22,9 @@ concurrency:
 
 jobs:
   validate:
+    # Integration branches and ready PRs retain the full release gate.
+    env:
+      FULL_REGRESSION: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/feature/'))) || (github.event_name == 'pull_request' && !github.event.pull_request.draft && (github.base_ref == 'main' || startsWith(github.base_ref, 'feature/'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -27,17 +37,22 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
       - name: Type-check
         run: npm run typecheck
       - name: Build
         run: npm run build
       - name: Validate case schema and rejection before browser launch
         run: npm run test:unit
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run development sanity suite
+        if: env.FULL_REGRESSION != 'true'
+        run: npm run test:sanity
       - name: Run independent Playwright E2E smoke gate
+        if: env.FULL_REGRESSION == 'true'
         run: npm run test:smoke
       - name: Run browser and structured runner tests
+        if: env.FULL_REGRESSION == 'true'
         run: npm test
       - name: Upload browser reports and evidence
         if: ${{ !cancelled() }}
