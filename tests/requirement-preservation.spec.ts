@@ -37,8 +37,7 @@ test("generation exception offers three decisions and never exposes an unmapped 
     await expect(page.locator("#placeholder")).toBeHidden();
     await expect(page.locator("#working-drafts-panel")).toBeHidden();
     await expect(page.locator("#draft")).toBeHidden();
-    await page.getByRole("button",{name:"Edit test description",exact:true}).click();
-    await expect(page.locator("#exception-description")).toHaveValue(requirements);
+    await expect(page.locator("#instructions-screen")).toBeHidden();
     await page.getByRole("button",{name:"Edit or delete problematic requirements"}).click();
     await expect(page.locator("#exception-row-R1")).toHaveValue("Log in.");
     await page.locator("#exception-edit-list").getByRole("button",{name:"Delete",exact:true}).first().click();
@@ -50,7 +49,15 @@ test("generation exception offers three decisions and never exposes an unmapped 
     await page.locator("#exception-generate-anyway").click();
     await expect(page.locator("#exception-edit-error")).toContainText("Unable to preserve every instruction");
     await expect(page.locator("#draft")).toBeHidden();
+    await page.getByRole("button",{name:"Edit test description",exact:true}).click();
+    await expect(page.locator("#instructions-screen")).toBeVisible();
+    await expect(page.locator("#review-workspace")).toBeHidden();
+    await expect(page.locator("#generation-exception")).toBeHidden();
+    await expect(page.locator("#exception-description")).toHaveCount(0);
     await expect(page.getByLabel("Your test instructions")).toHaveValue(requirements);
+    await expect(page.getByLabel("Your test instructions")).toBeFocused();
+    await expect(page.locator("#test-name")).toHaveValue("Requirement preservation 1");
+    await expect(page.getByRole("button",{name:"Generate draft"})).toBeEnabled();
   } finally {
     server.closeAllConnections();
     await new Promise<void>(resolve=>server.close(()=>resolve()));
@@ -102,14 +109,18 @@ test("edit/delete and full-description choices revalidate while retaining origin
     for(const mode of ["description","requirements"]){
       await page.goto(url);
       await page.locator("#test-name").fill("Requirement preservation 2");
-    await page.getByLabel("Your test instructions").fill(original);
+      await page.getByLabel("Your test instructions").fill(original);
       await page.getByLabel("Generate with").selectOption("groq");
       await page.getByRole("button",{name:"Generate draft"}).click();
       await expect(page.locator("#exception-count")).toContainText("2 of 4");
       if(mode==="description"){
         await page.locator("#exception-edit-desc").click();
-        await page.locator("#exception-description").fill("Open the task list.\nVerify the status.");
-        await page.locator("#exception-validate-desc").click();
+        await expect(page.locator("#review-workspace")).toBeHidden();
+        await expect(page.locator("#instructions-screen")).toBeVisible();
+        await expect(page.locator("#requirements")).toHaveValue(original);
+        await page.locator("#requirements").fill("Open the task list.\nVerify the status.");
+        await expect(page.getByRole("button",{name:"Generate draft"})).toBeEnabled();
+        await page.getByRole("button",{name:"Generate draft"}).click();
       }else{
         await page.locator("#exception-edit-reqs").click();
         await expect(page.locator("#exception-edit-list textarea")).toHaveCount(2);
