@@ -50,11 +50,13 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.getByRole("heading", { name: "Test Instructions" })).toBeVisible();
     await page.getByLabel("Application URL").fill(demoURL);
     await page.getByLabel("Your test instructions").fill(instructions);
+    await page.locator("#test-name").fill(testName);
     await page.getByLabel("Generate with").selectOption("fixture");
+    await expect(page.getByRole("button", { name: "Generate draft" })).toBeEnabled();
     await page.getByRole("button", { name: "Generate draft" }).click();
     await expect(page.locator("#generation-status")).toContainText("Draft ready");
     await expect(page.locator("#step-list .step")).toHaveCount(9);
-    await page.locator("#test-name").fill(testName);
+    await expect(page.locator("#test-name")).toHaveValue(testName);
   }
 
   async function saveApprovedFixture(page: Page, testName: string) {
@@ -100,9 +102,12 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
 
     await page.reload();
+    // The review workspace is intentionally hidden until the tester opens it.
+    await page.getByRole("button", { name: "Edit existing test or resume draft" }).click();
+    await expect(page.locator("#review-workspace")).toBeVisible();
     await expect(page.locator("#draft-select option")).toHaveCount(2);
     await page.locator("#draft-select").selectOption({ index: 1 });
-    await page.getByRole("button", { name: "Resume draft" }).click();
+    await page.getByRole("button", { name: "Resume draft", exact: true }).click();
     await expect(page.locator("#review-progress")).toHaveText("2 of 9 steps confirmed");
     await expect(page.getByLabel("Your test instructions")).toHaveValue(instructions);
     await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();

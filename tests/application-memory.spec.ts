@@ -20,6 +20,7 @@ test.beforeEach(async ({browser}) => {
     providerPrompt = prompt;
     return JSON.stringify({
       ...fixture,
+      coverage:{entries:[{id:"R1",interpretation:"Mock mapping for memory transport test",stepIds:fixture.steps.map((step:{id:string})=>step.id),availability:"identified"}]},
       steps:fixture.steps.map((step:{action:{provenance?:string}}) =>
         step.action.provenance === "human-confirmed"
           ? {...step,action:{...step.action,provenance:"inferred"}} : step),
@@ -73,6 +74,7 @@ test("website knowledge is visibly suggested but user may turn it off before gen
   await expect(help).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#site-memory-description")).toBeVisible();
   await expect(page.locator("#site-memory-description")).toContainText("login-before-shopping");
+  await page.locator("#test-name").fill("Site memory shopping test");
   await page.getByLabel("Your test instructions").fill("add multiple items to basket");
   await page.getByRole("button",{name:"Check known prerequisites"}).click();
   await expect(page.locator("#application-memory-status")).toContainText("previous passing shopping test",{ignoreCase:true});

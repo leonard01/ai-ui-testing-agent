@@ -126,6 +126,7 @@ test("unsafe and malformed proposals cannot alter or approve a test", async () =
 test("UI proposes suffix replacement, requires Apply and leaves replacement steps unapproved", async ({page}) => {
   mockSteps = remainder;
   await page.goto(url);
+  await page.locator("#test-name").fill("Incremental task test");
   await page.getByLabel("Your test instructions").fill("Add and verify a task");
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", { name: "Generate draft" }).click();
@@ -153,7 +154,7 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/5 approved");
   await page.getByRole("button", { name: "Choose another test" }).click();
-  await page.getByRole("button", { name: "Resume draft" }).click();
+  await page.getByRole("button", { name: "Resume draft", exact: true }).click();
   await expect(page.locator("#working-instructions-note")).toBeVisible();
   await expect(page.locator("#requirements")).toHaveValue(/Incremental amendment/);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
@@ -231,6 +232,7 @@ test("malformed click action is rejected with actionable explanation, no changes
 
 test("incremental panel shows clear progress and then hides it after output", async ({page}) => {
   await page.goto(url);
+  await page.locator("#test-name").fill("Incremental task test");
   await page.getByLabel("Your test instructions").fill("Add and verify a task");
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", { name: "Generate draft" }).click();

@@ -54,6 +54,7 @@ test("draft shows quality warnings and inspected-page evidence, then clears them
       }));
     await page.goto(url);
     await page.getByLabel("Application URL").fill("https://www.ebay.com");
+    await page.locator("#test-name").fill("Diagnostic warning test");
     await page.getByLabel("Your test instructions").fill(instructions);
     await page.getByRole("button", { name: "Generate draft" }).click();
     await expect(page.locator("#draft-quality-warnings")).toBeVisible();

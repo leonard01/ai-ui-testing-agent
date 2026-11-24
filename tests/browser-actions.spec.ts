@@ -165,11 +165,22 @@ test("UI renders and allows editing of generated new action fields without manua
   const baseURL = await listen(server);
   const dir = await mkdtemp(join(tmpdir(), "action-review-"));
   const definition = caseDefinition();
-  const review = await createReviewServer(dir, browser, async () => JSON.stringify(definition));
+  const review = await createReviewServer(dir, browser, async () => JSON.stringify({
+    ...definition,
+    // The Groq test double must provide a proposed mapping for the explicitly
+    // requested workflow, otherwise the preservation gate correctly blocks it.
+    coverage: { entries: [{
+      id: "R1",
+      interpretation: "Exercise all available form actions",
+      stepIds: definition.steps.map(step => step.id),
+      availability: "identified",
+    }] },
+  }));
   const reviewURL = await listen(review);
   try {
     await page.goto(reviewURL);
     await page.locator("#base-url").fill(baseURL);
+    await page.locator("#test-name").fill("Add, complete and delete a task");
     await page.getByLabel("Your test instructions").fill("Exercise all available form actions");
     await page.getByLabel("Generate with").selectOption("groq");
     await page.getByRole("button", { name: "Generate draft" }).click();
