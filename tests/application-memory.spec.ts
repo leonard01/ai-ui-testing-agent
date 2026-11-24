@@ -89,6 +89,7 @@ test("unknown website or non-shopping instructions do not gain prerequisite hint
   await teachWebsite();
   await page.goto(reviewURL);
   await page.getByLabel("Your test instructions").fill("Check heading is visible");
+  await page.getByRole("button", {name: "About Use Site Memory"}).click();
   await page.getByRole("button",{name:"Check known prerequisites"}).click();
   await expect(page.locator("#application-memory-status")).toContainText("No matching prerequisite");
   await page.getByRole("button", {name: "About Use Site Memory"}).click();
