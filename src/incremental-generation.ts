@@ -107,6 +107,8 @@ export async function generateIncrementalProposal(
     JSON.stringify(removed).slice(0, 16000),
     "FOLLOWING STEPS THAT STAY UNCHANGED (READ-ONLY CONTEXT):",
     JSON.stringify(suffix).slice(0, 11000),
+    ...(original.instructionCoverage ? ["CURRENT REQUIREMENTS (read-only except explicit user amendments):",
+      JSON.stringify(original.instructionCoverage.entries.map(({id,text,stepIds}) => ({id,text,stepIds})))] : []),
     "TESTER'S NEW INSTRUCTIONS FOR THIS PATCH:",
     options.instructions,
     "INITIAL PAGE SNAPSHOT (NOT THE POST-PREFIX BROWSER STATE):",
