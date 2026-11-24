@@ -310,6 +310,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
+      <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
+
+    </section>
+    <section id="review-workspace" aria-labelledby="review-heading" hidden>
+      <h2 id="review-heading">Test Editor</h2>
+      <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
         <p id="exception-count" role="alert" class="error"></p>
@@ -338,10 +344,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         </div>
         <p id="exception-edit-error" class="error" role="alert"></p>
       </section>
-    </section>
-    <section aria-labelledby="review-heading">
-      <h2 id="review-heading">Test Editor</h2>
-      <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
@@ -1243,6 +1245,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
     function renderSteps() {
+      hideException();
+      $("review-workspace").hidden = false;
+      $("working-drafts-panel").hidden = false;
       incrementalRevision++;
       incrementalPending = null;
       $("incremental-preview").hidden = true;
@@ -2903,6 +2908,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       event.target.value = "";
     });
     function clearGenerationPreview() {
+      $("review-workspace").hidden = true;
       // A previous successful attempt must never masquerade as the new draft.
       // Do NOT clear persisted approved tests, execution history or input text.
       definition = null;
@@ -3016,6 +3022,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let exceptionRequest = null;
     function hideException() {
       $("generation-exception").hidden=true;
+      $("working-drafts-panel").hidden=false;
       pendingException=null;
       for (const id of ["exception-desc-panel","exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
       $("exception-risk").checked=false;
@@ -3028,6 +3035,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     }
     function showGenerationException(data, request) {
       pendingException={data,request};
+      $("review-workspace").hidden=false;
+      $("placeholder").hidden=true;
+      $("draft").hidden=true;
+      $("working-drafts-panel").hidden=true;
       $("generation-exception").hidden=false;
       $("exception-count").textContent=data.problematicIds.length+" of "+data.total+" requirements could not be confidently mapped.";
       $("exception-site").textContent="Application: "+data.baseURL;
@@ -3051,6 +3062,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-review-status").textContent="Test generation blocked. Choose how to resolve the instruction mismatch.";
       $("generation-status").textContent="";
     }
+    $("open-existing-editor").addEventListener("click",()=>{
+      hideException();
+      $("review-workspace").hidden=false;
+      $("placeholder").hidden=!!definition;
+      $("draft").hidden=!definition;
+    });
     $("exception-edit-desc").addEventListener("click",()=>chooseExceptionMode("desc"));
     $("exception-edit-reqs").addEventListener("click",()=>chooseExceptionMode("reqs"));
     $("exception-proceed").addEventListener("click",()=>chooseExceptionMode("proceed"));
