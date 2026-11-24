@@ -36,6 +36,10 @@ function locate(page: Page, target: Target): Locator {
     return page.getByPlaceholder(target.value, { exact: true });
   if (target.by === "text")
     return page.getByText(target.value, { exact: true });
+  if (target.by === "testid") return page.getByTestId(target.value);
+  if (target.by === "id") return page.locator("css=[id=" + JSON.stringify(target.value) + "]");
+  if (target.by === "css") return page.locator("css=" + target.value);
+  if (target.by === "xpath") return page.locator("xpath=" + target.value);
   throw new Error("Intent targets must be grounded using live DOM discovery");
 }
 function message(error: unknown): string {

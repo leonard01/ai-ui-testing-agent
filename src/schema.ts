@@ -24,6 +24,12 @@ const target = z.discriminatedUnion("by", [
   z.object({ by: z.literal("label"), value: text }).strict(),
   z.object({ by: z.literal("placeholder"), value: text }).strict(),
   z.object({ by: z.literal("text"), value: text }).strict(),
+  // Explicit fallback locators are human-editable and validated at execution.
+  // Preserve old schema version and existing semantic strategies.
+  z.object({ by: z.literal("testid"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("id"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("xpath"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional() }).strict(),
 ]);
 // Count assertions require an explicit multi-match locator. Intent discovery
@@ -37,6 +43,10 @@ const countTarget = z.discriminatedUnion("by", [
   z.object({ by: z.literal("label"), value: text }).strict(),
   z.object({ by: z.literal("placeholder"), value: text }).strict(),
   z.object({ by: z.literal("text"), value: text }).strict(),
+  z.object({ by: z.literal("testid"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("id"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("xpath"), value: z.string().trim().min(1).max(1000) }).strict(),
 ]);
 const key = z.enum(["Enter", "Tab", "Escape", "Backspace", "Delete",
   "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space",

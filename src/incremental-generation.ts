@@ -145,6 +145,10 @@ export async function generateIncrementalProposal(
       // their human-entered values must not be modified by regeneration.
       const reviewedCredentialCount = requireHumanCredentialValues({ ...original, steps: replacement });
       for (const step of replacement) {
+        if ("target" in step.action &&
+          ["testid", "id", "css", "xpath"].includes(step.action.target.by)) {
+          throw new Error("AI cannot introduce unverified CSS/XPath/ID selectors. Use semantic or intent targets; edit technical locators after review.");
+        }
         if (step.action.kind === "navigate") ensureAllowedNavigation(step.action.url, base);
         if (step.action.kind === "assert-url") ensureAllowedNavigation(step.action.expected, base);
         if ("provenance" in step.action && step.action.provenance === "human-confirmed") {

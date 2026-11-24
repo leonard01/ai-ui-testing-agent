@@ -142,6 +142,15 @@ export async function generateDraft(
       if (attempt < maxAttempts) continue;
       throw new GeneratedDraftValidationError(attempt, problems);
     }
+    // Technical selectors require DOM-backed human selection. The initial
+    // snapshot does not expose their attributes, so the model cannot prove them.
+    // Reject AI-invented CSS/XPath/IDs, without restricting edited human drafts.
+    if (definition.steps.some(step => "target" in step.action &&
+      ["testid", "id", "css", "xpath"].includes(step.action.target.by))) {
+      problems = ["Model returned an unverified technical locator. Use role, label, placeholder, text or live-DOM intent; the tester can select CSS/XPath/IDs in the editor."];
+      if (attempt < maxAttempts) continue;
+      throw new GeneratedDraftValidationError(attempt, problems);
+    }
     if (definition.sourceUrl !== undefined) {
       throw new Error("AI drafts cannot claim an approved source URL; the review server records it on save");
     }
