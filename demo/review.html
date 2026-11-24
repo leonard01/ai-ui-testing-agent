@@ -1675,7 +1675,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         return;
       }
       panel.append(make("h3", "⛔ Cannot save or run — " + unresolvedCoverage.length +
-        " requirement mapping" + (unresolvedCoverage.length === 1 ? "" : "s") + " need review"));
+        " requirement mapping" + (unresolvedCoverage.length === 1 ? " needs" : "s need") + " review"));
       panel.append(make("p", "AI reinterpretation can replace step IDs without replacing the intent. " +
         "Review each original statement and explicitly link the current step(s) that satisfy it. " +
         "Save Draft is still available. Do not link unrelated steps just to clear a blocker."));
