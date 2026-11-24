@@ -108,6 +108,17 @@ export const testDefinitionSchema = z
     sourceInstructions: z.string().max(12_000).optional(),
     workingInstructions: z.string().max(12_000).optional(),
     requirements: z.array(requirement).max(40).optional(),
+    // AI proposals are separate from human-authored traceability.
+    instructionCoverage: z.object({
+      source: z.string().max(12000),
+      entries: z.array(z.object({
+        id: z.string().max(80), text: z.string().min(1).max(12000),
+        interpretation: z.string().max(2000),
+        stepIds: z.array(text).max(100),
+        issue: z.string().max(1000), confirmed: z.boolean(),
+      }).strict()).max(40),
+      prerequisiteStepIds: z.array(text).max(100),
+    }).strict().optional(),
     steps: z
       .array(testStepSchema)
       .min(1)
