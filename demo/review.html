@@ -739,6 +739,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           .map(item => item.text).join("\n");
         showOriginalInstructions();
         clearPreflight();
+        clearGeneratedReviewWarnings();
         $("placeholder").hidden = true;
         $("draft").hidden = false;
         $("draft-title").textContent = "Working draft: " + definition.title;
@@ -1047,6 +1048,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         "generation-page-error-summary"].some(id => !$(id).hidden);
       $("draft-review-advisories").hidden = !warnings;
       $("draft-review-feedback").hidden = $("draft-critical-blockers").hidden && !warnings;
+    }
+    function clearGeneratedReviewWarnings() {
+      // Generated page evidence belongs to that generation, not the next
+      // approved test or working draft the user opens in this editor.
+      for (const id of ["draft-quality-warnings", "generation-page-error-summary"]) {
+        $(id).hidden = true;
+        $(id).textContent = "";
+      }
+      $("generation-diagnostics").hidden = true;
+      $("generation-diagnostics").open = false;
+      syncReviewFeedback();
     }
     function renderDomWideSummary() {
       const count = (definition?.steps ?? []).filter(step =>
@@ -2638,6 +2650,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         editingSavedId = id;
         approvals = new Set();
         clearPreflight();
+        clearGeneratedReviewWarnings();
         selectedBaseURL = definition.sourceUrl || $("base-url").value;
         $("saved").replaceChildren();
         $("save-error").textContent = "";
