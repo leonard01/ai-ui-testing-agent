@@ -214,6 +214,7 @@ test("review UI exports only approved saved tests and never creates an extra fil
     await page.goto(url);
     const link = page.getByRole("link", { name: "Export Playwright (.spec.ts)" });
     await expect(link).toBeHidden();
+    await page.locator("#test-name").fill("Add, complete and delete a task");
     await page.getByLabel("Your test instructions").fill("Create a task and then remove it.");
     await page.getByLabel("Generate with").selectOption("fixture");
     await page.getByRole("button", { name: "Generate draft" }).click();
