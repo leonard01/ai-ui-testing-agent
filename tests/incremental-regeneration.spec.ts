@@ -271,3 +271,42 @@ test("Help dialog explains the workflow and limitations without generating AI re
   await help.getByRole("button", { name: "Close help" }).click();
   await expect(help).toBeHidden();
 });
+
+
+for (const [label, overrides, message] of [
+  ["initial navigation", { stepId: "open" }, "initial navigation cannot be regenerated"],
+  ["unknown approval", { approvedStepIds: ["not-in-test"] }, "Approved step IDs"],
+  ["blank instructions", { instructions: "  " }, "instructions"],
+] as const) {
+  test("regeneration rejects " + label + " without calling provider", async () => {
+    const response = await regenerate(overrides);
+    expect([400, 422]).toContain(response.status);
+    expect((await response.json()).error).toContain(message);
+    expect(mockCalls).toBe(0);
+  });
+}
+
+test("replacing the final step retains all earlier steps and only their approvals", async () => {
+  const definition = await original();
+  const last = definition.steps.at(-1);
+  const response = await regenerate({
+    definition, stepId: last.id, mode: "from",
+    approvedStepIds: definition.steps.map((step: {id:string}) => step.id),
+  });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.definition.steps.slice(0,-1)).toEqual(definition.steps.slice(0,-1));
+  expect(result.preservedApprovedStepIds).toEqual(definition.steps.slice(0,-1).map((step:{id:string})=>step.id));
+  expect(result.replacement).toHaveLength(1);
+  expect(result.replacement[0].id).not.toBe(last.id);
+  expect(mockCalls).toBe(1);
+});
+
+test("single-step mode rejects multiple replacements without saving a test", async () => {
+  mockSteps = [newStatus, ...remainder];
+  const response = await regenerate({ mode: "step" });
+  expect(response.status).toBe(422);
+  expect((await response.json()).error).toContain("exactly one step");
+  expect(mockCalls).toBe(2);
+  expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
+});
