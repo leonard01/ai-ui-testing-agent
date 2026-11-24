@@ -6,7 +6,7 @@ import type { TestDefinition } from "./domain.js";
 // in their original wording and must be reviewed as a whole.
 export function sourceRequirements(instructions: string) {
   const lines = instructions.split(/\r?\n/).flatMap(line =>
-    line.trim().split(/(?<=[.!?])\s+(?=[A-Z])/).map(text => text.trim()).filter(Boolean));
+    line.trim().split(/(?<!\d\.)(?<=[.!?])\s+(?=[A-Z])/).map(text => text.trim()).filter(Boolean));
   if (lines.length > 40 || lines.some(line => line.length > 12000)) {
     throw new Error("Too many instruction statements. Split the test into smaller workflows.");
   }
