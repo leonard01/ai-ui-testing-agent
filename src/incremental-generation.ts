@@ -1,3 +1,4 @@
+import { sourceRequirements } from "./requirement-preservation.js";
 import { randomUUID } from "node:crypto";
 import { requireHumanCredentialValues } from "./credential-guard.js";
 import { z, ZodError } from "zod";
@@ -160,8 +161,22 @@ export async function generateIncrementalProposal(
       const requirements = original.requirements?.map(item => ({
         ...item, stepIds: item.stepIds.filter(id => retained.has(id)),
       }));
+      const oldCoverage=original.instructionCoverage;
+      const source=oldCoverage ? oldCoverage.source+"\n"+options.instructions : "";
+      if(source.length>12000) throw new Error("Combined instruction coverage exceeds 12,000 characters; generate a smaller test.");
+      const instructionCoverage=oldCoverage ? {
+        source,
+        entries:sourceRequirements(source).map(row=>{
+          const old=oldCoverage.entries.find(entry=>entry.id===row.id&&entry.text===row.text);
+          if(!old) return {...row,interpretation:"",stepIds:[],issue:"New amendment requires explicit coverage review.",confirmed:false};
+          const stepIds=old.stepIds.filter(id=>retained.has(id));
+          return {...old,stepIds,confirmed:old.confirmed&&stepIds.length===old.stepIds.length};
+        }),
+        prerequisiteStepIds:oldCoverage.prerequisiteStepIds.filter(id=>retained.has(id)),
+      } : undefined;
       const definition = parseTestDefinition({
         ...original, steps, ...(requirements ? { requirements } : {}),
+        ...(instructionCoverage ? {instructionCoverage} : {}),
       });
       const approved = new Set(options.approvedStepIds);
       const preservedApprovedStepIds = steps
