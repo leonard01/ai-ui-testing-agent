@@ -27,6 +27,7 @@ test.afterEach(async () => {
 
 async function fixture(page: import("@playwright/test").Page) {
   await page.goto(url);
+  await page.locator("#test-name").fill("Add, complete and delete a task");
   await page.getByLabel("Your test instructions").fill(
     "Add Prepare interview, complete it, then delete it and check the count.");
   await page.getByLabel("Generate with").selectOption("fixture");
