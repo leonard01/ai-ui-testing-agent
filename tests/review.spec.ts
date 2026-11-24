@@ -1516,7 +1516,7 @@ test("working draft preserves partial approvals and original instructions withou
   expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(approvedBeforeDraft);
 
   await page.getByRole("button", { name: "Choose another test" }).click();
-  await page.getByRole("button", { name: "Resume draft" }).click();
+  await page.getByRole("button", { name: "Resume draft", exact: true }).click();
   await expect(page.locator("#review-progress")).toContainText("2 of 9 steps confirmed");
   await expect(page.locator("#original-instructions")).toHaveText(original);
   await expect(page.locator("#requirements")).toHaveValue(original);
