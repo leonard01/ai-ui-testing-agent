@@ -215,3 +215,48 @@ test("restoration ignores incomplete, corrupt and unrecognized directories", asy
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+
+test("history rejects invalid pagination without changing saved tests", async ({ browser }) => {
+  const dir = await mkdtemp(join(tmpdir(), "history-pagination-boundaries-"));
+  let server: Server | undefined;
+  try {
+    const ids = await seed(dir);
+    const instance = await start(dir, browser);
+    server = instance.server;
+    for (const query of ["page=0", "page=-1", "page=1.5", "page=NaN", "page=100001", "siteUrl=" + "x".repeat(2049)]) {
+      const response = await fetch(instance.url + "/api/history?" + query);
+      expect(response.status, query.slice(0, 60)).toBe(400);
+      expect((await response.json()).error).toContain("Invalid history page or website filter");
+    }
+    const valid = await fetch(instance.url + "/api/history?page=1");
+    expect(valid.status).toBe(200);
+    expect((await valid.json()).entries).toEqual([]);
+    expect((await (await fetch(instance.url + "/api/tests")).json()).tests).toHaveLength(ids.length);
+  } finally {
+    if (server) { server.closeAllConnections(); await stop(server); }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("passing run has a report but does not expose nonexistent failure screenshot", async ({ browser }) => {
+  const dir = await mkdtemp(join(tmpdir(), "history-artifact-boundaries-"));
+  let server: Server | undefined;
+  try {
+    const ids = await seed(dir);
+    const instance = await start(dir, browser);
+    server = instance.server;
+    const started = await post(instance.url, "/api/run", { id: ids[0], baseURL: "http://127.0.0.1:3000" });
+    expect(started.status).toBe(202);
+    const completed = await completion(instance.url, "/api/runs/" + started.data.id);
+    expect(completed.report.status).toBe("passed");
+    const path = instance.url + "/api/runs/" + completed.id;
+    expect((await fetch(path + "/report.json")).status).toBe(200);
+    expect((await fetch(path + "/failure.png")).status).toBe(404);
+    expect((await fetch(instance.url + "/api/runs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/report.json")).status).toBe(404);
+    expect((await (await fetch(instance.url + "/api/history")).json()).entries).toHaveLength(1);
+  } finally {
+    if (server) { server.closeAllConnections(); await stop(server); }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
