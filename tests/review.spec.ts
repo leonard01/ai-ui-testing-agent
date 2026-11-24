@@ -1337,6 +1337,30 @@ test("reviewer selects Contains and saved assertion preserves its explicit compa
   expect(saved.steps[1].action.match).toBe("contains");
 });
 
+test("draft and live execution identify DOM-wide assertions without treating them as failures", async ({ page }) => {
+  await generateFixture(page);
+  await expect(page.locator("#draft-dom-wide-summary")).toBeVisible();
+  await expect(page.locator("#draft-dom-wide-summary")).toContainText("4 DOM-wide assertions");
+  await expect(page.locator("#step-list .step .pill.warn")).toHaveCount(4);
+  await expect(page.locator("#step-list .step").first().locator(".pill.warn")).toHaveCount(0);
+  await expect(page.locator("#step-list .step").nth(1).locator(".pill.warn")).toContainText("DOM-wide");
+  await expect(page.locator("#step-list .step").nth(4).locator(".pill.warn")).toContainText("DOM-wide");
+
+  await page.getByRole("button", { name: "Add All", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save & Run" })).toBeEnabled();
+  await page.getByRole("button", { name: "Save & Run" }).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  await expect(page.locator("#run-steps .pill.warn")).toHaveCount(4);
+  await expect(page.locator("#run-steps .run-step").nth(1).locator(".pill.warn")).toContainText("DOM-wide");
+  await expect(page.locator("#run-steps .run-step").first().locator(".pill.warn")).toHaveCount(0);
+  const reportPath = await page.locator('#run-artifacts a').first().getAttribute("href");
+  expect(reportPath).toMatch(/\/api\/runs\/.*\/report\.json$/);
+  const report = await (await page.request.get(url + reportPath)).json();
+  expect(report.steps.filter((step: {domWideAssertion?:boolean}) => step.domWideAssertion)).toHaveLength(4);
+  expect(report.status).toBe("passed");
+});
+
 test("Save & Run persists once, focuses execution and reuses unchanged approved test", async ({ page }) => {
   await generateFixture(page);
   const before = (await (await page.request.get(url + "/api/tests")).json()).tests.length;
