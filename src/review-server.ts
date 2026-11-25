@@ -1315,8 +1315,16 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                   evidence.query !== failed.expected.replace(/\s+/g, " ").trim())))) {
             throw new Error("Saved assertion differs from the failing run; rerun before repairing");
           }
+          const mode = input.mode ?? "target";
+          if (mode !== "target" && mode !== "expectation" && mode !== "both") {
+            throw new Error("Choose a valid assertion repair mode");
+          }
           const target = selected.target;
-          if (JSON.stringify(target) === JSON.stringify(step.action.target)) {
+          const sameTarget = JSON.stringify(target) === JSON.stringify(step.action.target);
+          if (mode === "expectation" && !sameTarget) {
+            throw new Error("Expectation-only repair requires the existing assertion target; choose both to change the locator");
+          }
+          if (mode === "target" && sameTarget) {
             throw new Error("Selected element uses the existing locator. No locator change is possible; review the expected text or comparison mode instead.");
           }
           if (target.by !== "text" && target.by !== "role") {
@@ -1326,17 +1334,33 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               target.by === "text" && !target.value.trim()) {
             throw new Error("Assertion target must uniquely identify a named element");
           }
-          // Only the target is changed. Expected text, provenance, assertion
-          // kind and all other steps are preserved. Actual page text is never
-          // promoted to a passing expectation.
           const previousTarget = step.action.target;
-          step.action.target = target;
+          const previousExpected = step.action.kind === "assert-text" ? step.action.expected : undefined;
+          if (mode !== "target") {
+            if (step.action.kind !== "assert-text" || failed.status !== "assertion-failed" ||
+                input.confirmed !== true || typeof input.expected !== "string" ||
+                input.expected.length > 10_000 ||
+                (input.match !== "exact" && input.match !== "contains")) {
+              throw new Error("Explicitly confirm a valid expected text and comparison for this failed text assertion");
+            }
+            if (input.expected === step.action.expected &&
+                input.match === (step.action.match ?? "exact")) {
+              throw new Error("Expected text and comparison mode are unchanged");
+            }
+            if (failed.textMatch !== undefined && (step.action.match ?? "exact") !== failed.textMatch) {
+              throw new Error("Saved comparison mode differs from the failed run; rerun before repairing");
+            }
+            step.action.expected = input.expected;
+            step.action.match = input.match;
+            step.action.provenance = "human-confirmed";
+          }
+          if (mode !== "expectation") step.action.target = target;
           const corrected = parseTestDefinition(definition);
           const { id, replacedId } = await saveApproved(corrected, job.fileId);
           json(res, 201, {
             id, replacedId, repairedStepId: step.id,
-            previousTarget, approvedTarget: target,
-            message: "Assertion target corrected from reviewed DOM evidence; expected results unchanged. No run started.",
+            previousTarget, approvedTarget: step.action.target, previousExpected,
+            message: mode === "target" ? "Assertion target corrected from reviewed DOM evidence; expected results unchanged. No run started." : "Explicitly reviewed assertion correction saved. No run started.",
           });
         } catch (error) {
           json(res, 400, {
