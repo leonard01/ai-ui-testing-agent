@@ -2325,8 +2325,84 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           save.disabled = true;
           let selected = -1;
           let activeEvidence = step.assertionAlternatives || null;
+          let searching = false;
+          let savingRepair = false;
+          const canReviewExpectation = mismatch && step.actionKind === "assert-text" &&
+            typeof step.expected === "string";
+          const review = make("div", null, "repair-scope");
+          review.hidden = true;
+          const modeLabel = make("label", "Assertion correction");
+          const mode = make("select");
+          mode.setAttribute("aria-label", "Assertion correction");
+          modeLabel.append(mode);
+          const expectationFields = make("div");
+          const expectedLabel = make("label", "Corrected expected text");
+          const expected = make("textarea");
+          expected.maxLength = 10000;
+          expected.value = step.expected ?? "";
+          expectedLabel.append(expected);
+          const matchLabel = make("label", "Corrected comparison");
+          const match = make("select");
+          for (const [value, label] of [["exact", "Exact"], ["contains", "Contains"]]) {
+            const option = make("option", label);
+            option.value = value;
+            match.append(option);
+          }
+          match.value = step.textMatch ?? "exact";
+          matchLabel.append(match);
+          const useText = make("button", "Use selected element text as expectation", "secondary");
+          useText.type = "button";
+          const confirmLabel = make("label");
+          const confirm = make("input");
+          confirm.type = "checkbox";
+          confirmLabel.append(confirm, document.createTextNode(" I confirm this expectation matches the test requirements."));
+          expectationFields.append(expectedLabel, matchLabel, useText, confirmLabel);
+          review.append(modeLabel, expectationFields);
+          const selectedCandidate = () => activeEvidence?.candidates?.[selected];
+          const sameTarget = () => JSON.stringify(selectedCandidate()?.target) === JSON.stringify(activeEvidence?.attempted);
+          function updateRepair() {
+            const candidate = selectedCandidate();
+            const changesExpectation = mode.value === "expectation" || mode.value === "both";
+            expectationFields.hidden = !changesExpectation;
+            save.textContent = changesExpectation
+              ? mode.value === "both" ? "Save corrected target and expectation and rerun" : "Save corrected expectation and rerun"
+              : "Save corrected assertion target and rerun";
+            const expectationChanged = expected.value !== step.expected || match.value !== (step.textMatch ?? "exact");
+            save.disabled = running || searching || savingRepair || !candidate ||
+              activeEvidence.total !== activeEvidence.candidates.length ||
+              (changesExpectation ? !confirm.checked || !expectationChanged : sameTarget());
+          }
+          function selectCorrection() {
+            mode.replaceChildren();
+            const options = sameTarget()
+              ? (canReviewExpectation ? [["expectation", "Update expected text or comparison"]] : [])
+              : [["target", "Replace assertion target"], ...(canReviewExpectation ? [["both", "Update target and expectation"]] : [])];
+            for (const [value, label] of options) {
+              const option = make("option", label);
+              option.value = value;
+              mode.append(option);
+            }
+            expected.value = step.expected ?? "";
+            match.value = step.textMatch ?? "exact";
+            confirm.checked = false;
+            review.hidden = !canReviewExpectation || options.length === 0;
+            updateRepair();
+          }
+          mode.addEventListener("change", () => { confirm.checked = false; updateRepair(); });
+          expected.addEventListener("input", () => { confirm.checked = false; updateRepair(); });
+          match.addEventListener("change", () => { confirm.checked = false; updateRepair(); });
+          confirm.addEventListener("change", updateRepair);
+          useText.addEventListener("click", () => {
+            const candidate = selectedCandidate();
+            if (!candidate) return;
+            expected.value = candidate.text ?? candidate.target.value ?? candidate.target.name ?? "";
+            confirm.checked = false;
+            updateRepair();
+          });
           const renderChoices = (evidence) => {
             selected = -1;
+            review.hidden = true;
+            confirm.checked = false;
             save.disabled = true;
             activeEvidence = evidence;
             choices.replaceChildren(make("legend", "Choose a verified element from the page"));
@@ -2350,9 +2426,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 selected = index;
                 const unchanged = JSON.stringify(candidate.target) ===
                   JSON.stringify(evidence.attempted);
-                save.disabled = running || unchanged || evidence.total !== candidates.length;
-                if (unchanged) searchStatus.textContent =
-                  "This is already the assertion target. Changing it cannot fix an exact-text mismatch. Use Review failed text assertion below to change the expectation or choose Contains.";
+                selectCorrection();
+                if (unchanged) searchStatus.textContent = canReviewExpectation
+                  ? "This is already the correct assertion target. Review the expected text or comparison below, then explicitly confirm your correction."
+                  : "This is already the assertion target. No locator change is possible.";
+                else searchStatus.textContent = "Verified element selected. Review the correction before saving.";
               });
               choices.append(label);
             });
@@ -2374,18 +2452,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               "No searchable DOM evidence was retained for this failed assertion. " +
               "You can still edit its locator in the test review form.";
           }
-          repair.append(choices);
+          repair.append(choices, review);
           searchInput.addEventListener("input", () => {
             save.disabled = true;
             selected = -1;
-            searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
+            review.hidden = true;
+            confirm.checked = false;
+            choices.querySelectorAll("input").forEach(radio => { radio.checked = false; radio.disabled = true; });
+            searchButton.disabled = searching || !canSearchCapturedDOM || !searchInput.value.trim();
             searchStatus.textContent = canSearchCapturedDOM
               ? "Search again to refresh the matching elements."
               : "No searchable DOM snapshot was retained. Edit the assertion locator manually.";
           });
           searchButton.addEventListener("click", async () => {
             const query = searchInput.value.trim();
-            if (!query || running || !canSearchCapturedDOM) return;
+            if (!query || running || searching || savingRepair || !canSearchCapturedDOM) return;
+            searching = true;
+            renderChoices(null);
             searchButton.disabled = true;
             save.disabled = true;
             searchStatus.textContent = "Searching text captured at the failed step...";
@@ -2395,6 +2478,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ runId: result.id, stepId: step.id, query }),
               });
+              if (searchInput.value.trim() !== query) return;
               renderChoices(response.alternatives);
               if (!response.alternatives.candidates.length) {
                 searchStatus.textContent = 'No uniquely identifiable visible text matched "' +
@@ -2403,16 +2487,19 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             } catch (error) {
               searchStatus.textContent = error.message || String(error);
             } finally {
+              searching = false;
               searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
+              updateRepair();
             }
           });
           repair.append(make("p",
-            "This is a locator-only repair. Selecting an element does NOT replace expected text with what the page displays. " +
-            "To change the expected text or compare with Contains, use Review failed text assertion below. The failed saved version is replaced " +
+            "Selecting an element never changes the expectation automatically. Locator-only repair preserves the expected result. " +
+            "Any expectation or comparison change requires explicit confirmation against your requirements. The failed saved version is replaced " +
             "after a successful save; the corrected test reruns from step 1.", "muted"));
           save.addEventListener("click", async () => {
-            if (running || selected < 0 || !activeEvidence ||
-                activeEvidence.total !== activeEvidence.candidates.length) return;
+            updateRepair();
+            if (save.disabled) return;
+            savingRepair = true;
             save.disabled = true;
             $("run-error").textContent = "";
             try {
@@ -2421,16 +2508,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   runId: result.id, stepId: step.id, candidateIndex: selected,
+                  mode: mode.value || "target",
+                  ...(mode.value === "expectation" || mode.value === "both"
+                    ? { expected: expected.value, match: match.value, confirmed: confirm.checked } : {}),
                   ...(activeEvidence.searched ? { searchToken: activeEvidence.searchToken } : {}),
                 }),
               });
               await refreshApprovedTests(updated.id);
-              $("run-status").textContent = "Saved corrected assertion target for " +
+              $("run-status").textContent = "Saved reviewed assertion correction for " +
                 updated.repairedStepId + ". Rerunning from step 1...";
               await executeApproved(updated.id);
             } catch (error) {
               $("run-error").textContent = error.message || String(error);
-              save.disabled = false;
+            } finally {
+              savingRepair = false;
+              updateRepair();
             }
           });
           const manual = make("button", "Edit failing assertion locator", "secondary");
