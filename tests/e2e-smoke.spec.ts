@@ -177,8 +177,13 @@ test.describe("@e2e-smoke application smoke", () => {
     await page.locator("#requirements").fill(instructions);
     await page.locator("#test-name").fill(" original TEST ");
     await expect(page.locator("#generate")).toBeDisabled();
-    await expect(page.locator("#generate-readiness")).toContainText("already exists");
+    await expect(page.locator("#test-name-conflict")).toBeVisible();
+    await expect(page.locator("#test-name-conflict")).toContainText("already exists");
+    await expect(page.locator("#test-name")).toHaveAttribute("aria-invalid","true");
+    await expect(page.locator("#generate-readiness")).toContainText("Choose a different Test name");
     await page.locator("#test-name").fill("Separate new test");
+    await expect(page.locator("#test-name-conflict")).toBeHidden();
+    await expect(page.locator("#test-name")).toHaveAttribute("aria-invalid","false");
     await page.locator("#generate").click();
     await expect(page.locator("#step-list .step")).toHaveCount(9);
     await page.locator("#review-add-all").click();
