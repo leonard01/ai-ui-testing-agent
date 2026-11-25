@@ -12,6 +12,11 @@ export interface UsageAttempt {
   outputTokens?: number;
   totalTokens?: number;
   completionBudget: number;
+  estimatedInputTokens?: number;
+  providerRequestedTokens?: number;
+  providerTokenLimit?: number;
+  providerUsedTokens?: number;
+  retryAfter?: string;
   systemCharacters: number;
   promptCharacters: number;
   remainingTokens?: number;
