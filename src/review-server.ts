@@ -1143,7 +1143,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           // Never propagate an indexed/ambiguous choice or cross navigation boundaries.
           const failedIndex = definition.steps.indexOf(step);
           const matches = [step];
-          if (!isDuplicate && !("nth" in previousTarget) && chosen.matchCount === 1) {
+          if (!isDuplicate && !("nth" in previousTarget) && (chosen.matchCount === undefined || chosen.matchCount === 1)) {
             for (const entry of definition.steps.slice(failedIndex + 1)) {
               if (entry.action.kind === "navigate") break;
               if (entry.action.kind === step.action.kind &&
