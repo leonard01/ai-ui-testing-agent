@@ -516,7 +516,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
 
   function snapshot(job: RunJob) {
     return {
-      id: job.id, fileId: job.fileId, state: job.state, startedAt: job.startedAt,
+      id: job.id, fileId: job.fileId, state: job.state, startedAt: job.startedAt, baseURL: job.baseURL,
       report: job.report, error: job.error,
       diagnosis: job.report ? diagnoseRun(job.report) : undefined,
       artifacts: job.report ? {
@@ -703,7 +703,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -1073,7 +1073,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (path === "/api/repair-target") {
+      if (path === "/api/repair-target" || path === "/api/repair-target-preview") {
         try {
           if (!body || typeof body !== "object" || Array.isArray(body)) {
             throw new Error("Expected a repair request object");
@@ -1136,14 +1136,42 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("Unsupported element role");
           }
           const previousTarget = step.action.target;
-          step.action.target = isDuplicate
-            ? { by: "role", role, name: chosen.name, nth: chosen.nth }
-            : { by: "role", role, name: chosen.name };
+          const approvedTarget: typeof previousTarget = isDuplicate
+            ? { by: "role" as const, role, name: chosen.name, nth: chosen.nth }
+            : { by: "role" as const, role, name: chosen.name };
+          // Only exact same-action locators later in the failed test are eligible.
+          // Never propagate an indexed/ambiguous choice or cross navigation boundaries.
+          const failedIndex = definition.steps.indexOf(step);
+          const matches = [step];
+          if (!isDuplicate && !("nth" in previousTarget) && (chosen.matchCount === undefined || chosen.matchCount === 1)) {
+            for (const entry of definition.steps.slice(failedIndex + 1)) {
+              if (entry.action.kind === "navigate") break;
+              if (entry.action.kind === step.action.kind &&
+                  JSON.stringify(entry.action.target) === JSON.stringify(previousTarget)) matches.push(entry);
+            }
+          }
+          const affected = matches.map(entry => ({id:entry.id, position:definition.steps.indexOf(entry)+1, description:entry.description}));
+          if (path === "/api/repair-target-preview") {
+            json(res, 200, {affected, previousTarget, approvedTarget});
+            return;
+          }
+          const all = input.scope === "all";
+          if (input.scope !== undefined && input.scope !== "single" && !all) {
+            throw new Error("Invalid repair scope");
+          }
+          if (all && (matches.length < 2 || !Array.isArray(input.confirmedStepIds) ||
+              JSON.stringify(input.confirmedStepIds) !== JSON.stringify(matches.map(entry=>entry.id)))) {
+            throw new Error("Matching steps changed or were not explicitly confirmed; review the repair again");
+          }
+          const selectedSteps = all ? matches : [step];
+          for (const entry of selectedSteps) {
+            if (entry.action.kind === "click" || entry.action.kind === "fill") entry.action.target = approvedTarget;
+          }
           const corrected = parseTestDefinition(definition);
           const { id, replacedId } = await saveApproved(corrected, job.fileId);
           json(res, 201, {
             id, replacedId, repairedStepId: step.id,
-            previousTarget, approvedTarget: step.action.target,
+            previousTarget, approvedTarget: step.action.target, repairedStepIds: selectedSteps.map(entry=>entry.id),
             message: "Corrected locator saved and failed test replaced; assertions remain unchanged. Execution has not started.",
           });
         } catch (error) {

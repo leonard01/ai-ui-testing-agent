@@ -140,6 +140,13 @@
     .passed { color:#1e7749; background:#e7f8ee; }
     .assertion-failed, .execution-error { color:#a22639; background:#feeaed; }
     .skipped { color:#677689; background:#eef0f4; }
+    .result-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); gap:8px; margin:12px 0; }
+    .result-metric { border:1px solid #d7e0ea; border-radius:8px; padding:10px; background:#f8fafc; }
+    .result-metric strong { display:block; font-size:21px; }
+    .result-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+    .run-step[data-status="execution-error"], .run-step[data-status="assertion-failed"] { border-left:4px solid #b42339; }
+    .result-detail-toggle { margin-left:8px; font-size:12px; }
+    .repair-scope { border:1px solid #d7e0ea; padding:10px; margin:10px 0; border-radius:8px; }
     .result-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
     #run-screenshot { max-width:100%; display:block; border:1px solid #d2dbe6; border-radius:9px; }
     #run-summary { font-weight:700; padding:9px 12px; border-radius:8px; border:1px solid transparent; }
@@ -597,6 +604,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <div id="run-results" hidden>
         <h2 id="run-summary" style="margin-top:18px"></h2>
         <p id="run-totals" class="muted"></p>
+        <div id="run-metrics" class="result-metrics" aria-label="Execution totals"></div>
+        <div id="result-actions" class="result-actions"></div>
         <div id="run-diagnosis" class="note"></div>
         <div id="run-coverage-warnings" class="review-advisories" hidden></div>
         <div id="run-artifacts" class="artifact-links"></div>
@@ -2107,6 +2116,42 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("run-summary").classList.toggle("run-failed", !didPass);
       $("run-totals").textContent = passed + " passed, " + skipped + " skipped; " +
         report.steps.length + " steps reported; " + (report.durationMs / 1000).toFixed(1) + " seconds";
+      const metrics = $("run-metrics");
+      metrics.replaceChildren();
+      const failed = report.steps.filter(s=>s.status==="execution-error" || s.status==="assertion-failed").length;
+      for (const [label,value] of [["Passed",passed],["Failed",failed],["Skipped",skipped],["Duration",(report.durationMs/1000).toFixed(1)+"s"]]) {
+        const metric = make("div",null,"result-metric");
+        metric.append(make("span",label,"muted"),make("strong",String(value)));
+        metrics.append(metric);
+      }
+      const actions = $("result-actions");
+      actions.replaceChildren();
+      if (result.fileId && approvedCatalog.some(item=>item.id===result.fileId)) {
+        const edit = make("button","Edit test draft","secondary");
+        edit.type="button";
+        edit.addEventListener("click",()=>void loadSavedForEditing(result.fileId));
+        const instructions = make("button","Edit test instructions","secondary");
+        instructions.type="button";
+        instructions.addEventListener("click",async()=>{
+          await loadSavedForEditing(result.fileId);
+          if (editingSavedId===result.fileId && currentWorkspace==="draft") showWorkspace("instructions");
+        });
+        const rerun = make("button","Rerun test","secondary");
+        rerun.type="button";
+        rerun.addEventListener("click",async()=>{
+          if (running) return;
+          await refreshApprovedTests(result.fileId);
+          if (result.baseURL) $("execution-url").value=result.baseURL;
+          await executeApproved(result.fileId);
+        });
+        actions.append(edit,instructions,rerun);
+      }
+      if (fromSuite) {
+        const back = make("button","Back to suite results","secondary");
+        back.type="button";
+        back.addEventListener("click",()=>setResultKind("suite"));
+        actions.append(back);
+      }
       const coverageNotice = $("run-coverage-warnings");
       coverageNotice.replaceChildren();
       const coverage = Array.isArray(report.coverageWarnings) ? report.coverageWarnings : [];
@@ -2141,6 +2186,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (report.error) container.append(make("pre", report.error, "error"));
       for (const [index, step] of report.steps.entries()) {
         const card = make("article", null, "run-step");
+        card.dataset.status = step.status;
         const head = make("div", null, "result-head");
         const heading = make("div");
         heading.append(make("strong", "Step " + (index + 1) + " · " + step.description));
@@ -2394,6 +2440,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           const feedback = make("p", "", "repair-feedback");
           feedback.setAttribute("role", "status");
           let selected = -1;
+          let previewVersion = 0;
+          let affected = [];
+          const scope = make("div",null,"repair-scope");
+          scope.hidden=true;
+          const allLabel = make("label");
+          const all = make("input");
+          all.type="checkbox";
+          const scopeText = make("span");
+          allLabel.append(all,scopeText);
+          const affectedList = make("ul");
+          scope.append(allLabel,affectedList);
+          all.addEventListener("change",()=> {
+            save.textContent=all.checked ? "Save all matching corrections and rerun from start" : "Save corrected locator and rerun from start";
+          });
           evidence.candidates.forEach((candidate, index) => {
             const label = make("label", null, "locator-option");
             const radio = make("input");
@@ -2411,6 +2471,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
             radio.addEventListener("change", () => {
               selected = index;
+              const version = ++previewVersion;
+              affected = [];
+              all.checked=false;
+              scope.hidden=true;
+              save.textContent="Save corrected locator and rerun from start";
               const safe = !duplicate || (Number.isInteger(candidate.nth) &&
                 candidate.matchCount === evidence.candidates.length);
               save.disabled = running || evidence.total !== evidence.candidates.length || !safe;
@@ -2420,11 +2485,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                     " uses the page's current element order. It can break if the website reorders its buttons."
                   : "Identical elements could not be safely distinguished; edit the locator manually."
                 : "Ready to save the selected locator.";
+              if (!safe || duplicate || evidence.total !== evidence.candidates.length) return;
+              void requestJSON("/api/repair-target-preview", {
+                method:"POST", headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({runId:result.id,stepId:step.id,candidateIndex:index}),
+              }).then(preview=>{
+                if (version!==previewVersion || selected!==index) return;
+                affected=preview.affected;
+                if (affected.length<2) return;
+                scopeText.textContent=" Amend all matching occurrences in this test ("+affected.length+")";
+                affectedList.replaceChildren(...affected.map(item=>make("li","Step "+item.position+" — "+item.description)));
+                scope.hidden=false;
+              }).catch(()=>{ /* Single-step repair remains available. */ });
             });
             label.append(radio, info);
             choices.append(label);
           });
-          repair.append(choices);
+          repair.append(choices, scope);
           if (evidence.total !== evidence.candidates.length) {
             repair.append(make("p",
               "Not all possible matches can be shown. Please edit the target in the review UI instead.",
@@ -2443,6 +2520,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   runId: result.id, stepId: step.id, candidateIndex: selected,
+                  scope: all.checked ? "all" : "single",
+                  ...(all.checked ? {confirmedStepIds:affected.map(item=>item.id)} : {}),
                 }),
               });
               await refreshApprovedTests(updated.id);
