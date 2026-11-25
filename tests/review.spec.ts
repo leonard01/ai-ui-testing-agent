@@ -1020,6 +1020,46 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   expect(final.steps.every((step: { status: string }) => step.status === "passed")).toBe(true);
 });
 
+test("bulk locator repair previews later matching steps and preserves other actions", async ({ page }) => {
+  const definition = JSON.parse(await readFile("examples/add-task.json", "utf8"));
+  definition.steps[3].action.target = { by: "label", value: "Add" };
+  definition.steps.push(
+    { id: "enter-second", description: "Enter second task", action: {kind:"fill",target:{by:"label",value:"Task"},value:"Second task"} },
+    { id: "add-second", description: "Add second task", action: {kind:"click",target:{by:"label",value:"Add"}} },
+    { id: "verify-second", description: "Verify second task", action: {kind:"assert-visible",target:{by:"text",value:"Second task"},provenance:"requirements"} },
+  );
+  const response = await page.request.post(url+"/api/save",{data:{testName:"Bulk repair",definition,baseURL:"http://127.0.0.1:3000"}});
+  expect(response.status()).toBe(200);
+  const saved=await response.json();
+  await page.goto(url);
+  await selectSavedScript(page,saved.id);
+  await page.getByRole("button",{name:"Run selected test"}).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+  await expect(page.locator("#run-summary")).toContainText("FAILED");
+  await expect(page.locator("#run-metrics")).toContainText("Failed");
+  const repair=page.locator("#run-steps .locator-repair").first();
+  await repair.locator(".locator-option input").check();
+  const all=repair.getByRole("checkbox",{name:"Amend all matching occurrences in this test (2)"});
+  await expect(all).toBeVisible();
+  await expect(all).not.toBeChecked();
+  await expect(repair).toContainText("Step 11 — Add second task");
+  const reportLink=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
+  const runId=reportLink!.split("/")[3];
+  const rejected=await page.request.post(url+"/api/repair-target",{data:{runId,stepId:"add",candidateIndex:0,scope:"all",confirmedStepIds:["add"]}});
+  expect(rejected.status()).toBe(400);
+  await all.check();
+  await repair.getByRole("button",{name:"Save all matching corrections and rerun from start"}).click();
+  await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+  await expect(page.locator("#run-summary")).toContainText("PASSED");
+  const id=await page.locator("#approved-tests").inputValue();
+  const corrected=JSON.parse(await readFile(await approvedPath(outputDir,id),"utf8"));
+  for (const entry of definition.steps) {
+    const revised=corrected.steps.find((step:{id:string})=>step.id===entry.id);
+    expect(revised).toEqual(["add","add-second"].includes(entry.id)
+      ? {...entry,action:{...entry.action,target:{by:"role",role:"button",name:"Add"}}} : entry);
+  }
+});
+
 test("human chooses among live checkbox candidates; repaired copy reruns successfully @sanity", async ({ page }) => {
   const ambiguous = {
     schemaVersion: 1,
