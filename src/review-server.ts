@@ -419,18 +419,19 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     }));
     const selectedSiteUrl = requestedSite === "__all__" ? "__all__" : requestedSite || sites[0]?.siteUrl || "";
     const term = search.trim().toLowerCase();
-    const matching = entries.filter(entry =>
+    const scoped = entries.filter(entry =>
       (selectedSiteUrl === "__all__" || entry.siteUrl === selectedSiteUrl) &&
-      (!verdict || entry.verdict === verdict) &&
       (!term || (entry.title + " " + entry.siteUrl).toLowerCase().includes(term)));
+    const matching = scoped.filter(entry => !verdict || entry.verdict === verdict);
     const pages = Math.max(1, Math.ceil(matching.length / HISTORY_PAGE_SIZE));
     const page = Math.min(requestedPage, pages);
     return {
       sites, selectedSiteUrl, page, pages,
       pageSize: HISTORY_PAGE_SIZE, total: matching.length,
       overallTotal: entries.length,
-      passed: matching.filter(entry => entry.verdict === "passed").length,
-      failed: matching.filter(entry => entry.verdict === "failed").length,
+      scopedTotal: scoped.length,
+      passed: scoped.filter(entry => entry.verdict === "passed").length,
+      failed: scoped.filter(entry => entry.verdict === "failed").length,
       entries: matching.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE),
     };
   }
