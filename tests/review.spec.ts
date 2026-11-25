@@ -418,6 +418,7 @@ async function approveDraft(page: import("@playwright/test").Page) {
   await page.locator("#save-test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+  await page.locator("#nav-run").click();
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
 }
 
@@ -613,6 +614,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   });
   expect(rejected.status()).toBe(400);
   expect((await listApprovedIds(outputDir)).includes(originalId)).toBe(true);
+  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
   await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   await expect(page.locator(".step")).toHaveCount(9);
@@ -639,6 +641,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   expect(original.steps[3].description).not.toBe("Add a task via the button");
   expect(revised.steps[3].description).toBe("Add a task via the button");
   expect(revised.steps[3].action).toEqual(original.steps[3].action);
+  await page.locator("#nav-run").click();
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
@@ -669,8 +672,9 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     const saved = await savedResponse.json();
     await page.goto(url);
     // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.locator("#nav-run").click();
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
-    await page.getByLabel("Application URL").fill(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
     await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
@@ -736,8 +740,9 @@ test("wrong existing button text assertion searches product div and repairs sele
     const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
     // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.locator("#nav-run").click();
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
-    await page.getByLabel("Application URL").fill(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
     await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
@@ -872,8 +877,9 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     const original = JSON.parse(await readFile(await approvedPath(outputDir, saved.id), "utf8"));
     await page.goto(url);
     // The one-script dropdown is intentionally scoped to the chosen website.
+    await page.locator("#nav-run").click();
     await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
-    await page.getByLabel("Application URL").fill(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
     await selectSavedScript(page, saved.id);
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
@@ -1281,7 +1287,7 @@ test("review server rejects malformed instructions and off-origin writes", async
 
 test("requires a human test name and offers previous application URLs", async ({ page }) => {
   await generateFixture(page);
-  const name = page.locator("#test-name");
+  const name = page.locator("#save-test-name");
   const save = page.getByRole("button", { name: "Save Test" });
   await name.fill("  ");
   await page.getByRole("button", { name: "Add All", exact: true }).click();
@@ -1295,6 +1301,7 @@ test("requires a human test name and offers previous application URLs", async ({
   const saved = JSON.parse(await readFile(await approvedPath(outputDir, savedId), "utf8"));
   expect(saved.title).toBe("SD-001 — Explicit tester name");
 
+  await page.locator("#stage-instructions").click();
   const previous = page.getByLabel("Choose a previously used website");
   await expect(previous.locator("option")).toContainText(["Choose a previous URL (optional)", "http://127.0.0.1:3000/"]);
   await page.locator("#base-url").fill("http://127.0.0.1:9999");
@@ -1337,6 +1344,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
       needsReview: true, memorySuggestions: [], message: "AI-generated draft.",
     }),
   }));
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Application URL").fill(ebay);
   await page.getByLabel("Your test instructions").fill(
     "search for 'Wooden Abacus' and verify a result contains both words",
@@ -1354,6 +1362,7 @@ test("saving a new website test switches Run Tests from the previous suite to it
   await expect(suite).toHaveValue("https://www.ebay.com");
   await expect(script).not.toHaveValue("");
   await expect(page.getByLabel("Application URL")).toHaveValue(ebay);
+  await expect(page.getByLabel("Execution URL")).toHaveValue(ebay);
   await expect(page.locator("#suite-site-note")).toContainText(
     "saved test scripts for https://www.ebay.com",
   );
@@ -1462,12 +1471,13 @@ test("Save & Run is disabled for unreviewed drafts and does not run after a save
   await expect(page.locator("#run-status")).toContainText("Select an approved test to execute");
 });
 
-test("Save Draft remains visible in the picker while the editor is open",async({page})=>{
+test("Save Draft is discoverable in the Existing Tests picker",async({page})=>{
   await generateFixture(page);
   const beforeDraftCount = (await (await page.request.get(url + "/api/drafts")).json()).drafts.length;
   await page.locator("#step-list .step").first().locator('input[type="checkbox"]').check();
   await page.getByRole("button",{name:"Save Draft",exact:true}).click();
   await expect(page.locator("#draft-save-status")).toContainText("selected under Saved working drafts");
+  await page.locator("#nav-existing").click();
   await expect(page.locator("#working-drafts-panel")).toBeVisible();
   await expect(page.locator("#draft-select")).toBeVisible();
   await expect(page.locator("#draft-select")).not.toHaveValue("");
@@ -1519,6 +1529,7 @@ test("working draft preserves partial approvals and original instructions withou
   expect((await (await page.request.get(url + "/api/tests")).json()).tests).toHaveLength(approvedBeforeDraft);
 
   await page.getByRole("button", { name: "Choose another test" }).click();
+  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Resume draft", exact: true }).click();
   await expect(page.locator("#review-progress")).toContainText("2 of 9 steps confirmed");
   await expect(page.locator("#original-instructions")).toHaveText(original);
@@ -1542,11 +1553,14 @@ test("approved test retains source instructions and Save as New keeps original",
   await page.getByRole("button", { name: "Choose another test" }).click();
   await page.getByLabel("Test suite", { exact: true }).selectOption("http://127.0.0.1:3000");
   await page.getByLabel("Existing test script").selectOption(originalId);
+  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Load selected test" }).click();
   await expect(page.locator("#requirements")).toHaveValue(instructions);
   await expect(page.locator("#original-instructions")).toHaveText(instructions);
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Your test instructions").fill(instructions + "\\nAdditional notes for new version.");
   await page.locator("#test-name").fill("Alternative test copy");
+  await page.locator("#stage-draft").click();
   await page.getByRole("button", { name: "Add All", exact: true }).click();
   await page.getByRole("button", { name: "Save as New Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
@@ -1654,6 +1668,7 @@ test("new test name entered before generation survives and permits saving and ex
   await save.click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const script = page.getByLabel("Test script", { exact: true });
+  await page.locator("#nav-run").click();
   await expect(script).not.toHaveValue("");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
   const id = await script.inputValue();
@@ -1678,6 +1693,7 @@ test("failed regeneration removes prior successful draft and disables saving sta
       }),
     });
   });
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Your test instructions").fill("Add several items to basket.");
   await clickGenerateDraft(page);
 
@@ -1703,9 +1719,11 @@ test("failed regeneration removes prior successful draft and disables saving sta
 test("invalid instructions disable generation without destroying the previously reviewed draft", async ({ page }) => {
   await generateFixture(page);
   await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Your test instructions").fill("");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeDisabled();
   await expect(page.locator("#generate-readiness")).toContainText("test instructions");
+  await page.locator("#stage-draft").click();
   await expect(page.locator("#draft")).toBeVisible();
   await expect(page.locator("#step-list .step")).toHaveCount(9);
 });
