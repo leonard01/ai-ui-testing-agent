@@ -2,6 +2,25 @@ import type { ModelProvider, ModelRequest } from "./generation.js";
 import { readTokenUsage, type UsageAttempt } from "./ai-usage.js";
 
 const GROQ_CHAT_COMPLETIONS = "https://api.groq.com/openai/v1/chat/completions";
+export function groqCompletionBudget(value = process.env.GROQ_MAX_COMPLETION_TOKENS): number {
+  if (value === undefined || !value.trim()) return 2500;
+  if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(Number(value)) || Number(value) < 256 || Number(value) > 5000) {
+    throw new Error("GROQ_MAX_COMPLETION_TOKENS must be an integer from 256 to 5000. No model request was made.");
+  }
+  return Number(value);
+}
+type LimitFigures = Pick<UsageAttempt,"providerRequestedTokens"|"providerTokenLimit"|"providerUsedTokens">;
+function tokenLimitFigures(detail:string):LimitFigures {
+  // Only extract labelled numbers from a provider rate-limit message, never its raw text.
+  const read=(label:string)=>{
+    const match=new RegExp("\\b"+label+"\\s*[:=]?\\s*([0-9][0-9,]{0,14})(?![0-9,.])","i").exec(detail);
+    if (!match) return undefined;
+    const n=Number(match[1].replace(/,/g,""));
+    return Number.isSafeInteger(n) && n>=0 ? n : undefined;
+  };
+  if (!/tokens? per minute|tokens? per day|\bTPM\b|\bTPD\b/i.test(detail)) return {};
+  return {providerRequestedTokens:read("Requested"),providerTokenLimit:read("Limit"),providerUsedTokens:read("Used")};
+}
 
 export type GroqFailureCategory =
   | "json-generation"
@@ -26,6 +45,8 @@ export class GroqProviderError extends Error {
     readonly providerType: string | undefined,
     readonly providerParam: string | undefined,
     readonly suggestion: string,
+    readonly limitFigures: LimitFigures = {},
+    readonly reportedUsage?: unknown,
   ) {
     super(
       "GroqCloud HTTP " + httpStatus + " (" + category + ")." +
@@ -65,9 +86,11 @@ async function classifyGroqFailure(response: Response): Promise<GroqProviderErro
   let type: string | undefined;
   let param: string | undefined;
   let detail = "";
+  let reportedUsage: unknown;
   try {
     const raw = (await response.text()).slice(0, 8192);
     const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && "usage" in parsed) reportedUsage = parsed.usage;
     if (parsed && typeof parsed === "object" && "error" in parsed) {
       const error = (parsed as { error?: unknown }).error;
       if (error && typeof error === "object") {
@@ -106,7 +129,10 @@ async function classifyGroqFailure(response: Response): Promise<GroqProviderErro
     category = "bad-request";
     suggestion = "Groq rejected the request. Inspect its safe error code/type/parameter; the request length is not yet confirmed as the cause.";
   }
-  return new GroqProviderError(response.status, category, code, type, param, suggestion);
+  const usage = readTokenUsage(reportedUsage);
+  return new GroqProviderError(response.status, category, code, type, param, suggestion,
+    category === "rate-limit" ? tokenLimitFigures(detail) : {},
+    {prompt_tokens:usage.inputTokens,completion_tokens:usage.outputTokens,total_tokens:usage.totalTokens});
 }
 
 /**
@@ -147,6 +173,8 @@ export async function requestGroq(
   // errors are not proof that the upstream never received the POST, so
   // limit automatic retry to ONE extra attempt to bound potential charges.
   // Timeout/unknown errors and HTTP responses are never retried here.
+  const completionBudget=groqCompletionBudget();
+  const estimatedInputTokens=Math.ceil((system.length+prompt.length)/4);
   const requestBody = JSON.stringify({
     model,
     messages: [
@@ -156,20 +184,22 @@ export async function requestGroq(
     response_format: { type: "json_object" },
     stream: false,
     temperature: 0.1,
-    max_completion_tokens: 5000,
+    max_completion_tokens: completionBudget,
   });
   let response: Response | undefined;
   let started = Date.now();
   let transportAttempt = 1;
-  async function record(status: string, response?: Response, usage?: unknown) {
+  async function record(status: string, response?: Response, usage?: unknown, figures: LimitFigures = {}) {
     const remaining = response?.headers.get("x-ratelimit-remaining-tokens");
     const reset = response?.headers.get("x-ratelimit-reset-tokens");
+    const retry = response?.headers.get("retry-after");
+    const retryAfter = retry && (/^\d+(?:\.\d+)?$/.test(retry) || /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(retry)) ? retry : undefined;
     const remainingTokens = remaining && /^\d+$/.test(remaining) ? Number(remaining) : undefined;
     const resetTokens = reset && /^[0-9a-z.]{1,40}$/i.test(reset) ? reset : undefined;
     try { await observe?.({
       provider:"groqcloud", model, startedAt:new Date(started).toISOString(),
       durationMs:Date.now()-started,status,httpStatus:response?.status,
-      ...readTokenUsage(usage), completionBudget:5000,
+      ...readTokenUsage(usage), completionBudget, estimatedInputTokens, ...figures, retryAfter,
       systemCharacters:system.length,promptCharacters:prompt.length,
       remainingTokens,resetTokens,transportAttempt,
     }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
@@ -202,7 +232,7 @@ export async function requestGroq(
   if (!response) throw new GroqTransportError("transport");
   if (!response.ok) {
     const failure=await classifyGroqFailure(response);
-    await record(failure.category,response);
+    await record(failure.category,response,failure.reportedUsage,failure.limitFigures);
     throw failure;
   }
   let data: unknown;
