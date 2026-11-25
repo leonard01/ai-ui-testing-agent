@@ -256,6 +256,50 @@ test.describe("@e2e-smoke application smoke", () => {
     expect(renamed.status()).toBe(200);
   });
 
+  test("editor status tracks saved drafts and approved tests; catalog filters and resumes them", async ({page}) => {
+    await proposeFixture(page,"Catalog unfinished");
+    await expect(page.locator("#editor-state")).toHaveText("Unsaved changes");
+    await page.locator("#step-list .step input[type=checkbox]").first().check();
+    await page.locator("#save-draft").click();
+    await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+    await expect(page.locator("#editor-state")).toHaveText("Working draft saved");
+    await page.locator("#step-list .step input[type=checkbox]").nth(1).check();
+    await expect(page.locator("#editor-state")).toHaveText("Unsaved changes");
+    await page.locator("#step-list .step input[type=checkbox]").nth(1).uncheck();
+    await expect(page.locator("#editor-state")).toHaveText("Working draft saved");
+    await page.locator("#stage-instructions").click();
+    await page.locator("#requirements").fill(instructions+" Extra instruction.");
+    await expect(page.locator("#editor-state")).toHaveText("Unsaved changes");
+    await page.locator("#requirements").fill(instructions);
+    await expect(page.locator("#editor-state")).toHaveText("Working draft saved");
+    await page.locator("#nav-existing").click();
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(1);
+    await page.locator("#catalog-status").selectOption("approved");
+    await expect(page.locator("#catalog-empty")).toBeVisible();
+    await page.locator("#catalog-status").selectOption("draft");
+    await page.locator("#catalog-search").fill("no matching name");
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(0);
+    await page.locator("#catalog-search").fill("unfinished");
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(1);
+    await expect(page.locator("#catalog-rows")).toContainText("Draft — not runnable");
+    page.once("dialog",dialog=>dialog.accept());
+    await page.getByRole("button",{name:"Resume Catalog unfinished",exact:true}).click();
+    await expect(page.locator("#editor-state")).toHaveText("Working draft saved");
+    await page.locator("#review-add-all").click();
+    await page.locator("#save").click();
+    await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+    await expect(page.locator("#editor-state")).toHaveText("Approved test saved");
+    await page.locator("#nav-existing").click();
+    await page.locator("#catalog-status").selectOption("all");
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(1);
+    await expect(page.locator("#catalog-rows")).toContainText("Approved");
+    page.once("dialog",dialog=>dialog.accept());
+    await page.getByRole("button",{name:"Edit Catalog unfinished",exact:true}).click();
+    await expect(page.locator("#editor-state")).toHaveText("Approved test saved");
+    await page.locator("#save-test-name").fill("Catalog changed");
+    await expect(page.locator("#editor-state")).toHaveText("Unsaved changes");
+  });
+
   test("two saved scripts can execute as a website suite", async ({ page }) => {
     test.setTimeout(60_000);
     const first = await saveApprovedFixture(page, "Smoke suite - first");
