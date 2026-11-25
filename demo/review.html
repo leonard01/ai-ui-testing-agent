@@ -845,6 +845,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     async function refreshDraftPicker(selected = $("draft-select").value) {
       const data = await requestJSON("/api/drafts");
       draftCatalog = data.drafts;
+      updateGenerateReadiness();
       const select = $("draft-select");
       select.replaceChildren();
       const blank = make("option", "Select a working draft");
@@ -984,7 +985,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             sourceInstructions: originalInstructions,
             workingInstructions: $("requirements").value,
             approvedStepIds: [...approvals].map(index => definition.steps[index].id),
-            ...(editingSavedId ? { sourceApprovedId: editingSavedId } : {}),
+            ...((editingSavedId || lastSavedId) ? { sourceApprovedId: editingSavedId || lastSavedId } : {}),
           }),
         });
         if (!result.listed || !result.id || !result.file) {
@@ -1924,13 +1925,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             ". Save Draft is available for unfinished work once a name is entered."
           : "Ready to save or run. Save & Run will save the reviewed test and automatically open Test Results.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
-      const cannotSave = saving || running || total === 0 || approvals.size !== total ||
+      const duplicate = duplicateName($("test-name").value, selectedBaseURL);
+      if (duplicate) $("save-readiness").textContent = "A test with this name already exists in this website suite. Choose a different name.";
+      const cannotSave = duplicate || saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !$("test-name").value.trim();
       $("save").disabled = cannotSave;
       $("save-and-run").disabled = cannotSave;
       $("review-add-all").disabled = total === 0 || approvals.size === total;
-      $("save-draft").disabled = saving || running || total === 0 || !$("test-name").value.trim();
-      $("save-as-new").disabled = saving || running || total === 0 || approvals.size !== total ||
+      $("save-draft").disabled = duplicate || saving || running || total === 0 || !$("test-name").value.trim();
+      $("save-as-new").disabled = duplicateName($("test-name").value, selectedBaseURL, true) || saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
@@ -1939,6 +1942,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       updateGenerateReadiness();
     });
     let generatingDraft = false;
+    function duplicateName(name, url, asNew = false) {
+      const valid = validRecentUrl(url);
+      if (!valid || !name.trim()) return false;
+      const site = new URL(valid).origin;
+      const key = name.trim().toLowerCase();
+      return approvedCatalog.some(item => item.siteUrl === site &&
+        item.title.trim().toLowerCase() === key &&
+        (asNew || (item.id !== editingSavedId && item.id !== lastSavedId))) ||
+        draftCatalog.some(item => item.siteUrl === site &&
+          item.title.trim().toLowerCase() === key && (asNew || item.id !== workingDraftId));
+    }
     function updateGenerateReadiness() {
       const name = $("test-name").value.trim();
       const instructions = $("requirements").value.trim();
@@ -1947,20 +1961,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         "base-url": !validRecentUrl($("base-url").value),
         "requirements": !instructions || instructions.length > 12000,
       };
+      const duplicate = duplicateName(name, $("base-url").value);
       const missing = [];
       if (invalid["test-name"]) missing.push("a Test name (1–200 characters)");
       if (invalid["base-url"]) missing.push("a valid Application URL");
       if (invalid.requirements) missing.push("test instructions (1–12,000 characters)");
-      $("generate-readiness").textContent = missing.length
+      $("generate-readiness").textContent = duplicate ? "A test with this name already exists in this website suite. Choose a different name." : missing.length
         ? "Before generating, enter " + missing.join(", ") + "."
         : "All required fields complete. Ready to generate.";
-      $("generate-readiness").classList.toggle("ready", !missing.length);
-      $("generate").disabled = generatingDraft || missing.length > 0;
+      $("generate-readiness").classList.toggle("ready", !missing.length && !duplicate);
+      $("generate").disabled = generatingDraft || missing.length > 0 || duplicate;
       for (const id of ["test-name", "base-url", "requirements"]) {
         $(id).classList.toggle("missing-field", invalid[id]);
         $(id).setAttribute("aria-invalid", String(Boolean(invalid[id])));
       }
-      return missing.length === 0;
+      return missing.length === 0 && !duplicate;
     }
     function updateIncrementalReadiness() {
       const instructions = $("incremental-instructions").value.trim();
@@ -2098,6 +2113,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const previousSite = $("suite-site").value;
       const payload = await requestJSON("/api/tests");
       approvedCatalog = payload.tests;
+      updateGenerateReadiness();
       renderRecentUrls();
       const website = $("suite-site");
       website.replaceChildren();
@@ -3484,18 +3500,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       event.preventDefault();
       // Guard keyboard/programmatic submissions as well as the disabled button.
       if (generatingDraft || !updateGenerateReadiness()) {
-        $("generation-error").textContent = "Complete the Test name, Application URL and test instructions before generating.";
+        $("generation-error").textContent = duplicateName($("test-name").value, $("base-url").value) ? "A test with this name already exists in this website suite. Choose a different name." : "Complete the Test name, Application URL and test instructions before generating.";
         const first = ["test-name", "base-url", "requirements"].find(id =>
           $(id).getAttribute("aria-invalid") === "true");
         if (first) $(first).focus();
         return;
       }
       generatingDraft = true;
+      const currentIdentity = { editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions };
       updateGenerateReadiness();
       const decision=exceptionRequest;
       exceptionRequest=null;
       hideException();
       clearGenerationPreview();
+      ({ editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions } = currentIdentity);
       $("generation-error").textContent = "";
       $("saved").replaceChildren();
       $("save-error").textContent = "";
@@ -3554,7 +3572,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           throw new Error(origin + category + attempts + inputLength + inspection + "\n" +
             (data.error || "Could not generate draft"));
         }
-        const wasEditing = Boolean(editingSavedId || workingDraftId);
+        const wasEditing = Boolean(editingSavedId || workingDraftId || lastSavedId);
         definition = data.definition;
         lastSavedId = "";
         savedFingerprint = "";
@@ -3628,6 +3646,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("test-name").focus();
         return;
       }
+      if (duplicateName(testName, selectedBaseURL, saveAsNew)) {
+        $("save-error").textContent = "A test with this name already exists in this website suite. Choose a different name.";
+        return;
+      }
       if (saveAsNew && editingSavedId) {
         const previous = approvedCatalog.find(item => item.id === editingSavedId);
         if (previous && previous.title === testName) {
@@ -3661,6 +3683,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               workingInstructions: $("requirements").value,
             },
             testName, baseURL: selectedBaseURL,
+            ...(!saveAsNew && workingDraftId ? { draftId: workingDraftId } : {}),
             ...(!saveAsNew && (editingSavedId || lastSavedId)
               ? { replaceId: editingSavedId || lastSavedId } : {}),
           }),
@@ -3670,6 +3693,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         definition.title = testName;
         editingSavedId = null;
         workingDraftId = null;
+        await refreshDraftPicker();
         // The save response records the website actually persisted by the server.
         // Keep Run Tests (and its execution URL) in sync with that saved script.
         selectedBaseURL = data.sourceUrl;
