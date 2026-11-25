@@ -10,7 +10,8 @@ import { assertInstructionCoverageReviewed } from "./requirement-preservation.js
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
-import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
+import { requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
+import { createUsageStore, summarizeUsage, type UsageRecord } from "./ai-usage.js";
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
@@ -185,6 +186,21 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const html = await readFile(new URL("../demo/review.html", import.meta.url));
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
+  const usageStore = createUsageStore(join(savedDir,"ai-usage"));
+  function trackAI(operation: UsageRecord["operation"]) {
+    const operationId=randomUUID();
+    const records: UsageRecord[]=[];
+    let modelCall=0, storageFailed=false;
+    const provider: ModelProvider=async request=>{
+      const call=++modelCall;
+      if (groqOverride) return groqOverride(request);
+      return requestGroq(request,fetch,async attempt=>{
+        try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
+        catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
+      });
+    };
+    return {provider, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records)})};
+  }
   const jobs = new Map<string, RunJob>();
   const suites = new Map<string, SuiteJob>();
   let activeRun: string | null = null;
@@ -549,6 +565,19 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/health") {
         json(res, 200, { ok: true });
+        return;
+      }
+      if (req.method === "GET" && path === "/api/ai-usage") {
+        try {
+          const all=await usageStore.list();
+          const query=new URL(req.url??"/","http://127.0.0.1").searchParams;
+          const days=Number(query.get("days")??7);
+          if (![1,7,30,0].includes(days)) { json(res,400,{error:"Invalid usage date range"}); return; }
+          const now=Date.now();
+          const records=all.filter(row=>!days || Date.parse(row.startedAt)>=now-days*86400000);
+          const minute=all.filter(row=>Date.parse(row.startedAt)>=now-60000);
+          json(res,200,{records:records.slice(-200).reverse(),summary:summarizeUsage(records),minute:summarizeUsage(minute),totalRecords:records.length});
+        } catch { json(res,500,{error:"AI usage history unavailable"}); }
         return;
       }
       if (req.method === "GET" && path === "/api/history") {
@@ -1535,6 +1564,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (path === "/api/regenerate-steps") {
+        const tracked=trackAI("reinterpret");
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
           return;
@@ -1564,9 +1594,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             approvedStepIds: data.approvedStepIds as string[],
             model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
             retryMalformedOutput: true,
-          }, groqOverride ?? groqProvider, suppliedBrowser);
+          }, tracked.provider, suppliedBrowser);
           json(res, 200, {
             ...proposal,
+            aiUsage: tracked.snapshot(),
             needsReview: true,
             message: "Incremental AI proposal ready. Nothing has been saved or approved.",
           });
@@ -1574,10 +1605,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (error instanceof GroqProviderError) {
             json(res, 502, {
               source: error.source, providerStatus: error.httpStatus,
+              aiUsage: tracked.snapshot(),
               category: error.category, error: error.message,
             });
           } else {
             json(res, 422, {
+              aiUsage: tracked.snapshot(),
               error: error instanceof Error ? error.message : "Incremental regeneration failed",
             });
           }
@@ -1594,7 +1627,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : String(error) });
           return;
         }
-        const provider = input.provider === "groq" ? (groqOverride ?? groqProvider) : fixtureProvider();
+        const tracked=trackAI("generate");
+        const provider = input.provider === "groq" ? tracked.provider : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
           const memory = input.provider === "groq" && (body as Record<string, unknown>)?.useApplicationMemory !== false
@@ -1609,6 +1643,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
+            aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             generationAttempts: result.generationAttempts,
             memorySuggestions: suggestions,
             diagnostics: {
@@ -1651,6 +1686,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               providerParam: error.providerParam,
               error: error.message,
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           } else if (error instanceof GroqTransportError) {
             json(res, 502, {
@@ -1658,6 +1694,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               category: error.category,
               error: error.message,
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           } else if (error instanceof GeneratedDraftValidationError) {
             json(res, 422, {
@@ -1667,12 +1704,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               problems: error.problems,
               error: error.message,
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           } else {
             json(res, 422, {
               source: "generator",
               error: error instanceof Error ? error.message : "Generation failed",
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           }
         }
