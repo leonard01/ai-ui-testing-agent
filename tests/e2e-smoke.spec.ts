@@ -91,6 +91,9 @@ test.describe("@e2e-smoke application smoke", () => {
     const report = await (await page.request.get(url + reportPath)).json();
     expect(report.status, JSON.stringify(report, null, 2)).toBe("passed");
     await expect(page.locator("#run-summary")).toContainText("PASSED");
+    await expect(page.locator("#context-label")).toHaveText("Execution context");
+    await expect(page.locator("#context-name")).toHaveText("Smoke - task lifecycle");
+    await expect(page.locator("#context-url")).toHaveText(demoURL+"/");
     await expect(page.locator("#run-totals")).toContainText("9 passed");
     await expect(page.locator("#run-steps .run-step")).toHaveCount(9);
     await expect(page.locator("#results-panel")).toBeVisible();
@@ -155,6 +158,42 @@ test.describe("@e2e-smoke application smoke", () => {
     await page.locator("#stage-draft").click();
     await expect(page.locator("#review-progress")).toHaveText("1 of 9 steps confirmed");
     await expect(page.locator("#step-list .step input[type=checkbox]").first()).toBeChecked();
+  });
+
+  test("compact draft retains executable actions, approval controls and context across navigation", async ({page}) => {
+    await proposeFixture(page,"Compact draft");
+    const context = page.locator("#test-context");
+    await expect(context).toBeVisible();
+    await expect(context.locator("#context-name")).toHaveText("Compact draft");
+    await expect(context.locator("#context-url")).toHaveText(demoURL+"/");
+    const cards = page.locator("#step-list .step");
+    await expect(page.locator("#step-list .step-details[open]")).toHaveCount(0);
+    await expect(cards.nth(2).locator(".action")).toBeVisible();
+    await expect(cards.nth(2).locator(".action")).toContainText("Prepare interview");
+    await page.locator("#expand-steps").click();
+    await expect(page.locator("#step-list .step-details[open]")).toHaveCount(9);
+    await page.locator("#collapse-steps").click();
+    await expect(page.locator("#step-list .step-details[open]")).toHaveCount(0);
+    await cards.nth(2).getByRole("button",{name:"Edit fields"}).click();
+    await expect(cards.nth(2).locator(".edits")).toBeVisible();
+    await expect(cards.nth(2).locator(".step-details")).toHaveJSProperty("open",true);
+    await cards.nth(2).getByRole("button",{name:"Cancel",exact:true}).click();
+    await expect(cards.nth(2).getByRole("button",{name:"Edit fields"})).toBeEnabled();
+    await cards.first().locator('input[type=checkbox]').check();
+    await expect(cards.first()).toHaveAttribute("data-approved","true");
+    await expect(page.locator("#approval-progress")).toHaveJSProperty("value",1);
+    await expect(page.locator("#approval-progress")).toHaveJSProperty("max",9);
+    await expect(page.locator("#draft-save-bar")).toHaveCSS("position","sticky");
+    await page.locator("#stage-instructions").click();
+    await expect(context.locator("#context-name")).toHaveText("Compact draft");
+    await expect(page.locator("#draft-save-bar")).toBeHidden();
+    await page.locator("#stage-draft").click();
+    await expect(cards.nth(2).locator(".step-details")).toHaveJSProperty("open",true);
+    await expect(page.locator("#review-progress")).toHaveText("1 of 9 steps confirmed");
+    await page.locator("#review-add-all").click();
+    await expect(page.locator("#approval-progress")).toHaveJSProperty("value",9);
+    await expect(page.locator("#save")).toBeEnabled();
+    await expect(page.locator("#save-and-run")).toBeEnabled();
   });
 
   test("New Test resets the editor only after explicit discard and preserves saved tests", async ({page}) => {

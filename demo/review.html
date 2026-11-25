@@ -236,6 +236,31 @@
     main[data-workspace="draft"] #placeholder, main[data-workspace="draft"] #working-drafts-panel { display:none !important; }
     #results-panel[data-result-kind="single"] #suite-output,
     #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
+    .test-context { max-width:1100px; margin:0 auto 14px; padding:12px 16px; background:white; border:1px solid #dce3ed; border-radius:9px; overflow-wrap:anywhere; }
+    .test-context strong { display:block; font-size:15px; }
+    .test-context .context-label { font-size:11px; color:#52667c; text-transform:uppercase; letter-spacing:.05em; }
+    .draft-list-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
+    .draft-list-toolbar h3 { margin:0; font-size:15px; }
+    #step-list .step { padding:10px 12px; margin:7px 0; scroll-margin-bottom:160px; }
+    #step-list .step header { justify-content:flex-start; flex-wrap:wrap; gap:6px; }
+    #step-list .step .step-summary { margin:6px 0 3px; font-weight:600; overflow-wrap:anywhere; }
+    #step-list .step .action { padding:6px 9px; font-size:12px; }
+    #step-list .step .step-controls { display:flex; align-items:center; gap:4px 10px; flex-wrap:wrap; margin-top:6px; }
+    #step-list .step .step-controls label { margin:0; margin-right:auto; font-size:12px; }
+    #step-list .step .step-controls input { flex:none; }
+    #step-list .step[data-approved="true"] { border-left:3px solid #218052; }
+    #step-list .step .step-details { margin-top:6px; }
+    #step-list .step .step-details summary { cursor:pointer; font-size:12px; color:#205e86; font-weight:600; }
+    #step-list .step .step-details[open] summary { margin-bottom:6px; }
+    .draft-save-bar { position:sticky; bottom:0; z-index:5; background:#fff; border:1px solid #c3d2df; border-radius:10px; padding:10px 12px; box-shadow:0 -4px 18px #16304e12; margin:12px 0 0; }
+    .draft-save-bar .actions { margin:7px 0 0; }
+    .draft-save-bar .actions button { flex:0 1 auto; }
+    .draft-save-bar p { margin:5px 0; }
+    .approval-progress { width:100%; height:7px; border-radius:9px; overflow:hidden; appearance:none; display:block; }
+    .approval-progress::-webkit-progress-bar { background:#e6edf3; border-radius:9px; }
+    .approval-progress::-webkit-progress-value { background:#218052; border-radius:9px; }
+    .approval-progress::-moz-progress-bar { background:#218052; }
+    @media(max-height:520px) { .draft-save-bar { position:static; } }
     @media(max-width:820px) {
       .app-shell { grid-template-columns:1fr; }
       .app-nav { display:flex; flex-wrap:wrap; gap:4px; border-right:0; border-bottom:1px solid #dce3ed; padding:8px 12px; }
@@ -316,6 +341,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <button type="button" id="stage-draft" data-view="draft" disabled>2. Draft</button><span aria-hidden="true">›</span>
         <button type="button" id="stage-results" data-view="results" disabled>3. Results</button>
       </nav>
+      <div id="test-context" class="test-context" aria-label="Current test context" hidden>
+        <div class="context-label" id="context-label">Current test</div>
+        <strong id="context-name"></strong>
+        <div id="context-url" class="muted"></div>
+      </div>
       <main id="workspace-main" data-workspace="instructions">
     <section id="instructions-screen" aria-labelledby="instructions-heading">
       <div id="site-memory-option" class="site-memory-option">
@@ -466,9 +496,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="selector-preflight-status" class="status" role="status"></p>
           <div id="selector-preflight-results"></div>
         </div>
-        <div class="actions" style="margin:12px 0">
-          <button type="button" id="review-add-all" class="secondary">Add All</button>
-          <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
+        <div class="draft-list-toolbar">
+          <h3>Test steps</h3>
+          <div class="actions" style="margin:0">
+            <button type="button" id="expand-steps" class="secondary">Expand all details</button>
+            <button type="button" id="collapse-steps" class="secondary">Collapse all details</button>
+          </div>
         </div>
         <div id="step-list"></div>
         <section id="incremental-panel" class="incremental-editor" hidden aria-labelledby="incremental-heading">
@@ -497,7 +530,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             </div>
           </div>
         </section>
-        <p id="review-progress" class="muted"></p>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
           <h3 id="traceability-heading">Requirements traceability (optional)</h3>
           <p class="muted">One requirement per line. Click Load requirements to create a reviewable matrix, then explicitly link each requirement to its test steps and assertions. No AI-generated claim of coverage is accepted.</p>
@@ -509,17 +541,22 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <div id="traceability-list"></div>
         </section>
         <div class="actions">
-          <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
           <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
         <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
         <input id="save-test-name" type="text" maxlength="200" placeholder="Required — e.g. Add two tasks" autocomplete="off">
-        <div class="actions" style="display:flex;gap:10px;margin-top:10px">
-          <button type="button" id="save" class="secondary" disabled style="flex:1">Save Test</button>
-          <button type="button" id="save-and-run" disabled style="flex:1">Save &amp; Run</button>
+        <div class="draft-save-bar" id="draft-save-bar" role="region" aria-label="Draft approval and save">
+          <p id="review-progress" class="muted" role="status"></p>
+          <progress id="approval-progress" class="approval-progress" aria-label="Step approvals" max="1" value="0"></progress>
+          <div class="actions">
+            <button type="button" id="review-add-all" class="secondary" title="Confirm all proposed steps after reviewing them">Add All</button>
+            <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
+            <button type="button" id="save" class="secondary" disabled>Save Test</button>
+            <button type="button" id="save-and-run" disabled>Save &amp; Run</button>
+          </div>
+          <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         </div>
-        <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
         <div id="saved" class="success" style="margin-top:12px"></div>
         <div id="save-error" class="error" style="margin-top:12px"></div>
@@ -680,10 +717,27 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let editorRevision = 0;
     let editorLoading = false;
     let hasResults = false;
+    let resultContext = null;
+    const expandedStepIds = new Set();
+    function updateTestContext() {
+      const result = currentWorkspace === "results";
+      const authoring = currentWorkspace === "instructions" || currentWorkspace === "draft";
+      const name = result ? resultContext?.name : $("test-name").value.trim();
+      const url = result ? resultContext?.url :
+        currentWorkspace === "draft" && definition ? selectedBaseURL : $("base-url").value.trim();
+      $("test-context").hidden = !(result || authoring) || !name;
+      $("context-label").textContent = result ? "Execution context" : "Current test";
+      $("context-name").textContent = name || "";
+      // Do not echo credentials or sensitive query fragments from application URLs.
+      let displayUrl = "";
+      try { const parsed = new URL(url); displayUrl = parsed.origin + parsed.pathname; } catch {}
+      $("context-url").textContent = displayUrl || "Application URL not set";
+    }
     function syncWorkspaceNavigation() {
       $("stage-draft").disabled = !definition && $("generation-exception").hidden;
       $("stage-results").disabled = !hasResults;
       $("start-new-test").hidden = !definition && $("generation-exception").hidden;
+      updateTestContext();
     }
     function showWorkspace(view) {
       if (view === "draft" && !definition && $("generation-exception").hidden) return;
@@ -937,6 +991,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
       if (!confirmReplaceWorkspace()) return;
       editorRevision++;
+      expandedStepIds.clear();
+      resultContext = null;
       incrementalRevision++;
       incrementalSelectedId = null;
       incrementalPending = null;
@@ -1263,7 +1319,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       };
       const cancel = make("button", "Cancel", "secondary");
       cancel.type = "button";
-      cancel.onclick = () => edits.remove();
+      cancel.onclick = () => { edits.remove(); const edit = card.querySelector("button.textbtn"); if (edit) edit.disabled = false; };
       buttons.append(apply, cancel);
       edits.append(buttons);
       card.append(edits);
@@ -1405,6 +1461,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("incremental-panel").hidden = true;
       const list = $("step-list");
       list.replaceChildren();
+      for (const id of expandedStepIds) if (!definition.steps.some(step => step.id === id)) expandedStepIds.delete(id);
       renderTestDesignIssues();
       for (const [index, step] of definition.steps.entries()) {
         const card = make("article", null, "step");
@@ -1418,37 +1475,47 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           top.append(scopeBadge);
         }
         card.append(top);
-        card.append(make("p", step.description));
+        card.append(make("p", step.description, "step-summary"));
         card.append(make("div", describeAction(step.action), "action"));
+        const details = make("details", null, "step-details");
+        details.append(make("summary", "Technical details"));
+        details.open = expandedStepIds.has(step.id);
+        details.addEventListener("toggle", () => {
+          if (!details.isConnected) return;
+          if (details.open) expandedStepIds.add(step.id); else expandedStepIds.delete(step.id);
+        });
         if ("target" in step.action && ["css", "xpath"].includes(step.action.target.by)) {
-          card.append(make("div", step.action.target.by === "xpath"
+          details.append(make("div", step.action.target.by === "xpath"
             ? "XPath fallback: may be brittle as the DOM changes; review this selector before relying on it."
             : "CSS fallback: stability depends on the attributes and structure used. Positional or generated-class selectors can be brittle.", "note"));
         }
         if ("provenance" in step.action) {
           const status = make("div", "Expected result source: " + step.action.provenance, "muted");
           status.style.marginTop = "8px";
-          card.append(status);
+          details.append(status);
           if (step.action.provenance === "inferred") {
-            card.append(make("div", "AI assumption — confirm this is the expected behaviour, not just what the application currently does.", "note"));
+            details.append(make("div", "AI assumption — confirm this is the expected behaviour, not just what the application currently does.", "note"));
           }
         }
         if (step.action.target && step.action.target.by === "role" &&
             step.action.target.role === "listitem" && step.action.target.name) {
-          card.append(make("div", "Check this locator: list items do not always have accessible names.", "note"));
+          details.append(make("div", "Check this locator: list items do not always have accessible names.", "note"));
         }
         if (step.action.target && step.action.target.by === "intent" &&
             ["checkbox", "button"].includes(step.action.target.role) &&
             /^(complete|delete|remove|edit|finish|mark complete)$/i.test(step.action.target.value.trim())) {
-          card.append(make("div",
+          details.append(make("div",
             "Ambiguous target risk: this action names only a generic control. " +
             "If the page contains multiple tasks or rows, include the specific item name " +
             '(for example "Complete preparing a presentation").', "note"));
         }
+        if (details.childElementCount === 1) details.append(make("p", "No additional step warnings.", "muted"));
+        card.append(details);
+        const controls = make("div", null, "step-controls");
         const edit = make("button", "Edit fields", "textbtn");
         edit.type = "button";
-        edit.onclick = () => { edit.disabled = true; beginEdit(card, step, index); };
-        card.append(edit);
+        edit.onclick = () => { details.open = true; expandedStepIds.add(step.id); edit.disabled = true; beginEdit(card, step, index); };
+        controls.append(edit);
         if (index > 0) {
           const reinterpret = make("button", "Reinterpret with AI", "textbtn");
           reinterpret.type = "button";
@@ -1466,7 +1533,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             updateIncrementalReadiness();
             $("incremental-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
           });
-          card.append(reinterpret);
+          controls.append(reinterpret);
         }
         const label = make("label");
         const check = make("input");
@@ -1477,7 +1544,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           updateApproval();
         });
         label.append(check, make("span", "This step matches my intent"));
-        card.append(label);
+        controls.prepend(label);
+        card.append(controls);
         list.append(card);
       }
       renderDomWideSummary();
@@ -1900,6 +1968,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
+      $("approval-progress").max = Math.max(total, 1);
+      $("approval-progress").value = approvals.size;
+      $("step-list").querySelectorAll(".step").forEach((card, index) => { card.dataset.approved = String(approvals.has(index)); });
+      updateTestContext();
       const missingName = !$("test-name").value.trim();
       if ($("save-test-name").value !== $("test-name").value) {
         $("save-test-name").value = $("test-name").value;
@@ -1956,6 +2028,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           item.title.trim().toLowerCase() === key && (asNew || item.id !== workingDraftId));
     }
     function updateGenerateReadiness() {
+      updateTestContext();
       const name = $("test-name").value.trim();
       const instructions = $("requirements").value.trim();
       const invalid = {
@@ -2002,6 +2075,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("save-error").textContent = "";
       updateApproval();
       updateGenerateReadiness();
+    });
+    $("expand-steps").addEventListener("click", () => {
+      for (const detail of $("step-list").querySelectorAll(".step-details")) detail.open = true;
+      for (const step of definition?.steps || []) expandedStepIds.add(step.id);
+    });
+    $("collapse-steps").addEventListener("click", () => {
+      for (const detail of $("step-list").querySelectorAll(".step-details")) detail.open = false;
+      expandedStepIds.clear();
     });
     $("review-add-all").addEventListener("click", () => {
       if (!definition?.steps.length) return;
@@ -2159,6 +2240,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function renderResult(result, fromSuite = false) {
       const report = result.report;
       if (!report) return;
+      resultContext = {name:report.title, url:result.baseURL};
       setResultKind(fromSuite ? "suite-detail" : "single");
       $("run-results").hidden = false;
       hasResults = true;
@@ -2972,6 +3054,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
     function renderSuite(suite) {
+      resultContext = {name:"Website suite", url:suite.baseURL || resultContext?.url};
       setResultKind("suite");
       hasResults = true;
       showWorkspace("results");
@@ -3042,6 +3125,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("suite-results").replaceChildren();
       $("suite-artifacts").replaceChildren();
       $("suite-status").textContent = "Starting sequential test suite...";
+      resultContext = {name:"Website suite", url:$("execution-url").value};
       setResultKind("suite");
       $("run-results").hidden = true;
       $("run-error").textContent = "";
@@ -3114,6 +3198,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("run-error").textContent = "";
       $("run-results").hidden = true;
       $("run-status").textContent = "Starting Playwright test...";
+      resultContext = {name:approvedCatalog.find(item=>item.id===id)?.title || "Selected test", url:$("execution-url").value};
       setResultKind("single");
       hasResults = true;
       showWorkspace("results");
@@ -3290,6 +3375,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       // A previous successful attempt must never masquerade as the new draft.
       // Do NOT clear persisted approved tests, execution history or input text.
       definition = null;
+      expandedStepIds.clear();
       syncWorkspaceNavigation();
       approvals = new Set();
       editingSavedId = null;
