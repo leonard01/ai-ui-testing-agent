@@ -164,7 +164,7 @@ test("server rejects executable placeholder but permits partial working draft", 
       if (step.id === "password") step.action.value = "confirmed-demo-password";
     }
     const saved = await request("/api/save", {
-      baseURL: site, testName: "Shop after login", definition,
+      baseURL: site, testName: "Shop after login", definition, draftId: draft.data.id,
     });
     expect(saved.status).toBe(200);
     expect(saved.data.id).toMatch(/^reviewed-/);

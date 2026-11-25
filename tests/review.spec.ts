@@ -213,6 +213,9 @@ test("JavaScript page warnings stay advisory, never incorrectly labelled as bloc
   await expect(page.locator("#draft-quality-warnings")).toContainText("JavaScript exception");
 });
 
+// Each journey owns a distinct name even when workers share a persisted catalog.
+const fixtureName = () => test.info().title.slice(0, 200);
+
 async function generateFixture(page: import("@playwright/test").Page) {
   await page.goto(url);
   await page.getByLabel("Your test instructions").fill(
@@ -222,7 +225,7 @@ async function generateFixture(page: import("@playwright/test").Page) {
   await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(page.locator(".step")).toHaveCount(9);
-  await page.locator("#save-test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill(fixtureName());
 }
 
 test("test-design issues panel highlights CSS/XPath brittleness and links to step editor", async ({ page }) => {
@@ -402,7 +405,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
   await expect(taskStep).toContainText('element matching intent "Prepare interview"');
 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
-  await page.locator("#save-test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill(fixtureName());
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const files = await listApprovedIds(outputDir);
@@ -415,7 +418,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 
 async function approveDraft(page: import("@playwright/test").Page) {
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
-  await page.locator("#save-test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill(fixtureName());
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   await page.locator("#nav-run").click();
@@ -533,7 +536,7 @@ test("tester reviews dynamic final text assertion, explicitly approves correctio
     ],
   };
   const savedResponse = await page.request.post(url + "/api/save", {
-    data: { testName: "Regression test", definition: testDefinition, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: fixtureName(), definition: testDefinition, baseURL: "http://127.0.0.1:3000" },
   });
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
@@ -609,7 +612,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   const beforeList = (await (await page.request.get(url + "/api/tests")).json()).tests;
   // A malformed replacement must never remove the source file.
   const rejected = await page.request.post(url + "/api/save", {
-    data: { testName: "Regression test", definition: { ...original, schemaVersion: 17 },
+    data: { testName: fixtureName(), definition: { ...original, schemaVersion: 17 },
       baseURL: "http://127.0.0.1:3000", replaceId: originalId },
   });
   expect(rejected.status()).toBe(400);
@@ -627,7 +630,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   for (const box of await page.locator(".step input[type=checkbox]").all()) {
     await box.check();
   }
-  await page.locator("#save-test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill(fixtureName());
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("old version removed from the list");
   const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
@@ -666,7 +669,7 @@ test("editable DOM search works with no initial suggestions and cannot silently 
       ],
     };
     const savedResponse = await page.request.post(url + "/api/save", {
-      data: { testName: "Regression test", definition, baseURL },
+      data: { testName: fixtureName(), definition, baseURL },
     });
     expect(savedResponse.status()).toBe(200);
     const saved = await savedResponse.json();
@@ -733,7 +736,7 @@ test("wrong existing button text assertion searches product div and repairs sele
       ],
     };
     const resp = await page.request.post(url + "/api/save", {
-      data: { testName: "Regression test", definition, baseURL },
+      data: { testName: fixtureName(), definition, baseURL },
     });
     expect(resp.status(), await resp.text()).toBe(200);
     const saved = await resp.json();
@@ -870,7 +873,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
       ],
     };
     const savedResponse = await page.request.post(url + "/api/save", {
-      data: { testName: "Regression test", definition, baseURL },
+      data: { testName: fixtureName(), definition, baseURL },
     });
     expect(savedResponse.status(), await savedResponse.text()).toBe(200);
     const saved = await savedResponse.json();
@@ -959,7 +962,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   }
   definition.steps[3].action.target = { by: "label", value: "Add" };
   const savedResponse = await page.request.post(url + "/api/save", {
-    data: { testName: "Regression test", definition, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: fixtureName(), definition, baseURL: "http://127.0.0.1:3000" },
   });
   expect(savedResponse.status(), await savedResponse.text()).toBe(200);
   const saved = await savedResponse.json();
@@ -1099,7 +1102,7 @@ test("human chooses among live checkbox candidates; repaired copy reruns success
     ],
   };
   const savedResponse = await page.request.post(url + "/api/save", {
-    data: { testName: "Regression test", definition: ambiguous, baseURL: "http://127.0.0.1:3000" },
+    data: { testName: fixtureName(), definition: ambiguous, baseURL: "http://127.0.0.1:3000" },
   });
   expect(savedResponse.status()).toBe(200);
   const saved = await savedResponse.json();
@@ -1526,7 +1529,7 @@ test("Save Draft is discoverable in the Existing Tests picker",async({page})=>{
   const id = await page.locator("#draft-select").inputValue();
   expect(id).toMatch(/^draft-[a-f0-9-]{36}[.]json$/);
   const stored = JSON.parse(await readFile(join(outputDir,"drafts",id),"utf8"));
-  expect(stored.definition.title).toBe("Add, complete and delete a task");
+  expect(stored.definition.title).toBe(fixtureName());
   await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
   await expect(page.locator("#edit-script")).toHaveValue(id);
   await expect(page.locator("#edit-script option:checked")).toContainText("[Draft — not runnable]");
@@ -1574,7 +1577,7 @@ test("working draft preserves partial approvals and original instructions withou
   await expect(page.locator("#review-progress")).toContainText("2 of 9 steps confirmed");
   await expect(page.locator("#original-instructions")).toHaveText(original);
   await expect(page.locator("#requirements")).toHaveValue(original);
-  await expect(page.locator("#test-name")).toHaveValue("Add, complete and delete a task");
+  await expect(page.locator("#test-name")).toHaveValue(fixtureName());
 });
 
 test("approved test retains source instructions and Save as New keeps original", async ({ page }) => {

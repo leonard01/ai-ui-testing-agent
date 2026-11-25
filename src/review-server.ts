@@ -440,8 +440,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     }
   }
 
-  async function listApproved() {
-    const paths = (await listSavedFiles(savedDir)).slice(0, 1000);
+  async function listApproved(all = false) {
+    const files = await listSavedFiles(savedDir);
+    const paths = all ? files : files.slice(0, 1000);
     const tests: Array<{
       id: string; title: string; steps: number;
       sourceUrl: string | null; siteUrl: string | null;
@@ -460,6 +461,24 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     return tests;
   }
 
+  class TestNameConflict extends Error {}
+  let persistenceTail: Promise<unknown> = Promise.resolve();
+  function serializePersistence<T>(operation: () => Promise<T>): Promise<T> {
+    const result = persistenceTail.then(operation);
+    persistenceTail = result.catch(() => {});
+    return result;
+  }
+  const nameKey = (value: string) => value.trim().toLowerCase();
+  async function assertUniqueName(name: string, sourceUrl: string | undefined, approvedId?: string, draftId?: string) {
+    const site = sourceUrl ? websiteOrigin(sourceUrl) : null;
+    const key = nameKey(name);
+    const conflict = () => new TestNameConflict("A test named \"" + name.trim() + "\" already exists in this website suite. Choose a different name.");
+    if ((await listApproved(true)).some(item => item.id !== approvedId && item.siteUrl === site && nameKey(item.title) === key)) throw conflict();
+    if (!site) return;
+    const listing = await listDraftsWithDiagnostics(savedDir, true);
+    if (listing.drafts.some(item => item.id !== draftId && item.siteUrl === site && nameKey(item.title) === key)) throw conflict();
+  }
+
   /**
    * A revision supersedes an approved test rather than creating another
    * visible version. Write and validate the replacement first; only then
@@ -469,7 +488,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     definition: TestDefinition,
     replacesId?: string,
     base?: URL,
+    draftId?: string,
   ): Promise<{ id: string; file: string; replacedId?: string }> {
+    return serializePersistence(async () => {
     let replacedPath: string | undefined;
     if (activeDeletion) throw new Error("Cannot save a test while deleting a website suite");
     if (replacesId) {
@@ -487,6 +508,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     // Working drafts may hold unresolved credentials; executable scripts may not.
     assertCredentialsReviewed(approved);
     assertInstructionCoverageReviewed(approved);
+    if (draftId) {
+      const draft = await readDraft(savedDir, draftId);
+      if (draft.sourceApprovedId !== replacesId || !sourceUrl || websiteOrigin(draft.baseURL) !== websiteOrigin(sourceUrl)) throw new Error("Working draft does not match the test being approved");
+    }
+    await assertUniqueName(approved.title, sourceUrl, replacesId, draftId);
     const id = "reviewed-" + Date.now() + "-" + randomUUID().slice(0, 8) + ".json";
     const directory = sourceUrl ? websiteDirectory(savedDir, sourceUrl) : savedDir;
     const file = join(directory, id);
@@ -511,7 +537,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         });
       }
     }
+    if (draftId) await deleteDraft(savedDir, draftId).catch(() => {});
     return { id, file, ...(replacesId ? { replacedId: replacesId } : {}) };
+    });
   }
 
   function snapshot(job: RunJob) {
@@ -750,7 +778,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               ? existing.sourceApprovedId : data.sourceApprovedId,
             updatedAt: new Date().toISOString(),
           });
-          const stored = await saveDraft(savedDir, proposed, existingId as string | undefined);
+          const stored = await serializePersistence(async () => {
+            if (proposed.sourceApprovedId) await readSaved(proposed.sourceApprovedId);
+            await assertUniqueName(definition.title, base.href, proposed.sourceApprovedId, existingId as string | undefined);
+            return saveDraft(savedDir, proposed, existingId as string | undefined);
+          });
           // Verify that the draft is not just writable/readable, but also
           // discoverable by the same list endpoint the UI uses after reload.
           const listing = await listDraftsWithDiagnostics(savedDir);
@@ -763,7 +795,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             message: "Working draft saved and verified in the draft list. This is not a runnable test.",
           });
         } catch (error) {
-          json(res, 400, { error: error instanceof Error ? error.message : "Invalid working draft" });
+          json(res, error instanceof TestNameConflict ? 409 : 400, { error: error instanceof Error ? error.message : "Invalid working draft" });
         }
         return;
       }
@@ -774,7 +806,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (data.confirmed !== true || typeof data.id !== "string") {
             throw new Error("Explicit confirmation and valid draft ID are required");
           }
-          await deleteDraft(savedDir, data.id);
+          await serializePersistence(() => deleteDraft(savedDir, data.id as string));
           json(res, 200, { deletedId: data.id });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Cannot delete draft" });
@@ -849,15 +881,18 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
               throw new Error("Invalid legacy test script ID");
             }
-            const file = await findSavedFile(savedDir, input.id);
-            const definition = await readSaved(input.id);
+            const legacyId = input.id;
+            const file = await findSavedFile(savedDir, legacyId);
+            const definition = await readSaved(legacyId);
             if (dirname(file) !== savedDir || definition.sourceUrl) {
               throw new Error("Only an unassigned legacy script can be assigned this way");
             }
             const base = validatedBaseURL(input.baseURL);
             verifyNavigations(definition, base);
+            await serializePersistence(async () => {
+            await assertUniqueName(definition.title, base.href, legacyId);
             const targetFolder = websiteDirectory(savedDir, base.href);
-            const target = join(targetFolder, input.id);
+            const target = join(targetFolder, legacyId);
             const approved = parseTestDefinition({ ...definition, sourceUrl: base.href });
             await mkdir(targetFolder, { recursive: true });
             await writeFile(target, JSON.stringify(approved, null, 2) + "\n", { flag: "wx" });
@@ -868,8 +903,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               throw error;
             }
             json(res, 200, {
-              assignedId: input.id, siteUrl: websiteOrigin(base.href),
+              assignedId: legacyId, siteUrl: websiteOrigin(base.href),
               message: "Existing test script assigned to the selected website suite.",
+            });
             });
           } else if (path === "/api/delete-test") {
             if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
@@ -909,7 +945,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             });
           }
         } catch (error) {
-          json(res, 400, { error: error instanceof Error ? error.message : "Deletion failed" });
+          json(res, error instanceof TestNameConflict ? 409 : 400, { error: error instanceof Error ? error.message : "Deletion failed" });
         } finally {
           activeDeletion = false;
         }
@@ -1679,7 +1715,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       try {
-        const data = body as { definition?: unknown; baseURL?: unknown; replaceId?: unknown } | null;
+        const data = body as { definition?: unknown; baseURL?: unknown; replaceId?: unknown; draftId?: unknown } | null;
         const base = validatedBaseURL(data?.baseURL);
         const rawName = (data as Record<string, unknown> | null)?.testName;
         if (typeof rawName !== "string" || !rawName.trim() || rawName.trim().length > 200) {
@@ -1701,8 +1737,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           (typeof data.replaceId !== "string" || !SAVED_NAME.test(data.replaceId))) {
           throw new Error("Invalid saved test to replace");
         }
+        if (data?.draftId !== undefined && typeof data.draftId !== "string") throw new Error("Invalid working draft ID");
         const { id, file, replacedId } = await saveApproved(
-          definition, data?.replaceId as string | undefined, base,
+          definition, data?.replaceId as string | undefined, base, data?.draftId as string | undefined,
         );
         json(res, 200, {
           id, file, replacedId,
@@ -1713,7 +1750,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             : "Saved approved test definition; no test has been executed.",
         });
       } catch (error) {
-        json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        json(res, error instanceof TestNameConflict ? 409 : 400, { error: error instanceof Error ? error.message : String(error) });
       }
     })().catch(() => {
       if (!res.headersSent) json(res, 500, { error: "Internal review server error" });

@@ -157,6 +157,66 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#step-list .step input[type=checkbox]").first()).toBeChecked();
   });
 
+  test("New Test resets the editor only after explicit discard and preserves saved tests", async ({page}) => {
+    const id = await saveApprovedFixture(page, "Original test");
+    await page.locator("#stage-draft").click();
+    await page.locator("#stage-instructions").click();
+    await expect(page.locator("#test-name")).toHaveValue("Original test");
+    page.once("dialog", dialog => dialog.dismiss());
+    await page.locator("#nav-new").click();
+    await expect(page.locator("#test-name")).toHaveValue("Original test");
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#nav-new").click();
+    for (const field of ["test-name","requirements","base-url","recent-url","save-test-name"]) {
+      await expect(page.locator("#"+field)).toHaveValue("");
+    }
+    await expect(page.locator("#step-list .step")).toHaveCount(0);
+    await expect(page.locator("#stage-draft")).toBeDisabled();
+    await expect(page.locator("#generate")).toBeDisabled();
+    await page.locator("#base-url").fill(demoURL);
+    await page.locator("#requirements").fill(instructions);
+    await page.locator("#test-name").fill(" original TEST ");
+    await expect(page.locator("#generate")).toBeDisabled();
+    await expect(page.locator("#test-name-conflict")).toBeVisible();
+    await expect(page.locator("#test-name-conflict")).toContainText("already exists");
+    await expect(page.locator("#test-name")).toHaveAttribute("aria-invalid","true");
+    await expect(page.locator("#generate-readiness")).toContainText("Choose a different Test name");
+    await page.locator("#test-name").fill("Separate new test");
+    await expect(page.locator("#test-name-conflict")).toBeHidden();
+    await expect(page.locator("#test-name")).toHaveAttribute("aria-invalid","false");
+    await page.locator("#generate").click();
+    await expect(page.locator("#step-list .step")).toHaveCount(9);
+    await page.locator("#review-add-all").click();
+    await page.locator("#save").click();
+    await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+    const listing = await (await page.request.get(url+"/api/tests")).json();
+    expect(listing.tests).toHaveLength(2);
+    expect(listing.tests.some((item:{id:string})=>item.id===id)).toBe(true);
+  });
+
+  test("duplicate names are rejected at the API, including concurrent saves and draft promotion", async ({page}) => {
+    await proposeFixture(page,"Reserved draft");
+    await page.locator("#save-draft").click();
+    await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+    const drafts = await (await page.request.get(url+"/api/drafts")).json();
+    const draftId = drafts.drafts[0].id;
+    const {draft} = await (await page.request.get(url+"/api/drafts/"+draftId)).json();
+    const body = {definition:draft.definition,baseURL:demoURL,testName:" reserved DRAFT "};
+    const denied = await page.request.post(url+"/api/save",{data:body});
+    expect(denied.status()).toBe(409);
+    await page.locator("#review-add-all").click();
+    await page.locator("#save").click();
+    await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+    expect((await (await page.request.get(url+"/api/drafts")).json()).drafts).toHaveLength(0);
+    const duplicate = await page.request.post(url+"/api/save",{data:body});
+    expect(duplicate.status()).toBe(409);
+    const requests = await Promise.all(["Race test"," race TEST "].map(testName =>
+      page.request.post(url+"/api/save",{data:{...body,testName}})));
+    expect(requests.map(res=>res.status()).sort()).toEqual([200,409]);
+    const renamed = await page.request.post(url+"/api/save",{data:{...body,testName:"Unique name"}});
+    expect(renamed.status()).toBe(200);
+  });
+
   test("two saved scripts can execute as a website suite", async ({ page }) => {
     test.setTimeout(60_000);
     const first = await saveApprovedFixture(page, "Smoke suite - first");
