@@ -317,6 +317,7 @@ test.describe("@e2e-smoke application smoke", () => {
     const script = page.locator("#edit-script");
     const rows = page.locator("#catalog-rows tr");
     await expect(rows).toHaveCount(3);
+    await expect(page.locator("#catalog-summary")).toHaveText("3 of 3 saved test records · 2 approved · 1 draft");
     await expect(suite).toHaveValue("");
     await expect(script).toHaveValue("");
     await expect(page.locator('#catalog-status input[value="all"]')).toBeChecked();
@@ -327,6 +328,7 @@ test.describe("@e2e-smoke application smoke", () => {
     await suite.selectOption(demoURL);
     await expect(script).toHaveValue("");
     await expect(rows).toHaveCount(2);
+    await expect(page.locator("#catalog-summary")).toHaveText("2 of 3 saved test records · 1 approved · 1 draft");
     await expect(script.locator("option")).toHaveCount(3);
     await script.selectOption(first);
     await expect(rows.first()).toHaveAttribute("data-record-id",first);
@@ -335,8 +337,10 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(script.locator("option")).toHaveCount(2);
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toHaveAttribute("data-record-id",draftId);
+    await expect(page.locator("#catalog-summary")).toHaveText("1 of 3 saved test records · 0 approved · 1 draft");
     await page.locator("#catalog-search").fill("shared");
     await expect(page.locator("#catalog-empty")).toBeVisible();
+    await expect(page.locator("#catalog-summary")).toHaveText("0 of 3 saved test records · 0 approved · 0 drafts");
     await page.locator("#catalog-search").fill("unfinished");
     await expect(rows).toHaveCount(1);
     await script.selectOption(draftId);
