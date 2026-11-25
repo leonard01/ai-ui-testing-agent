@@ -364,7 +364,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   // A website is the saved test suite, whether the user executed one
   // script or a sequential batch. Expose one unified history per website.
   // Individual reports remain available inside a batch, not in a second list.
-  function historySnapshot(requestedSite = "", requestedPage = 1) {
+  function historySnapshot(requestedSite = "", requestedPage = 1, verdict = "", search = "") {
     type HistoryEntry = {
       kind: "batch" | "single";
       id: string;
@@ -417,13 +417,20 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       label: siteUrl === "__legacy__" ? "Older / unknown website" : siteUrl,
       executions,
     }));
-    const selectedSiteUrl = requestedSite || sites[0]?.siteUrl || "";
-    const matching = entries.filter((entry) => entry.siteUrl === selectedSiteUrl);
+    const selectedSiteUrl = requestedSite === "__all__" ? "__all__" : requestedSite || sites[0]?.siteUrl || "";
+    const term = search.trim().toLowerCase();
+    const matching = entries.filter(entry =>
+      (selectedSiteUrl === "__all__" || entry.siteUrl === selectedSiteUrl) &&
+      (!verdict || entry.verdict === verdict) &&
+      (!term || (entry.title + " " + entry.siteUrl).toLowerCase().includes(term)));
     const pages = Math.max(1, Math.ceil(matching.length / HISTORY_PAGE_SIZE));
     const page = Math.min(requestedPage, pages);
     return {
       sites, selectedSiteUrl, page, pages,
       pageSize: HISTORY_PAGE_SIZE, total: matching.length,
+      overallTotal: entries.length,
+      passed: matching.filter(entry => entry.verdict === "passed").length,
+      failed: matching.filter(entry => entry.verdict === "failed").length,
       entries: matching.slice((page - 1) * HISTORY_PAGE_SIZE, page * HISTORY_PAGE_SIZE),
     };
   }
@@ -583,12 +590,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         const query = new URL(req.url ?? "/", "http://127.0.0.1").searchParams;
         const siteUrl = query.get("siteUrl") ?? "";
         const page = Number(query.get("page") ?? 1);
+        const verdict = query.get("verdict") ?? "";
+        const search = query.get("search") ?? "";
         if (!Number.isSafeInteger(page) || page < 1 || page > 100_000 ||
-            siteUrl.length > 2048) {
+            siteUrl.length > 2048 || search.length > 200 || !["", "passed", "failed"].includes(verdict)) {
           json(res, 400, { error: "Invalid history page or website filter" });
           return;
         }
-        json(res, 200, historySnapshot(siteUrl, page));
+        json(res, 200, historySnapshot(siteUrl, page, verdict, search));
         return;
       }
       const suitePath = /^\/api\/suites\/([a-f0-9-]{36})(?:\/(report\.json))?$/.exec(path);
