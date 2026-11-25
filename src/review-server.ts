@@ -1136,7 +1136,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("Unsupported element role");
           }
           const previousTarget = step.action.target;
-          const approvedTarget = isDuplicate
+          const approvedTarget: typeof previousTarget = isDuplicate
             ? { by: "role" as const, role, name: chosen.name, nth: chosen.nth }
             : { by: "role" as const, role, name: chosen.name };
           // Only exact same-action locators later in the failed test are eligible.
