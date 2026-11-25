@@ -1531,8 +1531,9 @@ test("Save Draft is discoverable in the Existing Tests picker",async({page})=>{
   const stored = JSON.parse(await readFile(join(outputDir,"drafts",id),"utf8"));
   expect(stored.definition.title).toBe(fixtureName());
   await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
-  await expect(page.locator("#edit-script")).toHaveValue(id);
-  await expect(page.locator("#edit-script option:checked")).toContainText("[Draft — not runnable]");
+  await expect(page.locator("#edit-suite")).toHaveValue("");
+  await expect(page.locator("#edit-script")).toHaveValue("");
+  await expect(page.locator("#edit-script option[value='" + id + "']")).toContainText("[Draft — not runnable]");
   // Saving a working draft must not accidentally approve or run it.
   await expect(page.locator("#save-and-run")).toBeDisabled();
 
@@ -1595,7 +1596,7 @@ test("approved test retains source instructions and Save as New keeps original",
 
   await page.getByRole("button", { name: "Choose another test" }).click();
   await page.getByLabel("Test suite", { exact: true }).selectOption("http://127.0.0.1:3000");
-  await page.getByLabel("Existing test script").selectOption(originalId);
+  await page.getByLabel("Test case", { exact: true }).selectOption(originalId);
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Load selected test" }).click();
   await expect(page.locator("#requirements")).toHaveValue(instructions);
