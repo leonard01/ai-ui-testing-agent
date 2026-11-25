@@ -1433,12 +1433,15 @@ test("Save & Run persists once, focuses execution and reuses unchanged approved 
   expect(first).toHaveLength(before + 1);
   const firstId = await page.locator("#approved-tests").inputValue();
   expect(firstId).toMatch(/^reviewed-/);
+  await page.locator("#stage-draft").click();
+  await expect(saveAndRun).toBeVisible();
   await expect(saveAndRun).toBeEnabled();
   await saveAndRun.click();
   await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
   const second = (await (await page.request.get(url + "/api/tests")).json()).tests;
   expect(second).toHaveLength(first.length);
   expect(await page.locator("#approved-tests").inputValue()).toBe(firstId);
+  await page.locator("#stage-draft").click();
   await expect(page.locator("#saved")).toContainText("previously saved approved test");
 });
 
