@@ -218,6 +218,10 @@
     .app-shell { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:calc(100vh - 76px); max-width:1600px; margin:auto; }
     .app-nav { background:#f8fafc; border-right:1px solid #dce3ed; padding:24px 14px; }
     .app-nav button { display:block; width:100%; text-align:left; background:transparent; color:#34506b; padding:12px; margin:4px 0; font-weight:600; }
+    .report-nav-label { border-top:1px solid #dce3ed; margin-top:16px; padding:12px 12px 4px; font-weight:700; color:#52667c; font-size:12px; }
+    .report-nav { padding-left:8px; }
+    .planned-report { border:1px dashed #b9cddd; border-radius:8px; padding:14px; margin:16px 0; background:#f8fafc; }
+    .planned-report h3 { margin:0 0 8px; }
     .app-nav button[aria-current="page"] { background:#e0edf7; color:#174e77; }
     .app-nav button:focus-visible,.workflow-nav button:focus-visible { outline:2px solid #205e86; outline-offset:2px; }
     .workspace { min-width:0; padding:24px clamp(16px,3vw,40px); }
@@ -231,6 +235,7 @@
     main[data-workspace="existing"] > :not(#review-workspace),
     main[data-workspace="run"] > :not(#execution-panel),
     main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
+    main[data-workspace="ai-usage"] > :not(#ai-usage-panel),
     main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
     main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
     main[data-workspace="draft"] #placeholder, main[data-workspace="draft"] #working-drafts-panel { display:none !important; }
@@ -308,7 +313,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <button type="button" id="nav-new" data-view="instructions" aria-current="page">New Test</button>
       <button type="button" id="nav-existing" data-view="existing">Existing Tests</button>
       <button type="button" id="nav-run" data-view="run">Run Tests</button>
-      <button type="button" id="nav-diagnostics" data-view="diagnostics">Diagnostics</button>
+      <div class="report-nav-label" id="reports-nav-heading">Reports</div>
+      <div role="group" aria-labelledby="reports-nav-heading" class="report-nav">
+        <button type="button" id="nav-diagnostics" data-view="diagnostics">Test Execution History</button>
+        <button type="button" id="nav-ai-usage" data-view="ai-usage">AI Usage Analytics</button>
+      </div>
     </nav>
     <div class="workspace">
       <nav class="workflow-nav" aria-label="Test workflow">
@@ -619,9 +628,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </div>
     </section>
     <section id="diagnostics-panel" aria-labelledby="diagnostics-heading">
-      <h2 id="diagnostics-heading">Diagnostics</h2>
+      <h2 id="diagnostics-heading">Test Execution History</h2>
       <section id="history-panel" hidden style="margin-top:12px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
         <h3 id="history-heading">Execution history</h3>
+        <div class="planned-report" id="history-planned"><h3>Planned enhancements — to be implemented</h3><p class="muted">Date range and verdict filters, historical pass/fail trends, test-level execution comparisons, and exportable reports. Existing website-suite history remains available below.</p></div>
         <p class="muted">Choose a website test suite to see its previous executions. Individual test runs are included under their website suite, not listed separately.</p>
         <label for="history-site">History filter — website test suite</label>
         <select id="history-site"><option value="">Select a website test suite</option></select>
@@ -637,6 +647,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <button type="button" id="history-next" class="secondary" disabled>Next</button>
         </div>
       </section>
+    </section>
+    <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
+      <h2 id="ai-usage-heading">AI Usage Analytics</h2>
+      <div class="planned-report"><h3>Coming in v0.3 — to be implemented</h3><p>Historical AI request reporting, independent of test execution history.</p><p class="muted">Planned: input and output tokens, request and retry history, rolling minute consumption, provider/model filters, prompt versions, date-range comparisons and CSV export. Per-request usage will also be available on relevant test screens.</p><p class="muted">No token usage data is collected by this screen yet.</p></div>
     </section>
       </main>
     </div>
