@@ -881,17 +881,18 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             if (typeof input.id !== "string" || !SAVED_NAME.test(input.id)) {
               throw new Error("Invalid legacy test script ID");
             }
-            const file = await findSavedFile(savedDir, input.id);
-            const definition = await readSaved(input.id);
+            const legacyId = input.id;
+            const file = await findSavedFile(savedDir, legacyId);
+            const definition = await readSaved(legacyId);
             if (dirname(file) !== savedDir || definition.sourceUrl) {
               throw new Error("Only an unassigned legacy script can be assigned this way");
             }
             const base = validatedBaseURL(input.baseURL);
             verifyNavigations(definition, base);
             await serializePersistence(async () => {
-            await assertUniqueName(definition.title, base.href, input.id as string);
+            await assertUniqueName(definition.title, base.href, legacyId);
             const targetFolder = websiteDirectory(savedDir, base.href);
-            const target = join(targetFolder, input.id);
+            const target = join(targetFolder, legacyId);
             const approved = parseTestDefinition({ ...definition, sourceUrl: base.href });
             await mkdir(targetFolder, { recursive: true });
             await writeFile(target, JSON.stringify(approved, null, 2) + "\n", { flag: "wx" });
@@ -902,7 +903,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               throw error;
             }
             json(res, 200, {
-              assignedId: input.id, siteUrl: websiteOrigin(base.href),
+              assignedId: legacyId, siteUrl: websiteOrigin(base.href),
               message: "Existing test script assigned to the selected website suite.",
             });
             });
