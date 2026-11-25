@@ -90,7 +90,7 @@ test("website suite dropdown paginates 10 executions and includes singles withou
     await page.goto(app.url);
     await expect(page.locator("#history-panel")).toBeHidden();
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
-    await page.getByRole("button", { name: "Show History" }).click();
+    await page.locator("#nav-diagnostics").click();
     await expect(page.locator("#history-site")).toHaveValue(websiteA);
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(10);
     await expect(page.locator("#history-suite-list .history-entry").first())
@@ -105,9 +105,9 @@ test("website suite dropdown paginates 10 executions and includes singles withou
     await page.locator("#history-site").selectOption(websiteB);
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(3);
     await expect(page.locator("#history-page-info")).toContainText("Page 1 of 1");
-    await page.getByRole("button", { name: "Hide History" }).click();
+    await page.locator("#nav-run").click();
     await expect(page.locator("#history-panel")).toBeHidden();
-    await page.getByRole("button", { name: "Show History" }).click();
+    await page.locator("#nav-diagnostics").click();
     await expect(page.locator("#history-site")).toHaveValue(websiteB);
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(3);
   } finally {
@@ -137,7 +137,7 @@ test("Delete All History requires confirmation, removes reports globally but kee
     })).status).toBe(400);
 
     await page.goto(app.url);
-    await page.getByRole("button", { name: "Show History" }).click();
+    await page.locator("#nav-diagnostics").click();
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(10);
     page.once("dialog", (dialog) => dialog.dismiss());
     await page.getByRole("button", { name: "Delete All History" }).click();
