@@ -145,6 +145,21 @@
     .result-metric strong { display:block; font-size:21px; }
     .result-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
     .run-step[data-status="execution-error"], .run-step[data-status="assertion-failed"] { border-left:4px solid #b42339; }
+    .execution-step-summary { cursor:pointer; list-style:none; }
+    .execution-step-summary::-webkit-details-marker { display:none; }
+    .execution-step-summary::after { content:"▸"; margin-left:8px; color:#52667c; }
+    details[open] > .execution-step-summary::after { content:"▾"; }
+    .execution-step-summary .result-head { display:inline-flex; width:calc(100% - 25px); }
+    .execution-progress { display:flex; height:8px; border-radius:8px; overflow:hidden; background:#eef0f4; margin:8px 0 16px; }
+    .execution-progress span { display:block; }
+    .result-metric[data-kind="passed"] strong { color:#17613b; }
+    .result-metric[data-kind="failed"] strong { color:#a22639; }
+    .history-table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; }
+    .history-table th,.history-table td { padding:10px 8px; border-bottom:1px solid #dce3ed; overflow-wrap:anywhere; vertical-align:middle; }
+    .history-table th { background:#f5f8fb; font-size:11px; text-transform:uppercase; }
+    .history-table .history-entry { display:table-row; }
+    .history-table-wrap { overflow-x:auto; }
+    .history-table td:last-child { white-space:nowrap; }
     .result-detail-toggle { margin-left:8px; font-size:12px; }
     .repair-scope { border:1px solid #d7e0ea; padding:10px; margin:10px 0; border-radius:8px; }
     .result-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -658,6 +673,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <h2 id="run-summary" style="margin-top:18px"></h2>
         <p id="run-totals" class="muted"></p>
         <div id="run-metrics" class="result-metrics" aria-label="Execution totals"></div>
+        <div id="run-progress-bar" class="execution-progress" aria-hidden="true"></div>
         <div id="result-actions" class="result-actions"></div>
         <div id="run-diagnosis" class="note"></div>
         <div id="run-coverage-warnings" class="review-advisories" hidden></div>
@@ -667,28 +683,29 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <img id="run-screenshot" alt="Screenshot captured when the test failed">
         </div>
         <h2 style="margin-top:20px">Step-by-step execution</h2>
+        <fieldset class="catalog-status"><legend>Show execution steps</legend><div class="catalog-status-options"><label><input type="radio" name="run-step-filter" value="all" checked>All steps</label><label><input type="radio" name="run-step-filter" value="failed">Failed</label></div></fieldset>
+        <p id="run-step-empty" class="muted" hidden>No failed steps.</p>
         <div id="run-steps"></div>
       </div>
       </div>
     </section>
     <section id="diagnostics-panel" aria-labelledby="diagnostics-heading">
       <h2 id="diagnostics-heading">Diagnostics</h2>
-      <section id="history-panel" hidden style="margin-top:12px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
-        <h3 id="history-heading">Execution history</h3>
-        <p class="muted">Choose a website test suite to see its previous executions. Individual test runs are included under their website suite, not listed separately.</p>
+      <section id="history-panel" hidden aria-labelledby="history-heading">
+        <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 id="history-heading">Execution history</h3><button type="button" id="refresh-history" class="secondary">Refresh history</button></div>
+        <div id="history-metrics" class="result-metrics" aria-label="Filtered execution totals"></div>
         <label for="history-site">History filter — website test suite</label>
-        <select id="history-site"><option value="">Select a website test suite</option></select>
-        <div class="history-toolbar">
-          <button type="button" id="refresh-history" class="secondary">Refresh history</button>
-          <button type="button" id="delete-all-history" class="secondary">Delete All History</button>
-        </div>
+        <select id="history-site"><option value="__all__">All suites</option></select>
+        <fieldset class="catalog-status"><legend>Result</legend><div class="catalog-status-options"><label><input type="radio" name="history-verdict" value="" checked>All</label><label><input type="radio" name="history-verdict" value="passed">Passed</label><label><input type="radio" name="history-verdict" value="failed">Failed</label></div></fieldset>
+        <label for="history-search">Search executions</label><input type="search" id="history-search" maxlength="200" placeholder="Search test name or website">
         <p id="history-status" role="status" class="muted"></p>
-        <div id="history-suite-list"></div>
+        <div class="history-table-wrap"><table class="history-table" aria-label="Execution history"><thead><tr><th scope="col">Test / execution date</th><th scope="col">Result</th><th scope="col">Tests</th><th scope="col">Action</th></tr></thead><tbody id="history-suite-list"></tbody></table></div>
         <div class="history-pagination">
           <button type="button" id="history-prev" class="secondary" disabled>Previous</button>
           <span id="history-page-info" role="status" class="muted"></span>
           <button type="button" id="history-next" class="secondary" disabled>Next</button>
         </div>
+        <div class="history-toolbar" style="justify-content:flex-end"><button type="button" id="delete-all-history" class="secondary">Delete All History</button></div>
       </section>
     </section>
       </main>
@@ -2295,10 +2312,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const metrics = $("run-metrics");
       metrics.replaceChildren();
       const failed = report.steps.filter(s=>s.status==="execution-error" || s.status==="assertion-failed").length;
-      for (const [label,value] of [["Passed",passed],["Failed",failed],["Skipped",skipped],["Duration",(report.durationMs/1000).toFixed(1)+"s"]]) {
+      for (const [label,value] of [["Total",report.steps.length],["Passed",passed],["Failed",failed],["Skipped",skipped]]) {
         const metric = make("div",null,"result-metric");
+        metric.dataset.kind = label.toLowerCase();
         metric.append(make("span",label,"muted"),make("strong",String(value)));
         metrics.append(metric);
+      }
+      const progress = $("run-progress-bar");
+      progress.replaceChildren();
+      for (const [count,color] of [[passed,"#23965d"],[failed,"#dc4545"],[skipped,"#a1a1aa"]]) {
+        if (!count) continue;
+        const segment = make("span"); segment.style.flex = String(count); segment.style.background = color; progress.append(segment);
       }
       const actions = $("result-actions");
       actions.replaceChildren();
@@ -2320,8 +2344,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           if (result.baseURL) $("execution-url").value=result.baseURL;
           await executeApproved(result.fileId);
         });
-        actions.append(edit,instructions,rerun);
+        actions.append(rerun,edit,instructions);
       }
+      const diagnostics = make("button","Diagnostics","secondary");
+      diagnostics.type="button";
+      diagnostics.addEventListener("click",()=>showWorkspace("diagnostics"));
+      actions.append(diagnostics);
       if (fromSuite) {
         const back = make("button","Back to suite results","secondary");
         back.type="button";
@@ -2359,10 +2387,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       else $("run-screenshot").removeAttribute("src");
       const container = $("run-steps");
       container.replaceChildren();
+      document.querySelector('input[name="run-step-filter"][value="all"]').checked = true;
+      $("run-step-empty").hidden = true;
       if (report.error) container.append(make("pre", report.error, "error"));
       for (const [index, step] of report.steps.entries()) {
-        const card = make("article", null, "run-step");
+        const card = make("details", null, "run-step");
         card.dataset.status = step.status;
+        card.open = step.status === "execution-error" || step.status === "assertion-failed";
         const head = make("div", null, "result-head");
         const heading = make("div");
         heading.append(make("strong", "Step " + (index + 1) + " · " + step.description));
@@ -2373,7 +2404,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           heading.append(scopeBadge);
         }
         head.append(heading, make("span", step.durationMs + " ms", "muted"));
-        card.append(head);
+        const summary = make("summary",null,"execution-step-summary");
+        summary.append(head);
+        card.append(summary);
         if (step.expected !== undefined) card.append(make("p", "Expected: " + step.expected));
         if (step.observed !== undefined) card.append(make("p", "Observed: " + step.observed));
         if (step.resolution) {
@@ -2924,8 +2957,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         container.append(card);
       }
     }
+    for (const radio of document.querySelectorAll('input[name="run-step-filter"]')) radio.addEventListener("change",()=> {
+      const failedOnly = document.querySelector('input[name="run-step-filter"]:checked').value === "failed";
+      const cards = [...$("run-steps").querySelectorAll(".run-step")];
+      for (const card of cards) card.hidden = failedOnly && !["assertion-failed","execution-error"].includes(card.dataset.status);
+      $("run-step-empty").hidden = !failedOnly || cards.some(card=>!card.hidden);
+    });
     let historyPage = 1;
-    let historySite = "";
+    let historySite = "__all__";
     let historyVersion = 0;
     async function refreshHistory() {
       if ($("history-panel").hidden) return;
@@ -2933,46 +2972,46 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const status = $("history-status");
       status.textContent = "Loading website suite execution history...";
       try {
-        const query = "?page=" + historyPage +
-          (historySite ? "&siteUrl=" + encodeURIComponent(historySite) : "");
+        const query = "?" + new URLSearchParams({page:String(historyPage),siteUrl:historySite,verdict:document.querySelector('input[name="history-verdict"]:checked').value,search:$("history-search").value});
         const history = await requestJSON("/api/history" + query);
         if (version !== historyVersion || $("history-panel").hidden) return;
-        historySite = history.selectedSiteUrl || "";
+        historySite = history.selectedSiteUrl || "__all__";
         historyPage = history.page;
         const select = $("history-site");
         select.replaceChildren();
-        if (!history.sites.length) {
-          const option = make("option", "No saved execution history");
-          option.value = "";
-          select.append(option);
-          select.disabled = true;
-        } else {
-          select.disabled = false;
-          for (const site of history.sites) {
-            const option = make("option",
-              site.label + " (" + site.executions + " executions)");
-            option.value = site.siteUrl;
-            select.append(option);
-          }
-          select.value = historySite;
+        const allOption = make("option","All suites");
+        allOption.value = "__all__"; select.append(allOption);
+        select.disabled = false;
+        for (const site of history.sites) {
+          const option = make("option",site.label + " (" + site.executions + " executions)");
+          option.value = site.siteUrl; select.append(option);
+        }
+        if (![...select.options].some(option=>option.value===historySite)) {
+          const option = make("option",historySite); option.value=historySite; select.append(option);
+        }
+        select.value = historySite;
+        const metrics = $("history-metrics");
+        metrics.replaceChildren();
+        for (const [label,value] of [["Executions",history.total],["Passed",history.passed],["Failed",history.failed]]) {
+          const metric = make("div",null,"result-metric");
+          metric.dataset.kind = label.toLowerCase();
+          metric.append(make("span",label,"muted"),make("strong",String(value)));
+          metrics.append(metric);
         }
         const list = $("history-suite-list");
         list.replaceChildren();
         for (const entry of history.entries) {
-          const card = make("div", null, "history-entry");
-          const content = make("div", null, "history-entry-content");
-          const siteName = entry.siteUrl === "__legacy__"
-            ? "Older / unknown website" : entry.siteUrl;
-          content.append(make("strong", siteName + " · " + entry.verdict.toUpperCase()));
-          content.append(make("span", new Date(entry.startedAt).toLocaleString() +
-            " · " + entry.summary.total + " test script(s) · " +
-            entry.summary.passed + " passed / " +
-            entry.summary.failed + " failed / " +
-            entry.summary.errors + " errors", "muted"));
-          if (entry.kind === "single") {
-            content.append(make("span", "Script: " + entry.title, "muted"));
-          }
-          card.append(content);
+          const card = make("tr", null, "history-entry");
+          const content = make("td", null, "history-entry-content");
+          const siteName = entry.siteUrl === "__legacy__" ? "Older / unknown website" : entry.siteUrl;
+          content.append(make("strong",entry.kind==="batch"?"Website suite":entry.title));
+          content.append(make("span",siteName,"muted"),make("span",new Date(entry.startedAt).toLocaleString(),"muted"));
+          const verdict = make("td");
+          verdict.append(make("span",entry.verdict.toUpperCase(),"verdict "+(entry.verdict==="passed"?"passed":"assertion-failed")));
+          const totals = make("td",entry.summary.passed+" / "+entry.summary.total+" passed");
+          if(entry.summary.errors) totals.append(make("div",entry.summary.errors+" runner error(s)","muted"));
+          const action = make("td");
+          card.append(content,verdict,totals,action);
           const button = make("button", "Open results", "secondary");
           button.type = "button";
           button.addEventListener("click", async () => {
@@ -2998,11 +3037,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 (error.message || String(error));
             }
           });
-          card.append(button);
+          action.append(button);
           list.append(card);
         }
         if (!history.entries.length) {
-          list.append(make("p", "No executions for this test suite.", "muted"));
+          const empty = make("tr"); const cell=make("td","No matching executions.","muted"); cell.colSpan=4; empty.append(cell); list.append(empty);
         }
         $("history-prev").disabled = history.page <= 1;
         $("history-next").disabled = history.page >= history.pages;
@@ -3012,10 +3051,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             Math.min(history.page * 10, history.total) +
             " of " + history.total + " executions"
           : "No executions";
-        status.textContent = history.total
-          ? history.total + " saved executions for " +
-            (historySite === "__legacy__" ? "older / unknown websites" : historySite)
-          : "No completed execution history. Your saved test scripts are unaffected.";
+        status.textContent = history.total + " of " + history.overallTotal + " saved executions · Latest first";
       } catch (error) {
         if (version !== historyVersion) return;
         status.textContent = "History unavailable: " + (error.message || String(error));
@@ -3033,6 +3069,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       historyPage = 1;
       void refreshHistory();
     });
+    let historySearchTimer;
+    $("history-search").addEventListener("input",()=>{
+      historyPage=1; clearTimeout(historySearchTimer); historyVersion++;
+      historySearchTimer=setTimeout(()=>void refreshHistory(),200);
+    });
+    for(const radio of document.querySelectorAll('input[name="history-verdict"]')) radio.addEventListener("change",()=>{historyPage=1;void refreshHistory();});
     $("history-prev").addEventListener("click", () => {
       if (historyPage > 1) { historyPage--; void refreshHistory(); }
     });
@@ -3062,7 +3104,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }),
         });
         historyPage = 1;
-        historySite = "";
+        historySite = "__all__";
+        $("history-search").value = "";
+        document.querySelector('input[name="history-verdict"][value=""]').checked = true;
         $("run-results").hidden = true;
         $("suite-summary").textContent = "";
         $("suite-results").replaceChildren();
