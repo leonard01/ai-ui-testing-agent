@@ -13,7 +13,7 @@ type LimitFigures = Pick<UsageAttempt,"providerRequestedTokens"|"providerTokenLi
 function tokenLimitFigures(detail:string):LimitFigures {
   // Only extract labelled numbers from a provider rate-limit message, never its raw text.
   const read=(label:string)=>{
-    const match=new RegExp("\\b"+label+"\\s*[:=]?\\s*([0-9][0-9,]{0,14})(?![0-9,.])","i").exec(detail);
+    const match=new RegExp("\\b"+label+"\\s*[:=]?\\s*([0-9][0-9,]{0,14})(?![0-9,]|\\.[0-9])","i").exec(detail);
     if (!match) return undefined;
     const n=Number(match[1].replace(/,/g,""));
     return Number.isSafeInteger(n) && n>=0 ? n : undefined;
