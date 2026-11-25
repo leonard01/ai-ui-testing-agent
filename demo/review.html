@@ -1996,6 +1996,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       for (const row of usage.records) {
         details.append(make("p",row.status+" · "+row.model+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
         details.append(make("p","Input size: "+row.systemCharacters.toLocaleString()+" system characters + "+row.promptCharacters.toLocaleString()+" prompt characters (not token counts).","muted"));
+        if(row.estimatedInputTokens!==undefined) details.append(make("p","Estimated input: "+row.estimatedInputTokens.toLocaleString()+" tokens (rough characters/4 estimate, not tokenizer output). Estimated input + completion allowance: "+(row.estimatedInputTokens+row.completionBudget).toLocaleString()+" tokens. Not actual usage.","muted"));
+        if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) details.append(make("p","Provider rate-limit figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used in quota window: "+(row.providerUsedTokens??"unknown")+". These are not per-request actual usage."));
+        if(row.retryAfter!==undefined) details.append(make("p","Provider Retry-After: "+row.retryAfter+(/^\d+(?:\.\d+)?$/.test(row.retryAfter)?" seconds":" (HTTP date)"),"muted"));
         if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
       }
       if(usage.storageFailed) details.append(make("p","Usage could not be fully saved to history.","error"));
@@ -2016,6 +2019,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         for(const row of data.records) {
           const card=make("article",null,"run-step");
           card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
+          if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) card.append(make("p","Provider quota figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used: "+(row.providerUsedTokens??"unknown"),"muted"));
+          if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens (rough estimate)","muted"));
+          if(row.retryAfter!==undefined) card.append(make("p","Retry-After: "+row.retryAfter,"muted"));
           list.append(card);
         }
         $("usage-status").textContent=data.totalRecords ? "Showing latest "+data.records.length+" of "+data.totalRecords+" attempts." : "No recorded AI requests for this period.";
