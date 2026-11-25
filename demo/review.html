@@ -288,7 +288,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <li>Save the approved JSON test; select it under Run Tests to execute with Playwright and review results and failure evidence.</li>
       </ol>
       <h3>Editing and incremental regeneration</h3>
-      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI can replace one step or the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
+      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI replaces the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
       <h3>Important limitations</h3>
       <ul>
         <li><strong>AI is non-deterministic.</strong> The same instructions may produce different actions or occasionally invalid output. Review steps and execution results rather than assuming they are correct.</li>
@@ -366,6 +366,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
+      <button type="button" id="start-new-test" class="secondary" hidden style="margin-top:12px">Start a separate new test</button>
       <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
 
     </section>
@@ -398,7 +399,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
-        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, enter instructions on the left.</p>
+        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, use New Test in the navigation.</p>
         <div class="run-test-selectors">
           <div>
             <label for="edit-suite">Test suite</label>
@@ -661,6 +662,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function syncWorkspaceNavigation() {
       $("stage-draft").disabled = !definition && $("generation-exception").hidden;
       $("stage-results").disabled = !hasResults;
+      $("start-new-test").hidden = !definition && $("generation-exception").hidden;
     }
     function showWorkspace(view) {
       if (view === "draft" && !definition && $("generation-exception").hidden) return;
@@ -675,6 +677,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
       if (view === "diagnostics") {
         $("history-panel").hidden = false;
+        $("toggle-history").textContent = "Hide History";
+        $("toggle-history").setAttribute("aria-expanded","true");
         void refreshHistory();
       }
       const navView = view === "draft" ? "instructions" : view === "results" ? "run" : view;
@@ -862,6 +866,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     async function loadWorkingDraft(id) {
       if (!id || running || !draftCatalog.some(item => item.id === id)) return;
+      if (!confirmReplaceWorkspace()) return;
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
@@ -895,26 +900,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("draft-load").addEventListener("click", () => {
       void loadWorkingDraft($("draft-select").value);
     });
+    function confirmReplaceWorkspace() {
+      return (!definition && !$("requirements").value.trim() && !$("test-name").value.trim()) ||
+        window.confirm("Opening a different test replaces the current editor contents. Save any unfinished changes first. Continue?");
+    }
     $("back-to-selector").addEventListener("click", () => {
-      // Returning to the test picker also ends the edit session. Otherwise
-      // generating a *new* test could unexpectedly replace the old script.
-      definition = null;
-      lastSavedId = "";
-      savedFingerprint = "";
-      approvals = new Set();
-      editingSavedId = null;
-      workingDraftId = null;
-      originalInstructions = undefined;
+      showWorkspace("existing");
+      void refreshDraftPicker();
+    });
+    $("start-new-test").addEventListener("click", () => {
+      if (running || saving || generatingDraft || !confirmReplaceWorkspace()) return;
+      hideException();
+      clearGenerationPreview();
       $("test-name").value = "";
       $("requirements").value = "";
-      updateGenerateReadiness();
       showOriginalInstructions();
-      $("draft-save-status").textContent = "";
-      $("draft").hidden = true;
-      $("placeholder").hidden = false;
-      showWorkspace("existing");
-      updateApproval();
-      void refreshDraftPicker();
+      updateGenerateReadiness();
+      showWorkspace("instructions");
     });
     $("save-draft").addEventListener("click", async () => {
       if (!definition || !$("test-name").value.trim()) return;
@@ -949,8 +951,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           approvals.size + "/" + definition.steps.length + " approved). " +
           "Listed as [Draft — not runnable] in Edit Existing Test, and selected " +
           "under Saved working drafts. File: " + result.file;
-        $("working-drafts-panel").scrollIntoView({ behavior: "smooth", block: "center" });
-        $("draft-select").focus({ preventScroll: true });
+        $("draft-save-status").scrollIntoView({ behavior: "smooth", block: "nearest" });
       } catch(error) {
         $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
@@ -1856,7 +1857,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         : missing.length
           ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
             ". Save Draft is available for unfinished work once a name is entered."
-          : "Ready to save or run. Save & Run will save the reviewed test and automatically show the execution results below.";
+          : "Ready to save or run. Save & Run will save the reviewed test and automatically open Test Results.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       const cannotSave = saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !$("test-name").value.trim();
@@ -3020,6 +3021,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     async function loadSavedForEditing(id, focusStepId) {
       if (!id || running) return;
+      if (!confirmReplaceWorkspace()) return;
       $("edit-saved").disabled = true;
       $("run-error").textContent = "";
       try {
@@ -3110,6 +3112,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       // A previous successful attempt must never masquerade as the new draft.
       // Do NOT clear persisted approved tests, execution history or input text.
       definition = null;
+      syncWorkspaceNavigation();
       approvals = new Set();
       editingSavedId = null;
       workingDraftId = null;
@@ -3220,6 +3223,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let exceptionRequest = null;
     function hideException() {
       $("generation-exception").hidden=true;
+      syncWorkspaceNavigation();
       $("working-drafts-panel").hidden=false;
       pendingException=null;
       for (const id of ["exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
@@ -3519,7 +3523,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
         }
         $("saved").append(make("strong", runAfterSave
-          ? "Test saved successfully. Starting execution below."
+          ? "Test saved successfully. Starting execution."
           : data.replacedId
             ? "Amended test saved; old version removed from the list. Ready to execute."
             : "Saved and ready to execute. The test has NOT been executed."));
@@ -3527,8 +3531,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
         const pre = make("pre", command);
         $("saved").append(make("p", runAfterSave
-          ? "Execution will start below. To run again later, use Run Tests. CLI command:"
-          : "Use Run selected test in section 3, or run via the CLI:"));
+          ? "Execution will start in Test Results. To run again later, use Run Tests. CLI command:"
+          : "Open Run Tests to execute, or run via the CLI:"));
         $("saved").append(pre);
         const copy = make("button", "Copy run command", "secondary");
         copy.onclick = async () => {
