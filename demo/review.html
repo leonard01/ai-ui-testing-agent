@@ -427,7 +427,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           aria-label="Test review errors and warnings" hidden>
           <div id="draft-critical-blockers" class="critical-blockers" role="alert"
             aria-live="polite" hidden></div>
-          <div id="instruction-coverage-blockers" class="critical-blockers" role="alert" hidden></div>
+          <div id="instruction-coverage-blockers" class="review-advisories" role="status" hidden></div>
           <div id="draft-review-advisories" class="review-advisories" hidden>
             <h3>⚠ Warnings — review against your test intent</h3>
             <p>These do not block saving or running, but may indicate that a generated check
@@ -598,6 +598,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <h2 id="run-summary" style="margin-top:18px"></h2>
         <p id="run-totals" class="muted"></p>
         <div id="run-diagnosis" class="note"></div>
+        <div id="run-coverage-warnings" class="review-advisories" hidden></div>
         <div id="run-artifacts" class="artifact-links"></div>
         <div id="run-screenshot-panel" hidden>
           <p style="font-weight:650">Failure screenshot</p>
@@ -1328,13 +1329,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         (count === 1 ? "" : "s") + " — these checks search from the page root rather than a specific container, so a match elsewhere on the page could hide a problem with the intended item. Page-wide scope may still be correct." : "";
       syncReviewFeedback();
     }
-    function coverageBlockers() {
+    function coverageWarnings() {
       const available = new Set((definition?.steps ?? []).map(step => step.id));
       return (definition?.instructionCoverage?.entries ?? []).filter(row =>
-        (!definition.instructionCoverage.proceedAccepted && row.issue && !["later-state","selector-uncertain"].includes(row.availability)) || !row.stepIds.length ||
+        (row.availability === "functional-mismatch" || (row.issue && !["later-state","selector-uncertain"].includes(row.availability))) || !row.stepIds.length ||
         new Set(row.stepIds).size !== row.stepIds.length || row.stepIds.some(id => !available.has(id)));
     }
+    function coverageBlockers() {
+      return definition?.instructionCoverage?.proceedAccepted ? [] : coverageWarnings();
+    }
     function invalidateCoverageForStep(id) {
+      if (definition?.instructionCoverage) definition.instructionCoverage.proceedAccepted = false;
       for (const row of definition?.instructionCoverage?.entries ?? []) {
         if (!row.stepIds.includes(id)) continue;
         if (row.confirmed) {
@@ -1784,11 +1789,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         syncReviewFeedback();
         return;
       }
-      panel.append(make("h3", "⛔ Cannot save or run — " + unresolvedCoverage.length +
+      panel.append(make("h3", "⚠ " + unresolvedCoverage.length +
         " requirement mapping" + (unresolvedCoverage.length === 1 ? " needs" : "s need") + " review"));
-      panel.append(make("p", "AI reinterpretation can replace step IDs without replacing the intent. " +
-        "Review each original statement and explicitly link the current step(s) that satisfy it. " +
-        "Save Draft is still available. Do not link unrelated steps just to clear a blocker."));
+      panel.append(make("p", "Review the actual steps and correct the mapping, or acknowledge incomplete coverage and execute the reviewed draft. A passing run does not prove these requirements were tested. Do not link unrelated steps."));
+      const acknowledge = make("label");
+      const accept = make("input");
+      accept.type = "checkbox";
+      accept.id = "accept-coverage-warning";
+      accept.checked = definition.instructionCoverage.proceedAccepted === true;
+      accept.addEventListener("change", () => {
+        definition.instructionCoverage.proceedAccepted = accept.checked;
+        updateApproval();
+      });
+      acknowledge.append(accept, make("span", " Accept unresolved requirement coverage and allow execution"));
+      panel.append(acknowledge);
       const available = new Set(definition.steps.map(step => step.id));
       for (const row of unresolvedCoverage) {
         const section = make("section", null, "coverage-review-row");
@@ -1850,10 +1864,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const unresolvedCredentials = unresolvedLoginCredentialSteps();
       const credentialReview = unresolvedCredentials.length > 0;
       const unresolvedCoverage = coverageBlockers();
-      renderCoverageBlockers(unresolvedCoverage);
+      renderCoverageBlockers(coverageWarnings());
       renderCriticalBlockers(unresolvedCredentials);
       const missing = [
-        ...(unresolvedCoverage.length ? ["resolve missing instruction mappings"] : []),
+        ...(unresolvedCoverage.length ? ["review or acknowledge unresolved requirement mappings"] : []),
         ...(missingName ? ["enter a Test name above"] : []),
         ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
@@ -2093,6 +2107,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("run-summary").classList.toggle("run-failed", !didPass);
       $("run-totals").textContent = passed + " passed, " + skipped + " skipped; " +
         report.steps.length + " steps reported; " + (report.durationMs / 1000).toFixed(1) + " seconds";
+      const coverageNotice = $("run-coverage-warnings");
+      coverageNotice.replaceChildren();
+      const coverage = Array.isArray(report.coverageWarnings) ? report.coverageWarnings : [];
+      coverageNotice.hidden = coverage.length === 0;
+      if (coverage.length) {
+        coverageNotice.append(make("h3", "Requirement coverage incomplete or unverified"), make("p", "Execution verdict applies only to executed steps."));
+        for (const row of coverage) coverageNotice.append(make("p", row.id + " — " + row.text + ": " + row.issue));
+      }
       $("run-diagnosis").hidden = didPass;
       $("run-diagnosis").textContent = didPass ? "" : diagnosticText(result);
       const links = $("run-artifacts");
@@ -3449,7 +3471,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "No relevant verified prerequisite memory was used for this generation.";
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
-          (coverageBlockers().length ? " BLOCKED: Resolve missing instruction mappings before saving or running." : "") +
+          (coverageBlockers().length ? " Review or acknowledge unresolved requirement mappings before saving or running." : "") +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
           (data.diagnostics?.blockingCredentialSteps?.length
             ? " BLOCKED: Save Test and Save & Run require approved login credentials. See the red blocker panel in Test Editor."
