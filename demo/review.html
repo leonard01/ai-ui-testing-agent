@@ -676,6 +676,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let preflightRevision = 0;
     let preflightFindings = [];
     let currentWorkspace = "instructions";
+    let editorRevision = 0;
+    let editorLoading = false;
     let hasResults = false;
     function syncWorkspaceNavigation() {
       $("stage-draft").disabled = !definition && $("generation-exception").hidden;
@@ -882,8 +884,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       });
     });
     async function loadWorkingDraft(id) {
-      if (!id || running || !draftCatalog.some(item => item.id === id)) return;
+      if (!id || running || saving || generatingDraft || editorLoading || !draftCatalog.some(item => item.id === id)) return;
       if (!confirmReplaceWorkspace()) return;
+      editorLoading = true;
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
@@ -912,7 +915,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (error) {
         $("draft-list-status").textContent = error.message || String(error);
-      }
+      } finally { editorLoading = false; }
     }
     $("draft-load").addEventListener("click", () => {
       void loadWorkingDraft($("draft-select").value);
@@ -925,18 +928,50 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       showWorkspace("existing");
       void refreshDraftPicker();
     });
-    $("start-new-test").addEventListener("click", () => {
-      if (running || saving || generatingDraft || !confirmReplaceWorkspace()) return;
+    function startNewTest() {
+      if (running || saving || generatingDraft || editorLoading || $("incremental-generate").disabled || $("selector-preflight").disabled && definition) {
+        window.alert("Finish the current operation before starting a new test.");
+        return;
+      }
+      if (!confirmReplaceWorkspace()) return;
+      editorRevision++;
+      incrementalRevision++;
+      incrementalSelectedId = null;
+      incrementalPending = null;
+      lastSavedId = "";
+      savedFingerprint = "";
+      exceptionRequest = null;
+      exceptionRootInstructions = undefined;
       hideException();
       clearGenerationPreview();
       $("test-name").value = "";
       $("requirements").value = "";
+      $("base-url").value = "";
+      $("recent-url").value = "";
+      activeURLSource = "manual";
+      $("base-url").classList.remove("url-source-inactive");
+      $("recent-url").classList.add("url-source-inactive");
+      $("url-source-status").textContent = "Enter an application URL or choose a previous website.";
+      $("requirements-file").value = "";
+      $("import-note").textContent = "File contents will be added to the instructions above. Max 12,000 characters total.";
+      for (const id of ["generation-status","generation-error","generation-review-status","application-memory-status","incremental-status","incremental-warnings"]) $(id).textContent = "";
+      $("incremental-instructions").value = "";
+      $("incremental-panel").hidden = true;
+      $("incremental-preview").hidden = true;
+      $("incremental-progress").hidden = true;
+      $("incremental-status").hidden = true;
+      $("incremental-proposed-steps").replaceChildren();
+      hasResults = false;
+      updateApproval();
       showOriginalInstructions();
       updateGenerateReadiness();
       showWorkspace("instructions");
-    });
+    }
+    $("start-new-test").addEventListener("click", startNewTest);
     $("save-draft").addEventListener("click", async () => {
-      if (!definition || !$("test-name").value.trim()) return;
+      if (saving || running || editorLoading || !definition || !$("test-name").value.trim()) return;
+      saving = true;
+      updateApproval();
       $("draft-save-status").classList.remove("error");
       $("draft-save-status").textContent = "Saving working draft...";
       try {
@@ -972,7 +1007,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } catch(error) {
         $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
-      }
+      } finally { saving = false; updateApproval(); }
     });
     function describeTarget(target) {
       if (!target) return "unknown element";
@@ -3140,8 +3175,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     });
     async function loadSavedForEditing(id, focusStepId) {
-      if (!id || running) return;
+      if (!id || running || saving || generatingDraft || editorLoading) return;
       if (!confirmReplaceWorkspace()) return;
+      editorLoading = true;
       $("edit-saved").disabled = true;
       $("run-error").textContent = "";
       try {
@@ -3188,7 +3224,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } catch(error) {
         $("run-error").textContent = error.message || String(error);
         updateRunButton();
-      }
+      } finally { editorLoading = false; }
     }
     $("edit-saved").addEventListener("click", () => {
       void loadSavedForEditing(selectedApprovedId);
@@ -3213,7 +3249,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("generation-error").textContent = "File too large. Use up to 12,000 characters of instructions.";
         return;
       }
+      const revision = editorRevision;
       const text = await file.text();
+      if (revision !== editorRevision) return;
       const previous = $("requirements").value.trim();
       const combined = [previous, text.trim()].filter(Boolean).join("\n\n");
       if (combined.length > 12_000) {
@@ -3287,7 +3325,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           baseURL: $("base-url").value,
           instructions: $("requirements").value,
         });
+        const revision = editorRevision;
         const result = await requestJSON("/api/application-memory?" + query);
+        if (revision !== editorRevision) return;
         status.textContent = result.suggestions?.length
           ? result.suggestions.map(item => item.text).join(" ")
           : "No matching prerequisite has been learned from successful tests on this website.";
@@ -3677,7 +3717,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("save-and-run").addEventListener("click", () => { void approveAndSave(false, true); });
     $("save-as-new").addEventListener("click", () => { void approveAndSave(true); });
     for (const button of document.querySelectorAll("nav [data-view]")) {
-      button.addEventListener("click", () => showWorkspace(button.dataset.view));
+      button.addEventListener("click", () => button.id === "nav-new" ? startNewTest() : showWorkspace(button.dataset.view));
     }
     showWorkspace("instructions");
   </script>
