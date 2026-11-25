@@ -222,6 +222,9 @@
     .report-nav { padding-left:8px; }
     .planned-report { border:1px dashed #b9cddd; border-radius:8px; padding:14px; margin:16px 0; background:#f8fafc; }
     .planned-report h3 { margin:0 0 8px; }
+    .request-usage:not(:empty) { margin:12px 0; padding:12px 14px; border:1px solid #dce3ed; background:#f8fafc; border-radius:8px; }
+    .request-usage summary { cursor:pointer; font-weight:600; }
+    .request-usage p { margin:8px 0; overflow-wrap:anywhere; }
     .app-nav button[aria-current="page"] { background:#e0edf7; color:#174e77; }
     .app-nav button:focus-visible,.workflow-nav button:focus-visible { outline:2px solid #205e86; outline-offset:2px; }
     .workspace { min-width:0; padding:24px clamp(16px,3vw,40px); }
@@ -344,7 +347,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="application-memory-status" class="muted" role="status"></p>
         </div>
       </div>
-      <h2 id="instructions-heading">Test Instructions</h2><div id="instructions-usage"></div>
+      <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required)</span></label>
       <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" required>
@@ -377,6 +380,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
+      <div id="instructions-usage" class="request-usage" aria-live="polite"></div>
       <button type="button" id="start-new-test" class="secondary" hidden style="margin-top:12px">Start a separate new test</button>
       <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
 
@@ -1982,12 +1986,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!usage) return;
       const totals=usage.summary;
       const details=make("details");
-      const label=totals.knownRequests ? totals.totalTokens.toLocaleString()+" reported tokens" : "Token count unavailable";
-      details.append(make("summary","AI Usage — "+label+(totals.unknownRequests ? " (partial)" : "")));
+      const label=totals.knownRequests ? totals.totalTokens.toLocaleString()+" reported tokens" : "Actual token count unavailable";
+      details.append(make("summary","AI Usage — "+label+(totals.knownRequests && totals.unknownRequests ? " (partial)" : "")));
+      const limited=usage.records.some(row=>row.httpStatus===429);
+      details.open=limited;
+      if (limited) details.append(make("p","GroqCloud rejected a request due to its rate limit. Rejected requests may not return actual token counts; unknown does not mean zero. The completion budget is a maximum, not actual usage.","muted"));
+      if (!totals.requests) details.append(make("p","No hosted provider attempt was recorded for this operation.","muted"));
       details.append(make("p",totals.requests+" provider attempts · "+usage.modelCalls+" model calls · "+totals.unknownRequests+" unknown counts","muted"));
       for (const row of usage.records) {
         details.append(make("p",row.status+" · "+row.model+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
-        if(row.remainingTokens!==undefined) details.append(make("p","Provider remaining tokens: "+row.remainingTokens+" · reset: "+(row.resetTokens??"unknown"),"muted"));
+        details.append(make("p","Input size: "+row.systemCharacters.toLocaleString()+" system characters + "+row.promptCharacters.toLocaleString()+" prompt characters (not token counts).","muted"));
+        if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
       }
       if(usage.storageFailed) details.append(make("p","Usage could not be fully saved to history.","error"));
       panel.append(details);
@@ -3516,6 +3525,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       hideException();
       clearGenerationPreview();
       $("generation-error").textContent = "";
+      showRequestUsage("instructions-usage",null);
+      showRequestUsage("draft-usage",null);
       $("saved").replaceChildren();
       $("save-error").textContent = "";
       const requirements = $("requirements").value.trim();
