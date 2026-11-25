@@ -242,7 +242,12 @@
     .editor-state { font-size:11px; font-weight:650; padding:4px 8px; border-radius:6px; color:#52667c; background:#eef2f7; }
     .editor-state[data-state="dirty"] { background:#fff0d6; color:#80520a; }
     .editor-state[data-state="saved"] { background:#e7f8ee; color:#17613b; }
-    .catalog-filters { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:12px; }
+    .catalog-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .catalog-status { border:0; padding:0; margin:14px 0 0; min-width:0; }
+    .catalog-status legend { font-size:13px; font-weight:650; }
+    .catalog-status-options { display:flex; flex-wrap:wrap; gap:8px 18px; }
+    .catalog-status-options label { display:flex; align-items:center; gap:6px; margin:8px 0 0; }
+    .catalog-status-options input { accent-color:#205e86; }
     .catalog-table-wrap { overflow-x:auto; margin:14px 0; }
     .catalog-table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; }
     .catalog-table th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#52667c; background:#f5f8fb; }
@@ -448,25 +453,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <h3>Saved tests and working drafts</h3>
         <p class="muted">Browse approved tests or resume an unfinished draft. Only approved tests can run. Use New Test to create a separate test.</p>
         <div class="catalog-filters">
-          <div><label for="catalog-search">Search tests</label><input id="catalog-search" type="text" placeholder="Search test name or website" autocomplete="off"></div>
-          <div><label for="catalog-status">Status</label><select id="catalog-status"><option value="all">All tests</option><option value="approved">Approved tests</option><option value="draft">Working drafts</option></select></div>
+          <div><label for="edit-suite">Test suite</label><select id="edit-suite"><option value="">All suites</option></select></div>
+          <div><label for="edit-script">Test case</label><select id="edit-script"><option value="">All tests</option></select></div>
         </div>
+        <fieldset id="catalog-status" class="catalog-status">
+          <legend>Status</legend>
+          <div class="catalog-status-options">
+            <label><input type="radio" name="catalog-status" value="all" checked>All</label>
+            <label><input type="radio" name="catalog-status" value="approved">Approved tests</label>
+            <label><input type="radio" name="catalog-status" value="draft">Working drafts</label>
+          </div>
+        </fieldset>
+        <label for="catalog-search">Search tests</label><input id="catalog-search" type="text" placeholder="Search test name or website" autocomplete="off">
         <p id="catalog-summary" class="muted" role="status"></p>
         <div class="catalog-table-wrap"><table class="catalog-table" aria-label="Saved tests and working drafts"><thead><tr><th scope="col">Test name / website</th><th scope="col">Status</th><th scope="col">Steps</th><th scope="col">Action</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
         <p id="catalog-empty" class="muted" hidden>No matching tests. Try changing the search or filter.</p>
         <p id="catalog-error" class="error" role="alert"></p>
-        <div class="run-test-selectors">
-          <div>
-            <label for="edit-suite">Test suite</label>
-            <select id="edit-suite"><option value="">Select a test suite</option></select>
-          </div>
-          <div>
-            <label for="edit-script">Existing test script or draft</label>
-            <select id="edit-script" disabled><option value="">Select a suite first</option></select>
-          </div>
-        </div>
-        <div class="actions"><button type="button" id="edit-load" class="secondary" disabled>Load selected test</button></div>
-        <p id="edit-scripts-summary" class="muted" role="status"></p>
+        <div class="actions"><button type="button" id="edit-load" class="secondary" disabled hidden>Load selected test</button></div>
       </div>
       <section id="working-drafts-panel" aria-label="Saved working drafts" style="padding:12px 0;margin:12px 0;border-top:1px solid #d5dce3">
         <h3>Saved working drafts</h3>
@@ -880,19 +883,30 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           ? "Original instructions unavailable for this older saved test."
           : originalInstructions;
     }
+    function catalogRecords() {
+      return [...approvedCatalog.map(item=>({...item,kind:"approved"})), ...draftCatalog.map(item=>({...item,kind:"draft"}))]
+        .sort((a,b)=>a.title.localeCompare(b.title) || a.kind.localeCompare(b.kind) || (a.siteUrl || "").localeCompare(b.siteUrl || ""));
+    }
+    function catalogSite(item) { return item.siteUrl || "__legacy__"; }
+    function catalogStatus() { return $("catalog-status").querySelector("input:checked")?.value || "all"; }
+    function catalogMatchesScope(item) {
+      const suite = $("edit-suite").value;
+      const status = catalogStatus();
+      return (!suite || catalogSite(item) === suite) && (status === "all" || item.kind === status);
+    }
     function renderTestCatalog() {
       const search = $("catalog-search").value.trim().toLowerCase();
-      const status = $("catalog-status").value;
-      const all = [...approvedCatalog.map(item=>({...item,kind:"approved"})), ...draftCatalog.map(item=>({...item,kind:"draft"}))];
-      const filtered = all.filter(item => (status === "all" || item.kind === status) &&
-        (item.title+" "+(item.siteUrl || "Older / unassigned")).toLowerCase().includes(search))
-        .sort((a,b)=>a.title.localeCompare(b.title) || a.kind.localeCompare(b.kind));
+      const selected = $("edit-script").value;
+      const all = catalogRecords();
+      const filtered = all.filter(item => catalogMatchesScope(item) && (!selected || item.id === selected) &&
+        (item.title+" "+(item.siteUrl || "Older / unassigned")).toLowerCase().includes(search));
       const body = $("catalog-rows");
       body.replaceChildren();
       $("catalog-summary").textContent = filtered.length + " of " + all.length + " saved test records · " + approvedCatalog.length + " approved · " + draftCatalog.length + " working drafts";
       $("catalog-empty").hidden = filtered.length !== 0;
       for (const item of filtered) {
         const row = make("tr");
+        row.dataset.recordId = item.id;
         const title = make("td");
         title.append(make("strong", item.title), make("div", item.siteUrl || "Older / unassigned", "muted"));
         const state = make("td");
@@ -913,19 +927,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
     $("catalog-search").addEventListener("input",renderTestCatalog);
-    $("catalog-status").addEventListener("change",renderTestCatalog);
+    $("catalog-status").addEventListener("change",()=>renderExistingScripts());
     function renderExistingEditorChoices() {
-      renderTestCatalog();
       const suite = $("edit-suite");
-      const script = $("edit-script");
       const priorSuite = suite.value;
-      const priorScript = script.value;
-      const sites = [...new Set([
-        ...approvedCatalog.map(test => test.siteUrl || "__legacy__"),
-        ...draftCatalog.map(draft => draft.siteUrl),
-      ])].sort();
+      const priorScript = $("edit-script").value;
+      const sites = [...new Set(catalogRecords().map(catalogSite))].sort();
       suite.replaceChildren();
-      const blank = make("option", "Select a test suite");
+      const blank = make("option", "All suites");
       blank.value = "";
       suite.append(blank);
       for (const site of sites) {
@@ -933,46 +942,39 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         option.value = site;
         suite.append(option);
       }
-      if (sites.includes(priorSuite)) suite.value = priorSuite;
-      renderExistingScripts(priorScript);
+      suite.value = sites.includes(priorSuite) ? priorSuite : "";
+      renderExistingScripts(suite.value === priorSuite ? priorScript : "");
     }
     function renderExistingScripts(selected = "") {
       const script = $("edit-script");
-      const suite = $("edit-suite").value;
       script.replaceChildren();
-      const placeholder = make("option", suite ? "Select a test script" : "Select a suite first");
+      const placeholder = make("option", "All tests");
       placeholder.value = "";
       script.append(placeholder);
-      const approved = approvedCatalog.filter(item =>
-        (item.siteUrl || "__legacy__") === suite);
-      const drafts = draftCatalog.filter(item => item.siteUrl === suite);
-      for (const item of approved) {
-        const option = make("option", "[Approved] " + item.title + " (" + item.steps + " steps)");
+      const choices = catalogRecords().filter(catalogMatchesScope);
+      for (const item of choices) {
+        const website = item.siteUrl || "Older / unassigned";
+        const prefix = item.kind === "draft" ? "[Draft — not runnable] " : "[Approved] ";
+        const option = make("option", prefix + item.title + " — " + website);
         option.value = item.id;
         script.append(option);
       }
-      for (const item of drafts) {
-        const option = make("option", "[Draft — not runnable] " + item.title +
-          " (" + item.approved + "/" + item.steps + " approved)");
-        option.value = item.id;
-        script.append(option);
-      }
-      if ([...approved, ...drafts].some(item => item.id === selected)) script.value = selected;
-      script.disabled = !suite;
-      $("edit-scripts-summary").textContent = suite
-        ? approved.length + " approved test(s), " + drafts.length +
-          " working draft(s). Drafts cannot be run."
-        : "Select a website suite to see approved tests and working drafts.";
+      script.value = choices.some(item => item.id === selected) ? selected : "";
       updateEditLoadButton();
+      renderTestCatalog();
     }
     $("edit-suite").addEventListener("change", () => renderExistingScripts());
     function updateEditLoadButton() {
       const id = $("edit-script").value;
+      $("edit-load").hidden = !id;
       $("edit-load").disabled = !id || running;
       $("edit-load").textContent = id.startsWith("draft-")
         ? "Resume selected draft" : "Load selected test";
     }
-    $("edit-script").addEventListener("change", updateEditLoadButton);
+    $("edit-script").addEventListener("change", () => {
+      updateEditLoadButton();
+      renderTestCatalog();
+    });
     $("edit-load").addEventListener("click", () => {
       const id = $("edit-script").value;
       if (!id) return;
@@ -1005,13 +1007,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("draft-list-status").classList.toggle("error",
         Boolean(data.skippedInvalid || data.skippedOverflow));
       renderExistingEditorChoices();
-      if (selected) {
-        const item = draftCatalog.find(item => item.id === selected);
-        if (item) {
-          $("edit-suite").value = item.siteUrl;
-          renderExistingScripts(item.id);
-        }
-      }
     }
     $("draft-select").addEventListener("change", () => {
       $("draft-load").disabled = !$("draft-select").value;
@@ -1137,9 +1132,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         workingDraftId = result.id;
         recordEditorSaved("draft", fingerprint);
         await refreshDraftPicker(result.id);
+        // Catalog filters are user preferences: saving must not force a suite,
+        // status or case selection. Verify the record in the underlying catalog.
         const listed = draftCatalog.some(item => item.id === result.id) &&
-          $("draft-select").value === result.id &&
-          $("edit-script").value === result.id;
+          $("draft-select").value === result.id;
         if (!listed) {
           throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and try Refresh drafts.");
         }
