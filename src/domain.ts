@@ -50,6 +50,8 @@ export interface RunReport {
   error?: string;
   artifacts: { screenshot?: string; trace?: string };
   evidenceErrors: string[];
+  /** Snapshot of unresolved requirement coverage at execution time, independent of verdict. */
+  coverageWarnings?: Array<{id: string; text: string; issue: string}>;
 }
 
 export type BrowserController = "human" | "ai";
