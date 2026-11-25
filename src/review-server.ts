@@ -516,7 +516,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
 
   function snapshot(job: RunJob) {
     return {
-      id: job.id, fileId: job.fileId, state: job.state, startedAt: job.startedAt,
+      id: job.id, fileId: job.fileId, state: job.state, startedAt: job.startedAt, baseURL: job.baseURL,
       report: job.report, error: job.error,
       diagnosis: job.report ? diagnoseRun(job.report) : undefined,
       artifacts: job.report ? {
