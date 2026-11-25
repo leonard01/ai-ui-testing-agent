@@ -1,4 +1,5 @@
 import type { ModelProvider, ModelRequest } from "./generation.js";
+import { readTokenUsage, type UsageAttempt } from "./ai-usage.js";
 
 const GROQ_CHAT_COMPLETIONS = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -126,6 +127,7 @@ export const groqProvider: ModelProvider = async function (
 export async function requestGroq(
   { model, system, prompt }: ModelRequest,
   requester: typeof fetch = fetch,
+  observe?: (attempt: UsageAttempt) => void | Promise<void>,
 ): Promise<string> {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) {
@@ -157,7 +159,24 @@ export async function requestGroq(
     max_completion_tokens: 5000,
   });
   let response: Response | undefined;
+  let started = Date.now();
+  let transportAttempt = 1;
+  async function record(status: string, response?: Response, usage?: unknown) {
+    const remaining = response?.headers.get("x-ratelimit-remaining-tokens");
+    const reset = response?.headers.get("x-ratelimit-reset-tokens");
+    const remainingTokens = remaining && /^\d+$/.test(remaining) ? Number(remaining) : undefined;
+    const resetTokens = reset && /^[0-9a-z.]{1,40}$/i.test(reset) ? reset : undefined;
+    try { await observe?.({
+      provider:"groqcloud", model, startedAt:new Date(started).toISOString(),
+      durationMs:Date.now()-started,status,httpStatus:response?.status,
+      ...readTokenUsage(usage), completionBudget:5000,
+      systemCharacters:system.length,promptCharacters:prompt.length,
+      remainingTokens,resetTokens,transportAttempt,
+    }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
+    started=Date.now();
+    transportAttempt=attempt+1;
     try {
       response = await requester(GROQ_CHAT_COMPLETIONS, {
         method: "POST",
@@ -172,6 +191,7 @@ export async function requestGroq(
     } catch (error) {
       const category = error instanceof Error && error.name === "TimeoutError"
         ? "timeout" : error instanceof TypeError ? "network" : "transport";
+      await record(category);
       if (category === "network" && attempt === 0) {
         await new Promise<void>((resolve) => setTimeout(resolve, 300));
         continue;
@@ -180,17 +200,24 @@ export async function requestGroq(
     }
   }
   if (!response) throw new GroqTransportError("transport");
-  if (!response.ok) throw await classifyGroqFailure(response);
+  if (!response.ok) {
+    const failure=await classifyGroqFailure(response);
+    await record(failure.category,response);
+    throw failure;
+  }
   let data: unknown;
   try {
     data = await response.json();
   } catch {
+    await record("unreadable-response",response);
     throw new Error("GroqCloud returned an unreadable response");
   }
   const parsed = data as {
     choices?: Array<{ message?: { content?: unknown } }>;
+    usage?: unknown;
   } | null;
   const text = parsed?.choices?.[0]?.message?.content;
+  await record(typeof text === "string" && text.trim() ? "response-received" : "empty-response",response,parsed?.usage);
   if (typeof text !== "string" || !text.trim()) {
     throw new Error("GroqCloud returned no generated JSON text");
   }
