@@ -338,7 +338,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required)</span></label>
-      <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" required>
+      <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" aria-describedby="test-name-conflict" required>
+      <p id="test-name-conflict" class="error" role="status" hidden style="margin:6px 0 0">A test with this name already exists in this website suite.</p>
       <form id="generate-form" novalidate>
         <label for="base-url">Application URL <span class="required-marker">(required)</span></label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
@@ -1968,7 +1969,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (invalid["test-name"] && !duplicate) missing.push("a Test name (1–200 characters)");
       if (invalid["base-url"]) missing.push("a valid Application URL");
       if (invalid.requirements) missing.push("test instructions (1–12,000 characters)");
-      $("generate-readiness").textContent = duplicate ? "A test with this name already exists in this website suite. Choose a different name." : missing.length
+      $("test-name-conflict").hidden = !duplicate;
+      $("generate-readiness").textContent = duplicate ? "Choose a different Test name before generating." : missing.length
         ? "Before generating, enter " + missing.join(", ") + "."
         : "All required fields complete. Ready to generate.";
       $("generate-readiness").classList.toggle("ready", !missing.length && !duplicate);
