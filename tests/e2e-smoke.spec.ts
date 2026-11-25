@@ -96,6 +96,15 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#context-url")).toHaveText(demoURL+"/");
     await expect(page.locator("#run-totals")).toContainText("9 passed");
     await expect(page.locator("#run-steps .run-step")).toHaveCount(9);
+    await expect(page.locator("#run-steps details[open]")).toHaveCount(0);
+    await page.locator("#run-steps details summary").first().click();
+    await expect(page.locator("#run-steps details[open]")).toHaveCount(1);
+    await page.locator('input[name="run-step-filter"][value="failed"]').check();
+    await expect(page.locator("#run-steps .run-step:visible")).toHaveCount(0);
+    await expect(page.locator("#run-step-empty")).toBeVisible();
+    await page.locator('input[name="run-step-filter"][value="all"]').check();
+    await expect(page.locator("#run-steps .run-step:visible")).toHaveCount(9);
+    await expect(page.locator("#run-metrics [data-kind=total] strong")).toHaveText("9");
     await expect(page.locator("#results-panel")).toBeVisible();
     await expect(page.locator("#execution-panel")).toBeHidden();
     await expect(page.locator("#suite-output")).toBeHidden();
@@ -109,6 +118,17 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#execution-panel")).toBeHidden();
 
     await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await expect(page.locator("#history-site")).toHaveValue("__all__");
+    await expect(page.locator("#history-metrics [data-kind=passed] strong")).toHaveText("1");
+    await page.locator('input[name="history-verdict"][value="failed"]').check();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
+    await expect(page.locator("#history-metrics [data-kind=executions] strong")).toHaveText("0");
+    await page.locator('input[name="history-verdict"][value="passed"]').check();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await page.locator("#history-search").fill("missing execution");
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
+    await page.locator("#history-search").fill("task lifecycle");
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
     await expect(page.locator("#results-panel")).toBeHidden();
     await page.getByRole("button", {name:"Open results", exact:true}).click();
