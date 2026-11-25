@@ -344,7 +344,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="application-memory-status" class="muted" role="status"></p>
         </div>
       </div>
-      <h2 id="instructions-heading">Test Instructions</h2>
+      <h2 id="instructions-heading">Test Instructions</h2><div id="instructions-usage"></div>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required)</span></label>
       <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" required>
@@ -382,7 +382,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
 
     </section>
     <section id="review-workspace" aria-labelledby="review-heading" hidden>
-      <h2 id="review-heading">Test Draft</h2>
+      <h2 id="review-heading">Test Draft</h2><div id="draft-usage"></div>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
@@ -598,7 +598,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </div>
     </section>
     <section id="results-panel" aria-labelledby="results-heading" data-result-kind="single">
-      <h2 id="results-heading">Test Results</h2>
+      <h2 id="results-heading">Test Results</h2><div id="results-usage"></div>
       <p class="sub">Review execution progress, outcomes and failure evidence. Return to Instructions, Draft or Run Tests using the navigation above.</p>
       <div id="suite-output">
         <p id="suite-status" role="status" class="status"></p>
@@ -650,7 +650,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     </section>
     <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
       <h2 id="ai-usage-heading">AI Usage Analytics</h2>
-      <div class="planned-report"><h3>Coming in v0.3 — to be implemented</h3><p>Historical AI request reporting, independent of test execution history.</p><p class="muted">Planned: input and output tokens, request and retry history, rolling minute consumption, provider/model filters, prompt versions, date-range comparisons and CSV export. Per-request usage will also be available on relevant test screens.</p><p class="muted">No token usage data is collected by this screen yet.</p></div>
+      <p class="muted">Historical provider attempts, independent of execution history. Only reported tokens are included in totals.</p>
+      <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
+      <button id="usage-refresh" type="button" class="secondary">Refresh AI usage</button>
+      <p id="usage-status" role="status"></p><div id="usage-metrics" class="result-metrics"></div>
+      <p id="usage-minute" class="muted"></p><div id="usage-records"></div>
+      <div class="planned-report"><h3>Planned enhancements — to be implemented</h3><p>Provider/model filters, prompt version comparisons, charts, CSV export and persistent per-test associations.</p></div>
     </section>
       </main>
     </div>
@@ -707,6 +712,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("placeholder").hidden = view !== "existing";
         $("working-drafts-panel").hidden = view !== "existing";
       }
+      if (view === "ai-usage") void refreshAIUsage();
       if (view === "diagnostics") {
         $("history-panel").hidden = false;
         $("toggle-history").textContent = "Hide History";
@@ -1970,9 +1976,48 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       approvals = new Set(definition.steps.map((_, index) => index));
       renderSteps();
     });
+    function showRequestUsage(target, usage) {
+      const panel=$(target);
+      panel.replaceChildren();
+      if (!usage) return;
+      const totals=usage.summary;
+      const details=make("details");
+      const label=totals.knownRequests ? totals.totalTokens.toLocaleString()+" reported tokens" : "Token count unavailable";
+      details.append(make("summary","AI Usage — "+label+(totals.unknownRequests ? " (partial)" : "")));
+      details.append(make("p",totals.requests+" provider attempts · "+usage.modelCalls+" model calls · "+totals.unknownRequests+" unknown counts","muted"));
+      for (const row of usage.records) {
+        details.append(make("p",row.status+" · "+row.model+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
+        if(row.remainingTokens!==undefined) details.append(make("p","Provider remaining tokens: "+row.remainingTokens+" · reset: "+(row.resetTokens??"unknown"),"muted"));
+      }
+      if(usage.storageFailed) details.append(make("p","Usage could not be fully saved to history.","error"));
+      panel.append(details);
+    }
+    async function refreshAIUsage() {
+      $("usage-status").textContent="Loading usage history…";
+      try {
+        const data=await requestJSON("/api/ai-usage?days="+$("usage-days").value);
+        const metrics=$("usage-metrics");
+        metrics.replaceChildren();
+        for(const [name,value] of [["Reported input",data.summary.inputTokens],["Reported output",data.summary.outputTokens],["Reported total",data.summary.totalTokens],["Attempts",data.summary.requests],["Unknown counts",data.summary.unknownRequests],["Rate limits",data.summary.rateLimits]]) {
+          const metric=make("div",null,"result-metric");
+          metric.append(make("span",name,"muted"),make("strong",value.toLocaleString()));metrics.append(metric);
+        }
+        $("usage-minute").textContent="Last 60 seconds (local recorded attempts): "+data.minute.totalTokens.toLocaleString()+" reported tokens; "+data.minute.unknownRequests+" unknown counts. This is not the provider quota.";
+        const list=$("usage-records");list.replaceChildren();
+        for(const row of data.records) {
+          const card=make("article",null,"run-step");
+          card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
+          list.append(card);
+        }
+        $("usage-status").textContent=data.totalRecords ? "Showing latest "+data.records.length+" of "+data.totalRecords+" attempts." : "No recorded AI requests for this period.";
+      } catch(error) { $("usage-status").textContent=error.message||String(error); }
+    }
+    $("usage-refresh").addEventListener("click",()=>void refreshAIUsage());
+    $("usage-days").addEventListener("change",()=>void refreshAIUsage());
     async function requestJSON(url, options) {
       const response = await fetch(url, options);
       const payload = await response.json();
+      if (url === "/api/regenerate-steps") showRequestUsage("draft-usage",payload.aiUsage);
       if (!response.ok) {
         const error = new Error(payload.error || "Request failed (" + response.status + ")");
         error.category = payload.category;
@@ -3499,6 +3544,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }),
         });
         const data = await response.json();
+        showRequestUsage("instructions-usage",data.aiUsage);
+        showRequestUsage("draft-usage",data.aiUsage);
         if (response.status===409 && data.category==="instruction-mismatch") {
           showGenerationException(data,{baseURL,requirements,provider,useApplicationMemory:$("use-application-memory").checked});
           if(decision?.proceed) $("exception-edit-error").textContent=data.error;
