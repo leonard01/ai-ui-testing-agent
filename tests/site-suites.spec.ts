@@ -74,6 +74,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   }
   expect(websiteDirectory(dir, sauce)).not.toBe(websiteDirectory(dir, local));
   await page.goto(url);
+  await page.locator("#nav-run").click();
   const suite = page.getByLabel("Test suite (website URL)");
   const singleBeforeSuite = page.getByLabel("Test script", { exact: true });
   await expect(suite).toHaveValue("");
@@ -99,7 +100,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await expect(page.getByRole("link", { name: "View requirement matrix (JSON)" })).toBeVisible();
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(2);
   await expect(page.locator("#suite-site-note")).toContainText("2 saved test scripts");
-  await expect(page.locator("#base-url")).toHaveValue(sauce + "/");
+  await expect(page.locator("#execution-url")).toHaveValue(sauce + "/");
   await page.getByRole("button", { name: "Select first 10" }).click();
   await expect(page.locator("#suite-selection-status")).toContainText("2 tests selected");
   await suite.selectOption(local);
@@ -113,7 +114,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await expect(page.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toBeHidden();
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-selection-status")).toContainText("0 tests selected");
-  await expect(page.locator("#base-url")).toHaveValue(local + "/");
+  await expect(page.locator("#execution-url")).toHaveValue(local + "/");
   await expect(page.getByRole("button", { name: "Run selected suite" })).toBeDisabled();
   await single.selectOption(third);
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
@@ -142,7 +143,7 @@ test("confirmed individual deletion only removes its approved script and preserv
   expect((await list()).tests).toHaveLength(2);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete selected test script" }).click();
-  await expect(page.locator("#run-status")).toContainText("Approved test script deleted");
+  await expect(page.locator("#run-management-status")).toContainText("Approved test script deleted");
   expect((await list()).tests.map((item) => item.id)).toEqual([second]);
   expect((await readdir(websiteDirectory(dir, sauce)))).toEqual([second]);
   const missing = await fetch(url + "/api/tests/" + first);
@@ -163,12 +164,13 @@ test("deleting website suite removes scripts but retains completed run evidence"
   const historical = await (await fetch(url + "/api/runs/" + started.body.id)).json();
   expect(historical.report.status).toBe("passed");
   await page.goto(url);
+  await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption(local);
   const denied = await post("/api/delete-site", { siteUrl: local, confirmed: false });
   expect(denied.status).toBe(400);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete this website test suite" }).click();
-  await expect(page.locator("#suite-status")).toContainText("Website suite and its approved test scripts deleted");
+  await expect(page.locator("#run-management-status")).toContainText("Website suite and its approved test scripts deleted");
   const after = await list();
   expect(after.tests.filter((item) => item.siteUrl === local)).toHaveLength(0);
   expect(after.sites).toHaveLength(0);
@@ -195,6 +197,7 @@ test("existing flat JSON scripts stay visible under unassigned suite and can be 
     { siteUrl: sauce, scripts: 1 },
   ]);
   await page.goto(url);
+  await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   await expect(page.getByLabel("Test script", { exact: true }).locator("option")).toHaveCount(2);
   await expect(page.getByLabel("Test script", { exact: true }).locator('option[value="' + other + '"]')).toHaveCount(0);
@@ -218,10 +221,10 @@ test("legacy script assignment needs confirmation, verifies URL and keeps origin
     id: legacyID, baseURL: sauce, confirmed: false,
   });
   expect(denied.status).toBe(400);
-  await page.locator("#base-url").fill(sauce);
+  await page.locator("#execution-url").fill(sauce);
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Assign older script to website URL" }).click();
-  await expect(page.locator("#run-status")).toContainText("assigned to the selected website");
+  await expect(page.locator("#run-management-status")).toContainText("assigned to the selected website");
   const after = await list();
   expect(after.tests).toHaveLength(1);
   expect(after.tests[0]).toMatchObject({ id: legacyID, siteUrl: sauce, sourceUrl: sauce + "/" });
