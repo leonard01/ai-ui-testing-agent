@@ -930,7 +930,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       void refreshDraftPicker();
     });
     function startNewTest() {
-      if (running || saving || generatingDraft || editorLoading || $("incremental-generate").disabled || $("selector-preflight").disabled && definition) {
+      if (running || saving || generatingDraft || editorLoading || (definition && ($("incremental-generate").disabled || $("selector-preflight").disabled))) {
         window.alert("Finish the current operation before starting a new test.");
         return;
       }
@@ -1926,6 +1926,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "Ready to save or run. Save & Run will save the reviewed test and automatically open Test Results.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       const duplicate = duplicateName($("test-name").value, selectedBaseURL);
+      $("save-readiness").classList.toggle("ready", total > 0 && !missing.length && !duplicate);
       if (duplicate) $("save-readiness").textContent = "A test with this name already exists in this website suite. Choose a different name.";
       const cannotSave = duplicate || saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !$("test-name").value.trim();
@@ -1962,8 +1963,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         "requirements": !instructions || instructions.length > 12000,
       };
       const duplicate = duplicateName(name, $("base-url").value);
+      invalid["test-name"] ||= duplicate;
       const missing = [];
-      if (invalid["test-name"]) missing.push("a Test name (1–200 characters)");
+      if (invalid["test-name"] && !duplicate) missing.push("a Test name (1–200 characters)");
       if (invalid["base-url"]) missing.push("a valid Application URL");
       if (invalid.requirements) missing.push("test instructions (1–12,000 characters)");
       $("generate-readiness").textContent = duplicate ? "A test with this name already exists in this website suite. Choose a different name." : missing.length
@@ -3499,7 +3501,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       // Guard keyboard/programmatic submissions as well as the disabled button.
-      if (generatingDraft || !updateGenerateReadiness()) {
+      if (generatingDraft || saving || running || editorLoading || !updateGenerateReadiness()) {
         $("generation-error").textContent = duplicateName($("test-name").value, $("base-url").value) ? "A test with this name already exists in this website suite. Choose a different name." : "Complete the Test name, Application URL and test instructions before generating.";
         const first = ["test-name", "base-url", "requirements"].find(id =>
           $(id).getAttribute("aria-invalid") === "true");
@@ -3616,6 +3618,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           (data.diagnostics?.warnings?.length ? " Review the advisory quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
+        ({ editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions } = currentIdentity);
+        showOriginalInstructions();
         showWorkspace("instructions");
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
