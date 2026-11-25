@@ -233,7 +233,7 @@
     main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
     main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
     main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
-    main[data-workspace="draft"] #placeholder, main[data-workspace="draft"] #working-drafts-panel { display:none !important; }
+    main[data-workspace="draft"] #placeholder { display:none !important; }
     #results-panel[data-result-kind="single"] #suite-output,
     #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
     .test-context { max-width:1100px; margin:0 auto 14px; padding:12px 16px; background:white; border:1px solid #dce3ed; border-radius:9px; overflow-wrap:anywhere; }
@@ -450,7 +450,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </section>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
-        <h3>Saved tests and working drafts</h3>
+        <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3>Saved tests and drafts</h3><button type="button" id="catalog-refresh" class="secondary">Refresh</button></div>
         <p class="muted">Browse approved tests or resume an unfinished draft. Only approved tests can run. Use New Test to create a separate test.</p>
         <div class="catalog-filters">
           <div><label for="edit-suite">Test suite</label><select id="edit-suite"><option value="">All suites</option></select></div>
@@ -469,19 +469,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <div class="catalog-table-wrap"><table class="catalog-table" aria-label="Saved tests and working drafts"><thead><tr><th scope="col">Test name / website</th><th scope="col">Status</th><th scope="col">Steps</th><th scope="col">Action</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
         <p id="catalog-empty" class="muted" hidden>No matching tests. Try changing the search or filter.</p>
         <p id="catalog-error" class="error" role="alert"></p>
-        <div class="actions"><button type="button" id="edit-load" class="secondary" disabled hidden>Load selected test</button></div>
+        <p id="catalog-refresh-status" class="muted" role="status"></p>
+        <p id="catalog-draft-warning" class="error" role="status"></p>
       </div>
-      <section id="working-drafts-panel" aria-label="Saved working drafts" style="padding:12px 0;margin:12px 0;border-top:1px solid #d5dce3">
-        <h3>Saved working drafts</h3>
-        <p class="muted">Working drafts can contain unfinished steps and are not executable until approved. Saved drafts remain available while a test is open in the editor.</p>
-        <label for="draft-select">Choose saved working draft</label>
-        <select id="draft-select"><option value="">Select a working draft</option></select>
-        <div class="actions">
-          <button type="button" id="draft-load" class="secondary" disabled>Resume draft</button>
-          <button type="button" id="draft-refresh" class="secondary">Refresh drafts</button>
-        </div>
-        <p id="draft-list-status" class="muted" role="status"></p>
-      </section>
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
@@ -798,7 +788,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (view === "draft" || view === "existing") {
         $("review-workspace").hidden = false;
         $("placeholder").hidden = view !== "existing";
-        $("working-drafts-panel").hidden = view !== "existing";
       }
       if (view === "diagnostics") {
         $("history-panel").hidden = false;
@@ -962,61 +951,32 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         script.append(option);
       }
       script.value = choices.some(item => item.id === selected) ? selected : "";
-      updateEditLoadButton();
       renderTestCatalog();
     }
     $("edit-suite").addEventListener("change", () => renderExistingScripts());
-    function updateEditLoadButton() {
-      const id = $("edit-script").value;
-      $("edit-load").hidden = !id;
-      $("edit-load").disabled = !id || running;
-      $("edit-load").textContent = id.startsWith("draft-")
-        ? "Resume selected draft" : "Load selected test";
-    }
-    $("edit-script").addEventListener("change", () => {
-      updateEditLoadButton();
-      renderTestCatalog();
-    });
-    $("edit-load").addEventListener("click", () => {
-      const id = $("edit-script").value;
-      if (!id) return;
-      if (id.startsWith("draft-")) void loadWorkingDraft(id);
-      else void loadSavedForEditing(id);
-    });
-    async function refreshDraftPicker(selected = $("draft-select").value) {
+    $("edit-script").addEventListener("change", renderTestCatalog);
+    async function refreshDraftCatalog() {
       const data = await requestJSON("/api/drafts");
       draftCatalog = data.drafts;
       updateGenerateReadiness();
-      const select = $("draft-select");
-      select.replaceChildren();
-      const blank = make("option", "Select a working draft");
-      blank.value = "";
-      select.append(blank);
-      for (const draft of data.drafts) {
-        const option = make("option", draft.title + " — " + draft.approved +
-          "/" + draft.steps + " approved (" + draft.siteUrl + ")");
-        option.value = draft.id;
-        select.append(option);
-      }
-      if (data.drafts.some(item => item.id === selected)) select.value = selected;
-      $("draft-load").disabled = !select.value;
-      $("draft-list-status").textContent = data.drafts.length +
-        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available." +
-        (data.skippedInvalid ? " WARNING: " + data.skippedInvalid +
-          " saved draft file(s) could not be read; the server did not include them." : "") +
-        (data.skippedOverflow ? " WARNING: " + data.skippedOverflow +
-          " draft(s) exceed the current index limit." : "");
-      $("draft-list-status").classList.toggle("error",
-        Boolean(data.skippedInvalid || data.skippedOverflow));
+      $("catalog-draft-warning").textContent =
+        (data.skippedInvalid ? "WARNING: " + data.skippedInvalid + " saved draft file(s) could not be read. " : "") +
+        (data.skippedOverflow ? "WARNING: " + data.skippedOverflow + " draft(s) exceed the current index limit." : "");
       renderExistingEditorChoices();
     }
-    $("draft-select").addEventListener("change", () => {
-      $("draft-load").disabled = !$("draft-select").value;
-    });
-    $("draft-refresh").addEventListener("click", () => {
-      void refreshDraftPicker().catch(error => {
-        $("draft-list-status").textContent = error.message || String(error);
-      });
+    $("catalog-refresh").addEventListener("click", async () => {
+      const button = $("catalog-refresh");
+      if (button.disabled) return;
+      button.disabled = true;
+      $("catalog-refresh-status").textContent = "Refreshing tests and drafts...";
+      $("catalog-error").textContent = "";
+      try {
+        const results = await Promise.allSettled([refreshApprovedTests(), refreshDraftCatalog()]);
+        const errors = results.flatMap((result,index)=>result.status === "rejected"
+          ? [(index === 0 ? "Approved tests: " : "Drafts: ") + (result.reason?.message || String(result.reason))] : []);
+        $("catalog-error").textContent = errors.join(" · ");
+        $("catalog-refresh-status").textContent = errors.length ? "Refresh incomplete; previously loaded records are retained where possible." : "Tests and drafts refreshed.";
+      } finally { button.disabled = false; }
     });
     async function loadWorkingDraft(id) {
       if (!id || running || saving || generatingDraft || editorLoading || !draftCatalog.some(item => item.id === id)) return;
@@ -1050,20 +1010,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         renderSteps();
         $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (error) {
-        $("draft-list-status").textContent = error.message || String(error);
         $("catalog-error").textContent = error.message || String(error);
       } finally { editorLoading = false; }
     }
-    $("draft-load").addEventListener("click", () => {
-      void loadWorkingDraft($("draft-select").value);
-    });
     function confirmReplaceWorkspace() {
       return (!definition && !$("requirements").value.trim() && !$("test-name").value.trim()) ||
         window.confirm("Opening a different test replaces the current editor contents. Save any unfinished changes first. Continue?");
     }
     $("back-to-selector").addEventListener("click", () => {
       showWorkspace("existing");
-      void refreshDraftPicker();
+      void refreshDraftCatalog().catch(error => { $("catalog-error").textContent = error.message || String(error); });
     });
     function startNewTest() {
       if (running || saving || generatingDraft || editorLoading || (definition && ($("incremental-generate").disabled || $("selector-preflight").disabled))) {
@@ -1133,19 +1089,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         workingDraftId = result.id;
         recordEditorSaved("draft", fingerprint);
-        await refreshDraftPicker(result.id);
+        await refreshDraftCatalog();
         // Catalog filters are user preferences: saving must not force a suite,
         // status or case selection. Verify the record in the underlying catalog.
-        const listed = draftCatalog.some(item => item.id === result.id) &&
-          $("draft-select").value === result.id;
+        const listed = draftCatalog.some(item => item.id === result.id);
         if (!listed) {
-          throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and try Refresh drafts.");
+          throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and use Refresh in Existing Tests.");
         }
         $("draft-save-status").classList.remove("error");
         $("draft-save-status").textContent = "Working draft saved and verified (" +
           approvals.size + "/" + definition.steps.length + " approved). " +
-          "Listed as [Draft — not runnable] in Edit Existing Test, and selected " +
-          "under Saved working drafts. File: " + result.file;
+          "Available in Existing Tests as [Draft — not runnable]. File: " + result.file;
         $("draft-save-status").scrollIntoView({ behavior: "smooth", block: "nearest" });
       } catch(error) {
         $("draft-save-status").classList.add("error");
@@ -3424,11 +3378,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       void loadSavedForEditing(selectedApprovedId);
     });
 
-    void refreshDraftPicker().catch(error => {
-      $("draft-list-status").textContent = error.message || String(error);
+    void refreshDraftCatalog().catch(error => {
+      $("catalog-draft-warning").textContent = "Could not load drafts: " + (error.message || String(error));
     });
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
+      $("catalog-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
     // History remains collapsed and does not fetch data until requested.
 
@@ -3579,7 +3534,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function hideException() {
       $("generation-exception").hidden=true;
       syncWorkspaceNavigation();
-      $("working-drafts-panel").hidden=false;
       pendingException=null;
       for (const id of ["exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
       $("exception-risk").checked=false;
@@ -3596,7 +3550,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("review-workspace").hidden=false;
       $("placeholder").hidden=true;
       $("draft").hidden=true;
-      $("working-drafts-panel").hidden=true;
       $("generation-exception").hidden=false;
       showWorkspace("draft");
       $("exception-count").textContent=data.problematicIds.length+" of "+data.total+" requirements could not be confidently mapped.";
@@ -3876,7 +3829,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         definition.title = testName;
         editingSavedId = null;
         workingDraftId = null;
-        await refreshDraftPicker();
+        await refreshDraftCatalog();
         // The save response records the website actually persisted by the server.
         // Keep Run Tests (and its execution URL) in sync with that saved script.
         selectedBaseURL = data.sourceUrl;
