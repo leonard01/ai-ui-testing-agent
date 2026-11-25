@@ -461,7 +461,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <div class="catalog-status-options">
             <label><input type="radio" name="catalog-status" value="all" checked>All</label>
             <label><input type="radio" name="catalog-status" value="approved">Approved tests</label>
-            <label><input type="radio" name="catalog-status" value="draft">Working drafts</label>
+            <label><input type="radio" name="catalog-status" value="draft">Drafts</label>
           </div>
         </fieldset>
         <label for="catalog-search">Search tests</label><input id="catalog-search" type="text" placeholder="Search test name or website" autocomplete="off">
@@ -902,7 +902,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         (item.title+" "+(item.siteUrl || "Older / unassigned")).toLowerCase().includes(search));
       const body = $("catalog-rows");
       body.replaceChildren();
-      $("catalog-summary").textContent = filtered.length + " of " + all.length + " saved test records · " + approvedCatalog.length + " approved · " + draftCatalog.length + " working drafts";
+      const approvedCount = filtered.filter(item => item.kind === "approved").length;
+      const draftCount = filtered.length - approvedCount;
+      $("catalog-summary").textContent = filtered.length + " of " + all.length + " saved test records · " + approvedCount + " approved · " + draftCount + (draftCount === 1 ? " draft" : " drafts");
       $("catalog-empty").hidden = filtered.length !== 0;
       for (const item of filtered) {
         const row = make("tr");
