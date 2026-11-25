@@ -160,6 +160,7 @@ test("suite holds the shared execution lock and forbids replacing queued cases",
 
 test("suite UI selects saved cases and drills into failure evidence", async ({ page }) => {
   await page.goto(url);
+  await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const list = page.locator("#suite-test-list input[type=checkbox]");
   await expect(list).toHaveCount(3);
@@ -183,6 +184,7 @@ test("suite UI selects saved cases and drills into failure evidence", async ({ p
 
 test("Run Tests panel contains both one-script tools and multi-script execution without a separate upper selector", async ({ page }) => {
   await page.goto(url);
+  await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const panel = page.locator("#suite-panel");
   await expect(panel.getByRole("heading", { name: "Run Tests", exact: true })).toBeVisible();
@@ -209,6 +211,9 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
   await expect(page.locator("#run-summary")).toContainText("PASSED");
 
+  await expect(page.locator("#execution-panel")).toBeHidden();
+  await expect(page.locator("#results-panel")).toBeVisible();
+  await page.locator("#nav-run").click();
   const boxes = panel.locator("#suite-test-list input[type=checkbox]");
   await boxes.nth(0).check();
   await boxes.nth(1).check();
@@ -216,7 +221,9 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await panel.getByRole("button", { name: "Run selected suite" }).click();
   await expect(page.locator("#suite-status")).toContainText("Suite complete", { timeout: 30000 });
   await expect(page.locator("#suite-results .run-step")).toHaveCount(2);
-  // History must stay below both result sections.
-  await expect(page.locator("#history-controls")).toBeVisible();
-  await expect(page.locator("#history-panel")).toBeHidden();
+  // Results must not expose configuration controls; history belongs to Diagnostics.
+  await expect(page.locator("#execution-panel")).toBeHidden();
+  await expect(page.locator("#history-controls")).toBeHidden();
+  await page.locator("#nav-diagnostics").click();
+  await expect(page.locator("#diagnostics-panel #history-panel")).toBeVisible();
 });

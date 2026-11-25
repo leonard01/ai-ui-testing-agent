@@ -183,10 +183,13 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", { name: "Generate draft" }).click();
   await expect(page.locator("#step-list .step")).toHaveCount(9);
-  await page.locator("#test-name").fill("Incremental task test");
+  await page.locator("#save-test-name").fill("Incremental task test");
   await page.locator("#step-list .step").nth(0).locator('input[type=checkbox]').check();
   await page.locator("#step-list .step").nth(1).locator('input[type=checkbox]').check();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#stage-draft").click();
   await page.locator("#step-list .step").nth(2).getByRole("button", {name:"Reinterpret with AI"}).click();
   await expect(page.getByLabel("Scope of changes")).toHaveCount(0);
   await page.getByLabel("New plain-English instructions for replacement steps").fill(
@@ -199,14 +202,20 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await page.getByRole("button", { name: "Apply proposed steps (unapproved)" }).click();
   await expect(page.locator("#step-list .step")).toHaveCount(5);
   await expect(page.locator("#review-progress")).toContainText("2 of 5");
+  await page.locator("#stage-instructions").click();
   await expect(page.locator("#requirements")).toHaveValue(/Incremental amendment/);
   await expect(page.locator("#working-instructions-note")).toBeVisible();
   await expect(page.locator("#working-instructions-note")).toContainText("superseded");
   await expect(page.locator("#original-instructions")).toHaveText("Add and verify a task");
+  await page.locator("#stage-draft").click();
   await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/5 approved");
   await page.getByRole("button", { name: "Choose another test" }).click();
+  page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Resume draft", exact: true }).click();
+  await expect(page.locator("#review-workspace")).toBeVisible();
+  await expect(page.locator("#workspace-main")).toHaveAttribute("data-workspace","draft");
+  await page.locator("#stage-instructions").click();
   await expect(page.locator("#working-instructions-note")).toBeVisible();
   await expect(page.locator("#requirements")).toHaveValue(/Incremental amendment/);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
@@ -288,7 +297,10 @@ test("incremental panel shows clear progress and then hides it after output", as
   await page.getByLabel("Your test instructions").fill("Add and verify a task");
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", { name: "Generate draft" }).click();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#stage-draft").click();
   await page.locator("#step-list .step").nth(2)
     .getByRole("button", { name: "Reinterpret with AI" }).click();
   await page.getByLabel("New plain-English instructions for replacement steps")
@@ -412,7 +424,10 @@ test("UI explains malformed AI response and allows retry without editing instruc
   await page.getByLabel("Your test instructions").fill("Add and verify a task");
   await page.getByLabel("Generate with").selectOption("fixture");
   await page.getByRole("button", {name:"Generate draft"}).click();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.locator("#stage-instructions").click();
   await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#stage-draft").click();
   await page.locator("#step-list .step").nth(2).getByRole("button",{name:"Reinterpret with AI"}).click();
   const instructions = page.getByLabel("New plain-English instructions for replacement steps");
   await instructions.fill("Add another task and verify it");

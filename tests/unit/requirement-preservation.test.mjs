@@ -72,7 +72,8 @@ test("functional mismatch requires a decision even if an executable mapping exis
  d.instructionCoverage.proceedAccepted=true;
  assert.deepEqual(instructionCoverageProblems(d),[]);
  d.instructionCoverage.entries[0].stepIds=[];
- assert.equal(instructionCoverageProblems(d).length,1);
+ assert.equal(instructionCoverageProblems(d).length,0);
+ assert.equal(generationExceptions(d).length,1);
 });
 
 test("mapping diagnostics distinguish missing, duplicate, unknown and malformed references",()=>{
@@ -92,7 +93,7 @@ test("mapping diagnostics distinguish missing, duplicate, unknown and malformed 
   const row=d.instructionCoverage.entries[0];
   assert.match(row.issue,expected);
   assert.match(row.issue,/does not establish whether the draft fulfils the requirement/);
-  assert.deepEqual(row.stepIds,[]);
+  assert.ok(row.stepIds.every(id=>d.steps.some(step=>step.id===id)));
   assert.equal(instructionCoverageProblems(d).length,1);
   assert.throws(()=>assertInstructionCoverageReviewed(d),/Unresolved instruction coverage/);
  }
@@ -108,4 +109,17 @@ test("invalid mapping reason is retained even when AI supplies an advisory note"
  assert.match(row.issue,/AI note: Target appears later/);
  assert.equal(instructionCoverageProblems(d).length,1);
  assert.equal(generationExceptions(d).length,1);
+});
+
+test("mixed mapping references preserve valid links and require explicit acknowledgement",()=>{
+ const d=definition();d.instructionCoverage=proposedCoverage("Submit.",d,{entries:[map("R1",["act","missing","act"])]},false);
+ assert.deepEqual(d.instructionCoverage.entries[0].stepIds,["act"]);
+ assert.equal(d.instructionCoverage.entries[0].confirmed,false);
+ assert.match(d.instructionCoverage.entries[0].issue,/missing/);
+ assert.throws(()=>assertInstructionCoverageReviewed(d),/Unresolved instruction coverage/);
+ d.instructionCoverage.proceedAccepted=true;
+ assert.doesNotThrow(()=>assertInstructionCoverageReviewed(d));
+ assert.equal(generationExceptions(d).length,1);
+ d.instructionCoverage.entries[0].stepIds.push("invalid");
+ assert.throws(()=>assertInstructionCoverageReviewed(d),/Unresolved instruction coverage/);
 });

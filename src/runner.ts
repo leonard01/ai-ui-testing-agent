@@ -11,6 +11,7 @@ import {
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed } from "./credential-guard.js";
+import { coverageWarnings } from "./requirement-preservation.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
@@ -87,6 +88,8 @@ export async function runTest(
     assertCredentialsReviewed(definition);
     report.testId = definition.id;
     report.title = definition.title;
+    const unresolvedCoverage = coverageWarnings(definition);
+    if (unresolvedCoverage.length) report.coverageWarnings = unresolvedCoverage.map(row=>({id:row.id,text:row.text,issue:row.issue || "No valid executable step mapping."}));
     const timeout = options.timeoutMs ?? 5000;
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 60000)
       throw new Error("timeoutMs must be an integer between 1 and 60000");

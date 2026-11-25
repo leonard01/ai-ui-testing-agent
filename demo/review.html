@@ -208,13 +208,41 @@
     #execution-panel [hidden] { display:none; }
 
     @media(max-width:820px) { main { display:block; } section { margin-bottom:15px; } header { padding:20px; } }
+    .app-shell { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:calc(100vh - 76px); max-width:1600px; margin:auto; }
+    .app-nav { background:#f8fafc; border-right:1px solid #dce3ed; padding:24px 14px; }
+    .app-nav button { display:block; width:100%; text-align:left; background:transparent; color:#34506b; padding:12px; margin:4px 0; font-weight:600; }
+    .app-nav button[aria-current="page"] { background:#e0edf7; color:#174e77; }
+    .app-nav button:focus-visible,.workflow-nav button:focus-visible { outline:2px solid #205e86; outline-offset:2px; }
+    .workspace { min-width:0; padding:24px clamp(16px,3vw,40px); }
+    .workflow-nav { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:18px; }
+    .workflow-nav button { background:transparent; color:#52667c; padding:8px 12px; border:1px solid transparent; }
+    .workflow-nav button[aria-current="step"] { background:#fff; border-color:#b9cddd; color:#205e86; }
+    .workspace main { display:block; max-width:1100px; padding:0; margin:0 auto 40px; }
+    [hidden] { display:none !important; }
+    main[data-workspace="instructions"] > :not(#instructions-screen),
+    main[data-workspace="draft"] > :not(#review-workspace),
+    main[data-workspace="existing"] > :not(#review-workspace),
+    main[data-workspace="run"] > :not(#execution-panel),
+    main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
+    main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
+    main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
+    main[data-workspace="draft"] #placeholder, main[data-workspace="draft"] #working-drafts-panel { display:none !important; }
+    #results-panel[data-result-kind="single"] #suite-output,
+    #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
+    @media(max-width:820px) {
+      .app-shell { grid-template-columns:1fr; }
+      .app-nav { display:flex; flex-wrap:wrap; gap:4px; border-right:0; border-bottom:1px solid #dce3ed; padding:8px 12px; }
+      .app-nav button { width:auto; flex:1 1 auto; text-align:center; padding:9px; }
+      header { padding:16px; }
+      .workspace { padding:16px; }
+    }
   </style>
 </head>
 <body>
   <header>
     <div class="app-header">
       <div>
-        <h1>AI UI Testing Agent · Test Draft Builder</h1>
+        <h1>AI UI Testing Agent</h1>
         <p>Describe a workflow in plain English, review proposed steps, then save a runnable test.</p>
       </div>
       <button type="button" id="help-open" aria-haspopup="dialog" aria-controls="help-dialog">? Help</button>
@@ -255,7 +283,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <li>Save the approved JSON test; select it under Run Tests to execute with Playwright and review results and failure evidence.</li>
       </ol>
       <h3>Editing and incremental regeneration</h3>
-      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI can replace one step or the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
+      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI replaces the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
       <h3>Important limitations</h3>
       <ul>
         <li><strong>AI is non-deterministic.</strong> The same instructions may produce different actions or occasionally invalid output. Review steps and execution results rather than assuming they are correct.</li>
@@ -268,7 +296,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <p class="muted">This prototype is intended for local development and evaluation. Only run tests against applications you are authorized to test.</p>
     </div>
   </dialog>
-  <main>
+  <div class="app-shell">
+    <nav class="app-nav" aria-label="Main navigation">
+      <button type="button" id="nav-new" data-view="instructions" aria-current="page">New Test</button>
+      <button type="button" id="nav-existing" data-view="existing">Existing Tests</button>
+      <button type="button" id="nav-run" data-view="run">Run Tests</button>
+      <button type="button" id="nav-diagnostics" data-view="diagnostics">Diagnostics</button>
+    </nav>
+    <div class="workspace">
+      <nav class="workflow-nav" aria-label="Test workflow">
+        <button type="button" id="stage-instructions" data-view="instructions" aria-current="step">1. Instructions</button><span aria-hidden="true">›</span>
+        <button type="button" id="stage-draft" data-view="draft" disabled>2. Draft</button><span aria-hidden="true">›</span>
+        <button type="button" id="stage-results" data-view="results" disabled>3. Results</button>
+      </nav>
+      <main id="workspace-main" data-workspace="instructions">
     <section id="instructions-screen" aria-labelledby="instructions-heading">
       <div id="site-memory-option" class="site-memory-option">
         <div class="site-memory-row">
@@ -320,11 +361,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
+      <button type="button" id="start-new-test" class="secondary" hidden style="margin-top:12px">Start a separate new test</button>
       <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
 
     </section>
     <section id="review-workspace" aria-labelledby="review-heading" hidden>
-      <h2 id="review-heading">Test Editor</h2>
+      <h2 id="review-heading">Test Draft</h2>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
@@ -352,7 +394,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
         <h3>Edit Existing Test</h3>
-        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, enter instructions on the left.</p>
+        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, use New Test in the navigation.</p>
         <div class="run-test-selectors">
           <div>
             <label for="edit-suite">Test suite</label>
@@ -385,7 +427,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           aria-label="Test review errors and warnings" hidden>
           <div id="draft-critical-blockers" class="critical-blockers" role="alert"
             aria-live="polite" hidden></div>
-          <div id="instruction-coverage-blockers" class="critical-blockers" role="alert" hidden></div>
+          <div id="instruction-coverage-blockers" class="review-advisories" role="status" hidden></div>
           <div id="draft-review-advisories" class="review-advisories" hidden>
             <h3>⚠ Warnings — review against your test intent</h3>
             <p>These do not block saving or running, but may indicate that a generated check
@@ -476,8 +518,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </div>
     </section>
     <section id="execution-panel" style="grid-column:1/-1" aria-labelledby="execution-heading">
-      <h2 id="execution-heading">Execute and diagnose</h2>
-      <p class="sub">Select an approved, saved test and run it in headless Playwright. Review every step and failure artifact here, without opening a terminal.</p>
+      <h2 id="execution-heading">Run Tests</h2>
+      <p class="sub">Select an approved, saved test and configure execution. Test Results opens automatically when execution starts.</p>
       <div id="suite-panel" class="run-tests-panel">
         <h3 style="margin:0 0 8px">Run Tests</h3>
         <p class="muted">Choose a website test suite, then run one saved script or a selection of scripts. All scripts run from their approved, saved JSON.</p>
@@ -492,6 +534,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
         </div>
         <p id="suite-site-note" class="muted"></p>
+        <label for="execution-url">Execution URL</label>
+        <input type="url" id="execution-url" value="http://127.0.0.1:3000" autocomplete="off">
 
         <div class="run-tests-group run-single-group">
           <div class="run-split-controls" role="group" aria-label="Run selected test with step timeout">
@@ -530,18 +574,31 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <button type="button" id="delete-site" class="secondary" disabled>Delete this website test suite</button>
           <p class="muted">Deleting a website suite permanently removes its approved test scripts. Historical run reports are retained.</p>
         </div>
+      </div>
+      <p id="run-management-status" role="status" class="status"></p>
+      <p id="run-management-error" role="alert" class="error"></p>
+      <div id="history-controls" style="margin-top:28px">
+        <button type="button" id="toggle-history" class="secondary" aria-controls="history-panel" aria-expanded="false">Show History</button>
+      </div>
+    </section>
+    <section id="results-panel" aria-labelledby="results-heading" data-result-kind="single">
+      <h2 id="results-heading">Test Results</h2>
+      <p class="sub">Review execution progress, outcomes and failure evidence. Return to Instructions, Draft or Run Tests using the navigation above.</p>
+      <div id="suite-output">
         <p id="suite-status" role="status" class="status"></p>
         <div id="suite-error" role="alert" class="error"></div>
         <div id="suite-summary" class="muted"></div>
         <div id="suite-results"></div>
         <div id="suite-artifacts" class="artifact-links"></div>
       </div>
+      <div id="single-output">
       <div id="run-status" class="status" role="status" tabindex="-1">Select an approved test to execute.</div>
       <div id="run-error" class="error" role="alert"></div>
       <div id="run-results" hidden>
         <h2 id="run-summary" style="margin-top:18px"></h2>
         <p id="run-totals" class="muted"></p>
         <div id="run-diagnosis" class="note"></div>
+        <div id="run-coverage-warnings" class="review-advisories" hidden></div>
         <div id="run-artifacts" class="artifact-links"></div>
         <div id="run-screenshot-panel" hidden>
           <p style="font-weight:650">Failure screenshot</p>
@@ -550,9 +607,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <h2 style="margin-top:20px">Step-by-step execution</h2>
         <div id="run-steps"></div>
       </div>
-      <div id="history-controls" style="margin-top:28px">
-        <button type="button" id="toggle-history" class="secondary" aria-controls="history-panel" aria-expanded="false">Show History</button>
       </div>
+    </section>
+    <section id="diagnostics-panel" aria-labelledby="diagnostics-heading">
+      <h2 id="diagnostics-heading">Diagnostics</h2>
       <section id="history-panel" hidden style="margin-top:12px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
         <h3 id="history-heading">Execution history</h3>
         <p class="muted">Choose a website test suite to see its previous executions. Individual test runs are included under their website suite, not listed separately.</p>
@@ -571,7 +629,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         </div>
       </section>
     </section>
-  </main>
+      </main>
+    </div>
+  </div>
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
@@ -606,6 +666,42 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let incrementalRevision = 0;
     let preflightRevision = 0;
     let preflightFindings = [];
+    let currentWorkspace = "instructions";
+    let hasResults = false;
+    function syncWorkspaceNavigation() {
+      $("stage-draft").disabled = !definition && $("generation-exception").hidden;
+      $("stage-results").disabled = !hasResults;
+      $("start-new-test").hidden = !definition && $("generation-exception").hidden;
+    }
+    function showWorkspace(view) {
+      if (view === "draft" && !definition && $("generation-exception").hidden) return;
+      if (view === "results" && !hasResults) return;
+      currentWorkspace = view;
+      $("workspace-main").dataset.workspace = view;
+      if (view === "instructions") $("instructions-screen").hidden = false;
+      if (view === "draft" || view === "existing") {
+        $("review-workspace").hidden = false;
+        $("placeholder").hidden = view !== "existing";
+        $("working-drafts-panel").hidden = view !== "existing";
+      }
+      if (view === "diagnostics") {
+        $("history-panel").hidden = false;
+        $("toggle-history").textContent = "Hide History";
+        $("toggle-history").setAttribute("aria-expanded","true");
+        void refreshHistory();
+      }
+      const navView = view === "draft" ? "instructions" : view === "results" ? "run" : view;
+      for (const button of document.querySelectorAll(".app-nav [data-view]")) {
+        if (button.dataset.view === navView) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+      }
+      for (const button of document.querySelectorAll(".workflow-nav [data-view]")) {
+        if (button.dataset.view === view) button.setAttribute("aria-current", "step");
+        else button.removeAttribute("aria-current");
+      }
+      $("review-heading").textContent = view === "existing" ? "Existing Tests" : "Test Draft";
+      syncWorkspaceNavigation();
+    }
 
     function make(tag, text, cls) {
       const node = document.createElement(tag);
@@ -778,6 +874,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     async function loadWorkingDraft(id) {
       if (!id || running || !draftCatalog.some(item => item.id === id)) return;
+      if (!confirmReplaceWorkspace()) return;
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
@@ -811,25 +908,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("draft-load").addEventListener("click", () => {
       void loadWorkingDraft($("draft-select").value);
     });
+    function confirmReplaceWorkspace() {
+      return (!definition && !$("requirements").value.trim() && !$("test-name").value.trim()) ||
+        window.confirm("Opening a different test replaces the current editor contents. Save any unfinished changes first. Continue?");
+    }
     $("back-to-selector").addEventListener("click", () => {
-      // Returning to the test picker also ends the edit session. Otherwise
-      // generating a *new* test could unexpectedly replace the old script.
-      definition = null;
-      lastSavedId = "";
-      savedFingerprint = "";
-      approvals = new Set();
-      editingSavedId = null;
-      workingDraftId = null;
-      originalInstructions = undefined;
+      showWorkspace("existing");
+      void refreshDraftPicker();
+    });
+    $("start-new-test").addEventListener("click", () => {
+      if (running || saving || generatingDraft || !confirmReplaceWorkspace()) return;
+      hideException();
+      clearGenerationPreview();
       $("test-name").value = "";
       $("requirements").value = "";
-      updateGenerateReadiness();
       showOriginalInstructions();
-      $("draft-save-status").textContent = "";
-      $("draft").hidden = true;
-      $("placeholder").hidden = false;
-      updateApproval();
-      void refreshDraftPicker();
+      updateGenerateReadiness();
+      showWorkspace("instructions");
     });
     $("save-draft").addEventListener("click", async () => {
       if (!definition || !$("test-name").value.trim()) return;
@@ -864,8 +959,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           approvals.size + "/" + definition.steps.length + " approved). " +
           "Listed as [Draft — not runnable] in Edit Existing Test, and selected " +
           "under Saved working drafts. File: " + result.file;
-        $("working-drafts-panel").scrollIntoView({ behavior: "smooth", block: "center" });
-        $("draft-select").focus({ preventScroll: true });
+        $("draft-save-status").scrollIntoView({ behavior: "smooth", block: "nearest" });
       } catch(error) {
         $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
@@ -1235,13 +1329,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         (count === 1 ? "" : "s") + " — these checks search from the page root rather than a specific container, so a match elsewhere on the page could hide a problem with the intended item. Page-wide scope may still be correct." : "";
       syncReviewFeedback();
     }
-    function coverageBlockers() {
+    function coverageWarnings() {
       const available = new Set((definition?.steps ?? []).map(step => step.id));
       return (definition?.instructionCoverage?.entries ?? []).filter(row =>
-        (!definition.instructionCoverage.proceedAccepted && row.issue && !["later-state","selector-uncertain"].includes(row.availability)) || !row.stepIds.length ||
+        (row.availability === "functional-mismatch" || (row.issue && !["later-state","selector-uncertain"].includes(row.availability))) || !row.stepIds.length ||
         new Set(row.stepIds).size !== row.stepIds.length || row.stepIds.some(id => !available.has(id)));
     }
+    function coverageBlockers() {
+      return definition?.instructionCoverage?.proceedAccepted ? [] : coverageWarnings();
+    }
     function invalidateCoverageForStep(id) {
+      if (definition?.instructionCoverage) definition.instructionCoverage.proceedAccepted = false;
       for (const row of definition?.instructionCoverage?.entries ?? []) {
         if (!row.stepIds.includes(id)) continue;
         if (row.confirmed) {
@@ -1254,7 +1352,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function renderSteps() {
       hideException();
       $("review-workspace").hidden = false;
-      $("working-drafts-panel").hidden = false;
+      showWorkspace("draft");
       incrementalRevision++;
       incrementalPending = null;
       $("incremental-preview").hidden = true;
@@ -1691,11 +1789,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         syncReviewFeedback();
         return;
       }
-      panel.append(make("h3", "⛔ Cannot save or run — " + unresolvedCoverage.length +
+      panel.append(make("h3", "⚠ " + unresolvedCoverage.length +
         " requirement mapping" + (unresolvedCoverage.length === 1 ? " needs" : "s need") + " review"));
-      panel.append(make("p", "AI reinterpretation can replace step IDs without replacing the intent. " +
-        "Review each original statement and explicitly link the current step(s) that satisfy it. " +
-        "Save Draft is still available. Do not link unrelated steps just to clear a blocker."));
+      panel.append(make("p", "Review the actual steps and correct the mapping, or acknowledge incomplete coverage and execute the reviewed draft. A passing run does not prove these requirements were tested. Do not link unrelated steps."));
+      const acknowledge = make("label");
+      const accept = make("input");
+      accept.type = "checkbox";
+      accept.id = "accept-coverage-warning";
+      accept.checked = definition.instructionCoverage.proceedAccepted === true;
+      accept.addEventListener("change", () => {
+        definition.instructionCoverage.proceedAccepted = accept.checked;
+        updateApproval();
+      });
+      acknowledge.append(accept, make("span", " Accept unresolved requirement coverage and allow execution"));
+      panel.append(acknowledge);
       const available = new Set(definition.steps.map(step => step.id));
       for (const row of unresolvedCoverage) {
         const section = make("section", null, "coverage-review-row");
@@ -1757,10 +1864,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const unresolvedCredentials = unresolvedLoginCredentialSteps();
       const credentialReview = unresolvedCredentials.length > 0;
       const unresolvedCoverage = coverageBlockers();
-      renderCoverageBlockers(unresolvedCoverage);
+      renderCoverageBlockers(coverageWarnings());
       renderCriticalBlockers(unresolvedCredentials);
       const missing = [
-        ...(unresolvedCoverage.length ? ["resolve missing instruction mappings"] : []),
+        ...(unresolvedCoverage.length ? ["review or acknowledge unresolved requirement mappings"] : []),
         ...(missingName ? ["enter a Test name above"] : []),
         ...(credentialReview ? ["replace unverified login credentials in the step editor"] : []),
         ...(remaining ? [(missingName ? "confirm " : "Confirm ") + remaining + " remaining step" +
@@ -1771,7 +1878,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         : missing.length
           ? (missingName ? "Before saving, " : "") + missing.join(" and ") +
             ". Save Draft is available for unfinished work once a name is entered."
-          : "Ready to save or run. Save & Run will save the reviewed test and automatically show the execution results below.";
+          : "Ready to save or run. Save & Run will save the reviewed test and automatically open Test Results.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
       const cannotSave = saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !$("test-name").value.trim();
@@ -1885,7 +1992,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       exportLink.hidden = !selectedApprovedId;
       if (selectedApprovedId) {
         const query = new URLSearchParams({
-          baseURL: $("base-url").value,
+          baseURL: $("execution-url").value,
           timeoutMs: $("run-timeout").value,
         });
         exportLink.href = "/api/tests/" + encodeURIComponent(selectedApprovedId) +
@@ -1970,9 +2077,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       // The selected website is the default execution URL for its suite,
       // including when the page is freshly opened after a server restart.
       if (selectedTest?.sourceUrl) {
-        $("base-url").value = selectedTest.sourceUrl;
+        $("execution-url").value = selectedTest.sourceUrl;
       } else if (!selectedTest && website.value && website.value !== "__legacy__") {
-        $("base-url").value = website.value + "/";
+        $("execution-url").value = website.value + "/";
       }
       renderWebsiteSuite(preservedSuiteSelection, preferredId);
       renderExistingEditorChoices();
@@ -1982,10 +2089,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!diagnosis) return "";
       return "Likely cause: " + diagnosis.explanation + "\nNext step: " + diagnosis.suggestion;
     }
-    function renderResult(result) {
+    function setResultKind(kind) {
+      $("results-panel").dataset.resultKind = kind;
+    }
+    function renderResult(result, fromSuite = false) {
       const report = result.report;
       if (!report) return;
+      setResultKind(fromSuite ? "suite-detail" : "single");
       $("run-results").hidden = false;
+      hasResults = true;
+      showWorkspace("results");
       const passed = report.steps.filter((s) => s.status === "passed").length;
       const skipped = report.steps.filter((s) => s.status === "skipped").length;
       const didPass = report.status === "passed";
@@ -1994,6 +2107,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("run-summary").classList.toggle("run-failed", !didPass);
       $("run-totals").textContent = passed + " passed, " + skipped + " skipped; " +
         report.steps.length + " steps reported; " + (report.durationMs / 1000).toFixed(1) + " seconds";
+      const coverageNotice = $("run-coverage-warnings");
+      coverageNotice.replaceChildren();
+      const coverage = Array.isArray(report.coverageWarnings) ? report.coverageWarnings : [];
+      coverageNotice.hidden = coverage.length === 0;
+      if (coverage.length) {
+        coverageNotice.append(make("h3", "Requirement coverage incomplete or unverified"), make("p", "Execution verdict applies only to executed steps."));
+        for (const row of coverage) coverageNotice.append(make("p", row.id + " — " + row.text + ": " + row.issue));
+      }
       $("run-diagnosis").hidden = didPass;
       $("run-diagnosis").textContent = didPass ? "" : diagnosticText(result);
       const links = $("run-artifacts");
@@ -2606,7 +2727,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               if (entry.kind === "batch") {
                 const suite = await requestJSON("/api/suites/" + encodeURIComponent(entry.id));
                 renderSuite(suite);
-                $("suite-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+                $("results-panel").scrollIntoView({ behavior: "smooth", block: "start" });
               } else {
                 const previous = await requestJSON("/api/runs/" + encodeURIComponent(entry.id));
                 if (previous.state === "error") {
@@ -2650,7 +2771,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       panel.hidden = !panel.hidden;
       $("toggle-history").textContent = panel.hidden ? "Show History" : "Hide History";
       $("toggle-history").setAttribute("aria-expanded", String(!panel.hidden));
-      if (!panel.hidden) void refreshHistory();
+      if (!panel.hidden) showWorkspace("diagnostics");
     });
     $("history-site").addEventListener("change", () => {
       historySite = $("history-site").value;
@@ -2692,6 +2813,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("suite-results").replaceChildren();
         $("suite-artifacts").replaceChildren();
         $("run-status").textContent = response.message;
+        hasResults = false;
+        syncWorkspaceNavigation();
         await refreshHistory();
       } catch (error) {
         $("history-status").textContent = "Could not delete history: " +
@@ -2715,6 +2838,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
     function renderSuite(suite) {
+      setResultKind("suite");
+      hasResults = true;
+      showWorkspace("results");
       const totals = suite.summary;
       $("suite-status").textContent = suite.state === "running"
         ? "Suite running — " + totals.completed + " of " + totals.total + " completed"
@@ -2740,7 +2866,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             $("run-error").textContent = "";
             try {
               const result = await requestJSON("/api/runs/" + encodeURIComponent(item.runId));
-              renderResult(result);
+              renderResult(result, true);
               $("run-status").textContent = "Viewing suite result: " + item.title;
               $("run-results").scrollIntoView({ behavior: "smooth", block: "start" });
             } catch (error) {
@@ -2782,11 +2908,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("suite-results").replaceChildren();
       $("suite-artifacts").replaceChildren();
       $("suite-status").textContent = "Starting sequential test suite...";
+      setResultKind("suite");
+      $("run-results").hidden = true;
+      $("run-error").textContent = "";
+      hasResults = true;
+      showWorkspace("results");
       try {
         const suite = await requestJSON("/api/suites", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            ids, baseURL: $("base-url").value, timeoutMs: Number($("run-timeout").value),
+            ids, baseURL: $("execution-url").value, timeoutMs: Number($("run-timeout").value),
           }),
         });
         renderSuite(suite);
@@ -2809,13 +2940,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("suite-run").addEventListener("click", () => { void executeSuite(); });
     $("suite-site").addEventListener("change", () => {
       const site = $("suite-site").value;
-      if (site && site !== "__legacy__") $("base-url").value = site + "/";
+      if (site && site !== "__legacy__") $("execution-url").value = site + "/";
       renderWebsiteSuite(new Set(), "");
     });
     $("approved-tests").addEventListener("change", () => {
       const selected = approvedCatalog.find((test) => test.id === $("approved-tests").value);
       // This dropdown is scoped to the selected suite; it cannot change suites.
-      if (selected?.sourceUrl) $("base-url").value = selected.sourceUrl;
+      if (selected?.sourceUrl) $("execution-url").value = selected.sourceUrl;
       updateRunButton();
     });
     $("base-url").addEventListener("focus", () => {
@@ -2840,6 +2971,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       updateGenerateReadiness();
     });
     $("run-timeout").addEventListener("change", updateRunButton);
+    $("execution-url").addEventListener("input", updateRunButton);
     async function executeApproved(id) {
       if (running || !id) return;
       running = true;
@@ -2848,12 +2980,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("run-error").textContent = "";
       $("run-results").hidden = true;
       $("run-status").textContent = "Starting Playwright test...";
+      setResultKind("single");
+      hasResults = true;
+      showWorkspace("results");
+      $("run-status").focus({ preventScroll: true });
       try {
         const payload = await requestJSON("/api/run", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
-            id, baseURL: $("base-url").value, timeoutMs: Number($("run-timeout").value),
+            id, baseURL: $("execution-url").value, timeoutMs: Number($("run-timeout").value),
           }),
         });
         $("run-status").textContent = "Running approved test in Chromium. Results will appear here...";
@@ -2871,19 +3007,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("assign-legacy").addEventListener("click", async () => {
       const selected = approvedCatalog.find((item) => item.id === selectedApprovedId);
       if (!selected || selected.sourceUrl || running) return;
-      const baseURL = $("base-url").value;
+      const baseURL = $("execution-url").value;
       if (!window.confirm('Assign older test script "' + selected.title +
           '" to website "' + baseURL + '"? The test steps will remain unchanged.')) return;
-      $("run-error").textContent = "";
+      $("run-management-error").textContent = "";
       try {
         const result = await requestJSON("/api/assign-site", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: selected.id, baseURL, confirmed: true }),
         });
         await refreshApprovedTests(selected.id);
+        $("run-management-status").textContent = result.message;
         $("run-status").textContent = result.message;
       } catch (error) {
-        $("run-error").textContent = error.message || String(error);
+        $("run-management-error").textContent = error.message || String(error);
       }
     });
     $("delete-script").addEventListener("click", async () => {
@@ -2892,16 +3029,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!test || running) return;
       if (!window.confirm('Delete saved test script "' + test.title +
           '"? This cannot be undone. Historical run reports will remain.')) return;
-      $("run-error").textContent = "";
+      $("run-management-error").textContent = "";
       try {
         const result = await requestJSON("/api/delete-test", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id, confirmed: true }),
         });
         await refreshApprovedTests("");
+        $("run-management-status").textContent = result.message;
         $("run-status").textContent = result.message;
       } catch (error) {
-        $("run-error").textContent = error.message || String(error);
+        $("run-management-error").textContent = error.message || String(error);
       }
     });
     $("delete-site").addEventListener("click", async () => {
@@ -2910,22 +3048,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const count = approvedCatalog.filter((test) => test.siteUrl === siteUrl).length;
       if (!window.confirm('Delete website test suite "' + siteUrl + '" and its ' +
           count + ' saved test script(s)? This cannot be undone. Historical run reports will remain.')) return;
-      $("suite-error").textContent = "";
+      $("run-management-error").textContent = "";
       try {
         const result = await requestJSON("/api/delete-site", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ siteUrl, confirmed: true }),
         });
         await refreshApprovedTests("");
-        $("suite-status").textContent = result.message;
-        $("suite-summary").textContent = "";
-        $("suite-results").replaceChildren();
+        $("run-management-status").textContent = result.message;
       } catch (error) {
-        $("suite-error").textContent = error.message || String(error);
+        $("run-management-error").textContent = error.message || String(error);
       }
     });
     async function loadSavedForEditing(id, focusStepId) {
       if (!id || running) return;
+      if (!confirmReplaceWorkspace()) return;
       $("edit-saved").disabled = true;
       $("run-error").textContent = "";
       try {
@@ -3011,10 +3148,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       event.target.value = "";
     });
     function clearGenerationPreview() {
+      showWorkspace("instructions");
       $("review-workspace").hidden = true;
       // A previous successful attempt must never masquerade as the new draft.
       // Do NOT clear persisted approved tests, execution history or input text.
       definition = null;
+      syncWorkspaceNavigation();
       approvals = new Set();
       editingSavedId = null;
       workingDraftId = null;
@@ -3125,6 +3264,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let exceptionRequest = null;
     function hideException() {
       $("generation-exception").hidden=true;
+      syncWorkspaceNavigation();
       $("working-drafts-panel").hidden=false;
       pendingException=null;
       for (const id of ["exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
@@ -3144,6 +3284,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("draft").hidden=true;
       $("working-drafts-panel").hidden=true;
       $("generation-exception").hidden=false;
+      showWorkspace("draft");
       $("exception-count").textContent=data.problematicIds.length+" of "+data.total+" requirements could not be confidently mapped.";
       $("exception-site").textContent="Application: "+data.baseURL;
       const list=$("exception-list"), edits=$("exception-edit-list");
@@ -3166,10 +3307,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-status").textContent="";
     }
     $("open-existing-editor").addEventListener("click",()=>{
-      hideException();
-      $("review-workspace").hidden=false;
-      $("placeholder").hidden=!!definition;
-      $("draft").hidden=!definition;
+      showWorkspace("existing");
     });
     $("exception-edit-desc").addEventListener("click",()=>{
       if (!pendingException) return;
@@ -3183,7 +3321,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       exceptionRequest = { proceed: false, root: exceptionRootInstructions };
       hideException();
       $("review-workspace").hidden = true;
-      $("instructions-screen").hidden = false;
+      showWorkspace("instructions");
       updateGenerateReadiness();
       $("requirements").focus();
       $("instructions-heading").scrollIntoView({behavior:"smooth",block:"start"});
@@ -3333,7 +3471,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           : "No relevant verified prerequisite memory was used for this generation.";
         renderSteps();
         $("generation-status").textContent = "Draft ready for review; nothing has been executed." +
-          (coverageBlockers().length ? " BLOCKED: Resolve missing instruction mappings before saving or running." : "") +
+          (coverageBlockers().length ? " Review or acknowledge unresolved requirement mappings before saving or running." : "") +
           (data.generationAttempts > 1 ? " One extra AI call was used to correct the draft format." : "") +
           (data.diagnostics?.blockingCredentialSteps?.length
             ? " BLOCKED: Save Test and Save & Run require approved login credentials. See the red blocker panel in Test Editor."
@@ -3341,7 +3479,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           (data.diagnostics?.warnings?.length ? " Review the advisory quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
-        $("instructions-screen").hidden = false;
+        showWorkspace("instructions");
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
         $("generation-status").textContent = "";
@@ -3426,7 +3564,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
         }
         $("saved").append(make("strong", runAfterSave
-          ? "Test saved successfully. Starting execution below."
+          ? "Test saved successfully. Starting execution."
           : data.replacedId
             ? "Amended test saved; old version removed from the list. Ready to execute."
             : "Saved and ready to execute. The test has NOT been executed."));
@@ -3434,8 +3572,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const command = "npm run agent -- run " + JSON.stringify(data.file) + " --base-url " + JSON.stringify(selectedBaseURL);
         const pre = make("pre", command);
         $("saved").append(make("p", runAfterSave
-          ? "Execution will start below. To run again later, use Run Tests. CLI command:"
-          : "Use Run selected test in section 3, or run via the CLI:"));
+          ? "Execution will start in Test Results. To run again later, use Run Tests. CLI command:"
+          : "Open Run Tests to execute, or run via the CLI:"));
         $("saved").append(pre);
         const copy = make("button", "Copy run command", "secondary");
         copy.onclick = async () => {
@@ -3453,14 +3591,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (runAfterSave && approvedId) {
         // Execution always references the saved approved ID, never an unsaved draft.
         // Focus the live status before the asynchronous browser run begins.
-        $("execution-panel").scrollIntoView({ behavior: "smooth", block: "start" });
-        $("run-status").focus({ preventScroll: true });
         await executeApproved(approvedId);
       }
     }
     $("save").addEventListener("click", () => { void approveAndSave(false); });
     $("save-and-run").addEventListener("click", () => { void approveAndSave(false, true); });
     $("save-as-new").addEventListener("click", () => { void approveAndSave(true); });
+    for (const button of document.querySelectorAll("nav [data-view]")) {
+      button.addEventListener("click", () => showWorkspace(button.dataset.view));
+    }
+    showWorkspace("instructions");
   </script>
 </body>
 </html>

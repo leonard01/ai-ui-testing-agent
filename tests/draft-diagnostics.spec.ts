@@ -67,6 +67,7 @@ test("draft shows quality warnings and inspected-page evidence, then clears them
     await expect(page.locator("#generation-diagnostics-snapshot")).toContainText('"blockedCrossOriginRequests": 12');
     await expect(page.locator("#generation-diagnostics-output")).toContainText(errorText);
     fail = true;
+    await page.locator("#stage-instructions").click();
     await page.getByRole("button", { name: "Generate draft" }).click();
     await expect(page.locator("#generation-error")).toContainText("timeout");
     await expect(page.locator("#draft-quality-warnings")).toBeHidden();

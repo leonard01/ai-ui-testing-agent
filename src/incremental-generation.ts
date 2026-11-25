@@ -215,7 +215,7 @@ export async function generateIncrementalProposal(
       }
       if (instructionCoverage?.entries.some(row => !row.stepIds.length ||
           (row.issue && row.availability !== "later-state" && row.availability !== "selector-uncertain"))) {
-        warnings.push("Instruction-to-step mappings need explicit review before the revised test can be saved or run. Review each source statement after applying the replacement.");
+        warnings.push("Instruction-to-step mappings need review or explicit acknowledgement before saving or running. Review each source statement after applying the replacement.");
       }
       if (options.mode === "step" && suffix.length) {
         warnings.push("Later steps are unchanged but may depend on the replaced step; review dependencies.");

@@ -83,6 +83,7 @@ test("website knowledge is visibly suggested but user may turn it off before gen
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   expect(providerPrompt).toContain("HISTORICAL WEBSITE PREREQUISITE SUGGESTIONS");
   await expect(page.locator("#application-memory-status")).toContainText("logged in first");
+  await page.locator('#stage-instructions').click();
   await siteMemory.uncheck();
   await page.getByRole("button",{name:"Generate draft"}).click();
   await expect(page.locator("#generation-status")).toContainText("Draft ready");

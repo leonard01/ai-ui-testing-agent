@@ -79,7 +79,7 @@ for (const nth of [0, 1]) {
 
       await page.goto(reviewURL);
       await selectSavedScript(page, saved.id);
-      await expect(page.locator("#base-url")).toHaveValue(websiteURL + "/");
+      await expect(page.locator("#execution-url")).toHaveValue(websiteURL + "/");
       await page.getByRole("button", { name: "Run selected test" }).click();
       await expect(page.locator("#run-status"))
         .toContainText("Run complete", { timeout: 25000 });

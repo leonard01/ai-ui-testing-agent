@@ -147,10 +147,9 @@ test("run/suite reports and failure evidence survive a full review-server restar
     // executions under the same named website without duplicating members.
     await page.goto(session.url);
     await expect(page.locator("#history-panel")).toBeHidden();
-    await expect(page.getByRole("button", { name: "Show History" })).toBeVisible();
-    await expect(page.locator("#execution-panel").locator("section").last())
-      .toHaveAttribute("id", "history-panel");
-    await page.getByRole("button", { name: "Show History" }).click();
+    await expect(page.locator("#nav-diagnostics")).toBeVisible();
+    await expect(page.locator("#diagnostics-panel").locator("section").last()).toHaveAttribute("id", "history-panel");
+    await page.locator("#nav-diagnostics").click();
     await expect(page.locator("#history-site")).toHaveValue("http://127.0.0.1:3000");
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(3);
     await expect(page.locator("#history-run-list")).toHaveCount(0);
@@ -159,12 +158,13 @@ test("run/suite reports and failure evidence survive a full review-server restar
       name: "Open results",
     }).first().click();
     await expect(page.locator("#suite-results .run-step")).toHaveCount(2);
+    await page.locator("#nav-diagnostics").click();
     await page.locator("#history-suite-list").getByRole("button", {
       name: "Open results",
     }).nth(1).click();
     await expect(page.locator("#run-results")).toBeVisible();
     await expect(page.locator("#run-status")).toContainText("No test was rerun");
-    await page.getByRole("button", { name: "Hide History" }).click();
+    await page.locator("#nav-run").click();
     await expect(page.locator("#history-panel")).toBeHidden();
   } finally {
     if (current) await stop(current);

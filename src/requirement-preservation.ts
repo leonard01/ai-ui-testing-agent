@@ -57,9 +57,9 @@ export function proposedCoverage(instructions:string, definition:TestDefinition,
     const explanation=entry?.issue?.trim() || (entry?.availability==="functional-mismatch"?"Requested functionality could not be confidently identified.":"");
     const issue=valid ? explanation : (reasons.join(" ")+" This is a mapping failure; it does not establish whether the draft fulfils the requirement. Review the actual actions and assertions, then confirm the appropriate steps or regenerate."+(explanation?" AI note: "+explanation:""));
     return {...row,interpretation:entry?.interpretation||"",
-      stepIds:valid?entry.stepIds:[],
+      stepIds:[...new Set(matches.flatMap(match=>match.stepIds))].filter(id=>steps.has(id)),
       issue:issue.slice(0,1000),
-      availability:entry?.availability ?? "uncertain",
+      availability:valid ? (entry?.availability ?? "uncertain") : "uncertain",
       confirmed:false};
   });
   // A memory hint is advisory. Label only valid, unmapped prerequisite IDs
@@ -83,9 +83,10 @@ export function instructionCoverageProblems(definition:TestDefinition):string[] 
   if(coverage.entries.length!==original.length ||
       original.some((row,index)=>coverage.entries[index]?.id!==row.id || coverage.entries[index]?.text!==row.text))
     return ["Original instruction statements changed or are missing. Regenerate from the intended instructions."];
+  // Acknowledgement allows incomplete coverage, never corrupt references or lost source text.
   return coverage.entries.flatMap(row=>
-    (!coverage.proceedAccepted && (row.availability === "functional-mismatch" || (row.issue && row.availability !== "later-state" && row.availability !== "selector-uncertain"))) || !row.stepIds.length || new Set(row.stepIds).size!==row.stepIds.length ||
-      row.stepIds.some(id=>!available.has(id))
+    new Set(row.stepIds).size!==row.stepIds.length || row.stepIds.some(id=>!available.has(id)) ||
+    (!coverage.proceedAccepted && coverageWarnings(definition).some(w=>w.id===row.id))
       ? [row.id+": "+(row.issue||"No valid executable step mapping.")] : []);
 }
 export function assertInstructionCoverageReviewed(definition:TestDefinition):void {
@@ -93,15 +94,17 @@ export function assertInstructionCoverageReviewed(definition:TestDefinition):voi
   if(problems.length) throw new Error("Unresolved instruction coverage: "+problems.join("; "));
 }
 
-/** Only likely functional mismatches or missing coverage interrupt generation.
- * Locator uncertainty and later-state controls are handled by ordinary review.
- */
-export function generationExceptions(definition:TestDefinition) {
+/** Coverage warnings remain visible even after explicit acknowledgement. */
+export function coverageWarnings(definition:TestDefinition) {
   const coverage=definition.instructionCoverage;
   if(!coverage) return [];
+  const available = new Set(definition.steps.map(step=>step.id));
   return coverage.entries.filter(row=>!row.stepIds.length ||
+    new Set(row.stepIds).size!==row.stepIds.length || row.stepIds.some(id=>!available.has(id)) ||
     row.availability==="functional-mismatch" || (row.issue && row.availability!=="later-state" && row.availability!=="selector-uncertain"));
 }
+// Retained for diagnostics and existing callers; both draft paths now review warnings in the editor.
+export const generationExceptions = coverageWarnings;
 
 /** Reconcile only requirements affected by the editing range. Unaffected
  * statements and mappings are copied from the previous revision, not rewritten
