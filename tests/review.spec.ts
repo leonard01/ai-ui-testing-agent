@@ -222,7 +222,7 @@ async function generateFixture(page: import("@playwright/test").Page) {
   await clickGenerateDraft(page);
   await expect(page.locator("#generation-status")).toContainText("Draft ready");
   await expect(page.locator(".step")).toHaveCount(9);
-  await page.locator("#test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill("Add, complete and delete a task");
 }
 
 test("test-design issues panel highlights CSS/XPath brittleness and links to step editor", async ({ page }) => {
@@ -402,7 +402,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
   await expect(taskStep).toContainText('element matching intent "Prepare interview"');
 
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
-  await page.locator("#test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   const files = await listApprovedIds(outputDir);
@@ -415,7 +415,7 @@ test("user edits a step using form fields, without editing JSON", async ({ page 
 
 async function approveDraft(page: import("@playwright/test").Page) {
   for (const box of await page.locator(".step input[type=checkbox]").all()) await box.check();
-  await page.locator("#test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
@@ -625,7 +625,7 @@ test("saved test can be loaded, edited and resaved entirely via the review UI", 
   for (const box of await page.locator(".step input[type=checkbox]").all()) {
     await box.check();
   }
-  await page.locator("#test-name").fill("Add, complete and delete a task");
+  await page.locator("#save-test-name").fill("Add, complete and delete a task");
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("old version removed from the list");
   const revisedId = await page.getByLabel("Test script", { exact: true }).inputValue();
