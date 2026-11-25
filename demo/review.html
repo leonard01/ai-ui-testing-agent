@@ -2992,7 +2992,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         select.value = historySite;
         const metrics = $("history-metrics");
         metrics.replaceChildren();
-        for (const [label,value] of [["Executions",history.total],["Passed",history.passed],["Failed",history.failed]]) {
+        for (const [label,value] of [["Executions",history.scopedTotal],["Passed",history.passed],["Failed",history.failed]]) {
           const metric = make("div",null,"result-metric");
           metric.dataset.kind = label.toLowerCase();
           metric.append(make("span",label,"muted"),make("strong",String(value)));
