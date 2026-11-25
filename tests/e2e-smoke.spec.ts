@@ -79,6 +79,8 @@ test.describe("@e2e-smoke application smoke", () => {
     const id = await saveApprovedFixture(page, "Smoke - task lifecycle");
     expect(id).toMatch(/^reviewed-.*\.json$/);
     await expect(page.getByRole("button", { name: "Run selected test" })).toBeEnabled();
+    await expect(page.locator("#results-panel")).toBeHidden();
+    await expect(page.locator("#stage-results")).toBeDisabled();
 
     // Click through the real UI; this is not a generated agent test.
     await page.getByRole("button", { name: "Run selected test" }).click();
@@ -91,9 +93,25 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#run-summary")).toContainText("PASSED");
     await expect(page.locator("#run-totals")).toContainText("9 passed");
     await expect(page.locator("#run-steps .run-step")).toHaveCount(9);
+    await expect(page.locator("#results-panel")).toBeVisible();
+    await expect(page.locator("#execution-panel")).toBeHidden();
+    await expect(page.locator("#suite-output")).toBeHidden();
+    await expect(page.locator("#stage-results")).toBeEnabled();
+    await expect(page.locator(".app-nav [data-view=results]")).toHaveCount(0);
+    await page.locator("#nav-run").click();
+    await expect(page.locator("#execution-panel")).toBeVisible();
+    await expect(page.locator("#results-panel")).toBeHidden();
+    await page.locator("#stage-results").click();
+    await expect(page.locator("#run-summary")).toBeVisible();
+    await expect(page.locator("#execution-panel")).toBeHidden();
 
     await page.locator("#nav-diagnostics").click();
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await expect(page.locator("#results-panel")).toBeHidden();
+    await page.getByRole("button", {name:"Open results", exact:true}).click();
+    await expect(page.locator("#results-panel")).toBeVisible();
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    await expect(page.locator("#diagnostics-panel")).toBeHidden();
   });
 
   test("partially approved working draft survives reload without becoming executable", async ({ page }) => {
@@ -154,5 +172,15 @@ test.describe("@e2e-smoke application smoke", () => {
       "Suite complete", { timeout: 45_000 });
     await expect(page.locator("#suite-status")).toContainText("PASSED");
     await expect(page.locator("#suite-summary")).toContainText("2 passed, 0 failed");
+    await expect(page.locator("#execution-panel")).toBeHidden();
+    await expect(page.locator("#suite-output")).toBeVisible();
+    await expect(page.locator("#single-output")).toBeHidden();
+    await page.getByRole("button", {name:"View details for Smoke suite - first"}).click();
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    await expect(page.locator("#suite-output")).toBeVisible();
+    await expect(page.locator("#execution-panel")).toBeHidden();
+    await page.locator("#nav-run").click();
+    await expect(page.locator("#results-panel")).toBeHidden();
+    await expect(page.locator("#execution-panel")).toBeVisible();
   });
 });
