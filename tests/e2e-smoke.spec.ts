@@ -123,7 +123,9 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#history-metrics [data-kind=passed] strong")).toHaveText("1");
     await page.locator('input[name="history-verdict"][value="failed"]').check();
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
-    await expect(page.locator("#history-metrics [data-kind=executions] strong")).toHaveText("0");
+    await expect(page.locator("#history-metrics [data-kind=executions] strong")).toHaveText("1");
+    await expect(page.locator("#history-metrics [data-kind=passed] strong")).toHaveText("1");
+    await expect(page.locator("#history-metrics [data-kind=failed] strong")).toHaveText("0");
     await page.locator('input[name="history-verdict"][value="passed"]').check();
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
     await page.locator("#history-search").fill("missing execution");
