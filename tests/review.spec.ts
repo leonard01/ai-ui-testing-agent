@@ -143,15 +143,17 @@ test("unverified login placeholders are critical blockers, not amber advisory wa
   // and reopenable as a draft (never a runnable approved test).
   await page.getByRole("button",{name:"Save Draft",exact:true}).click();
   await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
-  const loginDraftId = await page.locator("#draft-select").inputValue();
+  const loginTitle = await page.locator("#test-name").inputValue();
+  const loginDrafts = (await (await page.request.get(url + "/api/drafts")).json()).drafts;
+  const loginDraftId = loginDrafts.find((item: {title:string}) => item.title === loginTitle)?.id;
   expect(loginDraftId).toMatch(/^draft-/);
   await page.reload();
   await page.getByRole("button", {name: "Edit existing test or resume draft"}).click();
   await expect(page.locator("#review-workspace")).toBeVisible();
-  await expect(page.locator('#draft-select option[value="' + loginDraftId + '"]')).toHaveCount(1);
+  await expect(page.locator('#catalog-rows tr[data-record-id="' + loginDraftId + '"]')).toHaveCount(1);
   await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
   await page.locator("#edit-script").selectOption(loginDraftId);
-  await page.getByRole("button",{name:"Resume selected draft"}).click();
+  await page.locator('#catalog-rows tr[data-record-id="' + loginDraftId + '"]').getByRole("button",{name:/^Resume /}).click();
   await expect(panel).toBeVisible();
   await expect(page.locator("#save-and-run")).toBeDisabled();
 
@@ -1519,14 +1521,12 @@ test("Save Draft is discoverable in the Existing Tests picker",async({page})=>{
   const beforeDraftCount = (await (await page.request.get(url + "/api/drafts")).json()).drafts.length;
   await page.locator("#step-list .step").first().locator('input[type="checkbox"]').check();
   await page.getByRole("button",{name:"Save Draft",exact:true}).click();
-  await expect(page.locator("#draft-save-status")).toContainText("selected under Saved working drafts");
+  await expect(page.locator("#draft-save-status")).toContainText("Available in Existing Tests");
   await page.locator("#nav-existing").click();
-  await expect(page.locator("#working-drafts-panel")).toBeVisible();
-  await expect(page.locator("#draft-select")).toBeVisible();
-  await expect(page.locator("#draft-select")).not.toHaveValue("");
-  await expect(page.locator("#draft-load")).toBeEnabled();
-  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
-  const id = await page.locator("#draft-select").inputValue();
+  const records = (await (await page.request.get(url + "/api/drafts")).json()).drafts;
+  expect(records).toHaveLength(beforeDraftCount + 1);
+  const id = records.find((item: {title:string}) => item.title === fixtureName())?.id;
+  await expect(page.locator('#catalog-rows tr[data-record-id="' + id + '"]').getByRole("button",{name:/^Resume /})).toBeEnabled();
   expect(id).toMatch(/^draft-[a-f0-9-]{36}[.]json$/);
   const stored = JSON.parse(await readFile(join(outputDir,"drafts",id),"utf8"));
   expect(stored.definition.title).toBe(fixtureName());
@@ -1542,11 +1542,13 @@ test("Save Draft is discoverable in the Existing Tests picker",async({page})=>{
   await page.reload();
   await page.getByRole("button", {name: "Edit existing test or resume draft"}).click();
   await expect(page.locator("#review-workspace")).toBeVisible();
-  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
+  await page.locator('#catalog-status input[value="draft"]').check();
+  await expect(page.locator("#catalog-rows tr")).toHaveCount(beforeDraftCount + 1);
   await page.locator("#edit-suite").selectOption("http://127.0.0.1:3000");
   await page.locator("#edit-script").selectOption(id);
-  await expect(page.getByRole("button",{name:"Resume selected draft"})).toBeEnabled();
-  await page.getByRole("button",{name:"Resume selected draft"}).click();
+  const resume = page.locator('#catalog-rows tr[data-record-id="' + id + '"]').getByRole("button",{name:/^Resume /});
+  await expect(resume).toBeEnabled();
+  await resume.click();
   await expect(page.locator("#review-progress")).toContainText("1 of 9 steps confirmed");
   await expect(page.locator("#run-test")).toBeDisabled();
 });
@@ -1561,11 +1563,10 @@ test("working draft preserves partial approvals and original instructions withou
   await steps.nth(1).locator('input[type="checkbox"]').check();
   await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.locator("#draft-save-status")).toContainText("2/9 approved");
-  await expect(page.locator("#draft-select option")).toHaveCount(beforeDraftCount + 2);
   const list = await page.request.get(url + "/api/drafts");
   const drafts = (await list.json()).drafts;
   expect(drafts).toHaveLength(beforeDraftCount + 1);
-  const selectedDraftId = await page.locator("#draft-select").inputValue();
+  const selectedDraftId = drafts.find((item: {title:string}) => item.title === fixtureName())?.id;
   expect(drafts.some((draft: {id:string}) => draft.id === selectedDraftId)).toBe(true);
   const saved = await (await page.request.get(url + "/api/drafts/" + selectedDraftId)).json();
   expect(saved.draft.sourceInstructions).toBe(original);
@@ -1574,7 +1575,7 @@ test("working draft preserves partial approvals and original instructions withou
 
   await page.getByRole("button", { name: "Choose another test" }).click();
   page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Resume draft", exact: true }).click();
+  await page.locator('#catalog-rows tr[data-record-id="' + selectedDraftId + '"]').getByRole("button",{name:/^Resume /}).click();
   await expect(page.locator("#review-progress")).toContainText("2 of 9 steps confirmed");
   await expect(page.locator("#original-instructions")).toHaveText(original);
   await expect(page.locator("#requirements")).toHaveValue(original);
@@ -1598,7 +1599,7 @@ test("approved test retains source instructions and Save as New keeps original",
   await page.getByLabel("Test suite", { exact: true }).selectOption("http://127.0.0.1:3000");
   await page.getByLabel("Test case", { exact: true }).selectOption(originalId);
   page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Load selected test" }).click();
+  await page.locator('#catalog-rows tr[data-record-id="' + originalId + '"]').getByRole("button",{name:/^Edit /}).click();
   await expect(page.locator("#requirements")).toHaveValue(instructions);
   await expect(page.locator("#original-instructions")).toHaveText(instructions);
   await page.locator("#stage-instructions").click();
