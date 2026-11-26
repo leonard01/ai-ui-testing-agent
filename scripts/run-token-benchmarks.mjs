@@ -1,5 +1,6 @@
 import { mkdir, writeFile, appendFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,7 +10,7 @@ const configurations = [
   {format:"text", effort:"medium"}, {format:"text", effort:"low"},
 ];
 function parseOptions(args) {
-  const options = {total:400, seed:20261126, live:false};
+  const options = {total:400, seed:20261126, live:false, verbose:false};
   const seen = new Set();
   for (const arg of args) {
     if (arg === "--matrix-child") continue;
@@ -17,6 +18,7 @@ function parseOptions(args) {
     if (seen.has(key)) throw new Error("Duplicate option: " + key);
     seen.add(key);
     if (key === "--live" && value === undefined) options.live = true;
+    else if (key === "--verbose" && value === undefined) options.verbose = true;
     else if (key === "--total-tests" && /^\d+$/.test(value ?? "")) options.total = Number(value);
     else if (key === "--seed" && /^\d+$/.test(value ?? "")) options.seed = Number(value);
     else throw new Error("Unknown or invalid option: " + arg);
@@ -61,6 +63,7 @@ async function runMatrix(options) {
   if (options.live && !process.env.GROQ_API_KEY?.trim()) throw new Error("GROQ_API_KEY is required in live mode");
   const groups=configurations.map(config=>({config,rows:[]}));
   let stopped=false;
+  let completed=0;
   for(let i=0;i<options.total/4 && !stopped;i++) {
     const item=makeCase(i,options.seed);
     // Rotate order to reduce time/order bias in live tests.
@@ -90,6 +93,8 @@ async function runMatrix(options) {
       }
       group.rows.push(row);
       console.log("CASE "+JSON.stringify(row));
+      completed++;
+      if (completed % 100 === 0 || completed === options.total || stopped) console.log("Progress: " + completed + "/" + options.total);
       if(stopped) break;
     }
   }
@@ -117,6 +122,8 @@ await mkdir(directory, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const report = join(directory, "token-benchmark-" + stamp + "-" + process.pid + ".txt");
 const latest = join(directory, "latest.txt");
+const details = report.replace(/\.txt$/, ".jsonl");
+await writeFile(details, "", { flag:"wx" });
 await writeFile(report, (options.live ? "Live token benchmark" : "Offline token benchmark") + "\nRequested matrix cases: " + options.total + "\nSeed: " + options.seed + "\nStarted: " + new Date().toISOString() + "\nNode: " + process.version + (options.live ? "\nHosted AI requests enabled explicitly.\n" : "\nNo hosted AI requests are made.\n"), { flag: "wx" });
 
 async function run(label, args) {
@@ -129,7 +136,15 @@ async function run(label, args) {
       output.write(chunk);
       writes = writes.then(() => appendFile(report, chunk));
     };
-    child.stdout.on("data", chunk => capture(chunk, process.stdout));
+    // Use readline, not chunk boundaries, to classify complete case records.
+    const lines = createInterface({input:child.stdout, crlfDelay:Infinity});
+    lines.on("line", line => {
+      if (label === "Configuration matrix" && line.startsWith("CASE ")) {
+        writes = writes.then(() => appendFile(details, line.slice(5) + "\n"));
+        if (!options.verbose) return;
+      }
+      capture(line + "\n", process.stdout);
+    });
     child.stderr.on("data", chunk => capture(chunk, process.stderr));
     child.on("error", error => capture(Buffer.from(error.message + "\n"), process.stderr));
     child.on("close", (code, signal) => {
@@ -151,11 +166,12 @@ try {
     await appendFile(report, "\nTests not run because the build failed.\n");
   }
 } finally {
-  await appendFile(report, "\nFinal status: " + (code === 0 ? "PASSED" : "FAILED") + "\nFinished: " + new Date().toISOString() + "\n");
+  await appendFile(report, "\nDetailed case data: " + details + "\nFinal status: " + (code === 0 ? "PASSED" : "FAILED") + "\nFinished: " + new Date().toISOString() + "\n");
   const { copyFile } = await import("node:fs/promises");
   await copyFile(report, latest);
   console.log("\nReport saved to: " + report);
   console.log("Latest report: " + latest);
+  console.log("Detailed case data: " + details);
 }
 process.exitCode = code;
 
