@@ -1,4 +1,4 @@
-/** Ephemeral, opt-in diagnostics. Never pass these records to the usage store. */
+/** Ephemeral, automatic diagnostics. Never pass these records to the usage store. */
 export type ResponseDiagnosticEvent = {
   repairs?: string[];
   parsed?: unknown;
@@ -6,13 +6,7 @@ export type ResponseDiagnosticEvent = {
   accepted?: boolean;
 };
 export type ResponseDiagnosticObserver = (attempt: number, event: ResponseDiagnosticEvent) => void;
-export function responseCaptureSettings(body: unknown) {
-  const value = body && typeof body === "object" ? (body as Record<string, unknown>).responseDiagnostics : undefined;
-  const settings = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  return { enabled: settings.capture === true, includeSuccess: settings.includeSuccess === true };
-}
-export function createResponseCapture(body: unknown) {
-  const {enabled, includeSuccess} = responseCaptureSettings(body);
+export function createResponseCapture() {
   type Row = { call: number; mode: "json" | "text"; raw?: string; providerError?: string;
     rawTruncated?: boolean; errorTruncated?: boolean; repairedJSON?: string; repairedTruncated?: boolean;
     repairs?: string[]; validation?: string; accepted?: boolean };
@@ -25,8 +19,7 @@ export function createResponseCapture(body: unknown) {
   }
   const find = (call: number) => rows.find(row => row.call === call);
   return {
-    enabled,
-    start(call: number, mode: "json" | "text") { if (enabled && rows.length < 2) rows.push({call,mode}); },
+    start(call: number, mode: "json" | "text") { if (rows.length < 2) rows.push({call,mode}); },
     raw(call: number, raw: string) {
       const row = find(call); if (!row) return;
       const s = safe(raw); row.raw = s.value; row.rawTruncated = s.truncated;
@@ -45,6 +38,6 @@ export function createResponseCapture(body: unknown) {
       if (event.validation) row.validation = safe(event.validation).value.slice(0,1000);
       if (event.accepted) row.accepted = true;
     }) as ResponseDiagnosticObserver,
-    snapshot() { return enabled ? rows.filter(row => includeSuccess || !row.accepted) : undefined; },
+    snapshot() { return rows; },
   };
 }
