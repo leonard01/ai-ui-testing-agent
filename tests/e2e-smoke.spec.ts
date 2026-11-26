@@ -66,13 +66,13 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.getByRole("button", {
       name: "Save Test",
     })).toBeDisabled();
-    await page.getByRole("button", { name: "Add All", exact: true }).click();
+    await page.getByRole("button", { name: "Approve all steps", exact: true }).click();
     await expect(page.locator("#review-progress")).toHaveText("9 of 9 steps confirmed");
     await expect(page.locator("#saved")).toBeEmpty(); // approval is not persistence
     await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     await page.locator("#nav-run").click();
-    return page.getByLabel("Test script", { exact: true }).inputValue();
+    return page.getByLabel("Test", { exact: true }).inputValue();
   }
 
   test("fixture draft → explicit approval → saved test → execution → history", async ({ page }) => {
