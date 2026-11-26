@@ -13,6 +13,9 @@ export interface UsageAttempt {
   totalTokens?: number;
   completionBudget: number;
   estimatedInputTokens?: number;
+  estimator?: string;
+  systemTokens?: number;
+  promptTokens?: number;
   providerRequestedTokens?: number;
   providerTokenLimit?: number;
   providerUsedTokens?: number;
