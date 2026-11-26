@@ -76,7 +76,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await page.goto(url);
   await page.locator("#nav-run").click();
   const suite = page.getByLabel("Test suite (website URL)");
-  const singleBeforeSuite = page.getByLabel("Test", { exact: true });
+  const singleBeforeSuite = page.locator("#execution-panel").getByLabel("Test", { exact: true });
   await expect(suite).toHaveValue("");
   await expect(singleBeforeSuite).toBeDisabled();
   await expect(singleBeforeSuite).toHaveValue("");
@@ -89,7 +89,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await timeout.selectOption("10000");
   await expect(timeout).toHaveValue("10000");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
-  const single = page.getByLabel("Test", { exact: true });
+  const single = page.locator("#execution-panel").getByLabel("Test", { exact: true });
   await expect(single.locator("option")).toHaveCount(3); // blank + two SauceDemo scripts
   await expect(single.locator('option[value="' + first + '"]')).toHaveCount(1);
   await expect(single.locator('option[value="' + second + '"]')).toHaveCount(1);
@@ -199,8 +199,8 @@ test("existing flat JSON scripts stay visible under unassigned suite and can be 
   await page.goto(url);
   await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
-  await expect(page.getByLabel("Test", { exact: true }).locator("option")).toHaveCount(2);
-  await expect(page.getByLabel("Test", { exact: true }).locator('option[value="' + other + '"]')).toHaveCount(0);
+  await expect(page.locator("#execution-panel").getByLabel("Test", { exact: true }).locator("option")).toHaveCount(2);
+  await expect(page.locator("#execution-panel").getByLabel("Test", { exact: true }).locator('option[value="' + other + '"]')).toHaveCount(0);
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-site-note")).toContainText("Older saved scripts");
   await expect(page.getByRole("button", { name: "Delete this website test suite" })).toBeDisabled();
