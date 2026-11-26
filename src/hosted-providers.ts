@@ -58,6 +58,11 @@ export class GroqProviderError extends Error {
   }
 }
 
+/** Only explicit HTTP 400 JSON-generation failures qualify for text fallback. */
+export function isGroqJSONModeFailure(error: unknown): boolean {
+  return error instanceof GroqProviderError && error.httpStatus === 400 && error.category === "json-generation";
+}
+
 /** Request transport failed before an HTTP response was available.
  * This does not mean that the user's test instructions are invalid.
  * Never surface raw errors; URLs/proxy details can contain secrets.
@@ -144,14 +149,14 @@ async function classifyGroqFailure(response: Response): Promise<GroqProviderErro
  * No extra npm packages or local model installation are required.
  */
 export const groqProvider: ModelProvider = async function (
-  { model, system, prompt }: ModelRequest,
+  request: ModelRequest,
 ): Promise<string> {
-  return requestGroq({ model, system, prompt });
+  return requestGroq(request);
 };
 
 /** Exported with injectable fetch so unit tests never contact a paid service. */
 export async function requestGroq(
-  { model, system, prompt }: ModelRequest,
+  { model, system, prompt, responseMode = "json" }: ModelRequest,
   requester: typeof fetch = fetch,
   observe?: (attempt: UsageAttempt) => void | Promise<void>,
 ): Promise<string> {
@@ -181,7 +186,7 @@ export async function requestGroq(
       { role: "system", content: system },
       { role: "user", content: prompt },
     ],
-    response_format: { type: "json_object" },
+    ...(responseMode === "json" ? { response_format: { type: "json_object" } } : {}),
     stream: false,
     temperature: 0.1,
     max_completion_tokens: completionBudget,
@@ -201,7 +206,7 @@ export async function requestGroq(
       durationMs:Date.now()-started,status,httpStatus:response?.status,
       ...readTokenUsage(usage), completionBudget, estimatedInputTokens, ...figures, retryAfter,
       systemCharacters:system.length,promptCharacters:prompt.length,
-      remainingTokens,resetTokens,transportAttempt,
+      remainingTokens,resetTokens,transportAttempt,responseMode,
     }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
   }
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -222,7 +227,7 @@ export async function requestGroq(
       const category = error instanceof Error && error.name === "TimeoutError"
         ? "timeout" : error instanceof TypeError ? "network" : "transport";
       await record(category);
-      if (category === "network" && attempt === 0) {
+      if (category === "network" && attempt === 0 && responseMode === "json") {
         await new Promise<void>((resolve) => setTimeout(resolve, 300));
         continue;
       }
