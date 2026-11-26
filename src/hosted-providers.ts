@@ -85,7 +85,7 @@ function safeIdentifier(value: unknown): string | undefined {
     ? value : undefined;
 }
 
-async function classifyGroqFailure(response: Response): Promise<GroqProviderError> {
+async function classifyGroqFailure(response: Response, capture?: (raw: string) => void): Promise<GroqProviderError> {
   // Bound provider parsing to avoid retaining extremely large/hostile bodies.
   let code: string | undefined;
   let type: string | undefined;
@@ -93,7 +93,9 @@ async function classifyGroqFailure(response: Response): Promise<GroqProviderErro
   let detail = "";
   let reportedUsage: unknown;
   try {
-    const raw = (await response.text()).slice(0, 8192);
+    const body = await response.text();
+    try { capture?.(body); } catch { /* Diagnostics must not change failure classification. */ }
+    const raw = body.slice(0, 8192);
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "usage" in parsed) reportedUsage = parsed.usage;
     if (parsed && typeof parsed === "object" && "error" in parsed) {
@@ -159,6 +161,7 @@ export async function requestGroq(
   { model, system, prompt, responseMode = "json" }: ModelRequest,
   requester: typeof fetch = fetch,
   observe?: (attempt: UsageAttempt) => void | Promise<void>,
+  captureError?: (raw: string) => void,
 ): Promise<string> {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) {
@@ -236,7 +239,7 @@ export async function requestGroq(
   }
   if (!response) throw new GroqTransportError("transport");
   if (!response.ok) {
-    const failure=await classifyGroqFailure(response);
+    const failure=await classifyGroqFailure(response,captureError);
     await record(failure.category,response,failure.reportedUsage,failure.limitFigures);
     throw failure;
   }
