@@ -19,7 +19,7 @@ export function groqResponsePolicy(value = process.env.GROQ_RESPONSE_POLICY): Gr
 }
 export function groqReasoningEffort(model: string, value = process.env.GROQ_REASONING_EFFORT): "low" | "medium" | "high" | undefined {
   const effort = value?.trim();
-  if (!effort) return undefined;
+  if (!effort) return model === "openai/gpt-oss-20b" ? "low" : undefined;
   if (effort !== "low" && effort !== "medium" && effort !== "high")
     throw new Error("GROQ_REASONING_EFFORT must be low, medium or high. No model request was made.");
   if (!["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model))
@@ -224,7 +224,7 @@ export async function requestGroq(
   function evidence(fields: GroqResponseEvidence) {
     try { captureEvidence?.({completionBudget,responseMode,reasoningEffort,responsePolicy, ...fields}); } catch { /* Diagnostics must not affect generation. */ }
   }
-  const estimate=estimateModelTokens({model,system,prompt});
+  const estimate=estimateModelTokens({model,system,prompt,responseMode},undefined,"groqcloud");
   const requestBody = JSON.stringify({
     model,
     messages: [
