@@ -11,7 +11,7 @@ const configurations = [
   {format:"text", effort:"medium"}, {format:"text", effort:"low"},
 ];
 function parseOptions(args) {
-  const options = {total:400, seed:20261126, live:false, verbose:false};
+  const options = {total:400, seed:20261126, live:false, verbose:false, validation:false};
   const seen = new Set();
   for (const arg of args) {
     if (arg === "--matrix-child") continue;
@@ -19,6 +19,7 @@ function parseOptions(args) {
     if (seen.has(key)) throw new Error("Duplicate option: " + key);
     seen.add(key);
     if (key === "--live" && value === undefined) options.live = true;
+    else if (key === "--validation" && value === undefined) options.validation = true;
     else if (key === "--verbose" && value === undefined) options.verbose = true;
     else if (key === "--total-tests" && /^\d+$/.test(value ?? "")) options.total = Number(value);
     else if (key === "--seed" && /^\d+$/.test(value ?? "")) options.seed = Number(value);
@@ -29,6 +30,7 @@ function parseOptions(args) {
   if (!Number.isSafeInteger(options.seed) || options.seed > 0xffffffff)
     throw new Error("--seed must be an unsigned 32-bit integer");
   if (options.live && !seen.has("--total-tests")) throw new Error("Live mode requires an explicit --total-tests to protect quota");
+  if (options.validation && options.total !== 20) throw new Error("--validation requires --total-tests=20 (five independent fixtures x four configurations)");
   return options;
 }
 function makeCase(index, seed) {
@@ -69,6 +71,14 @@ function stats(values) {
   if (!a.length) return null;
   return {n:a.length,min:a[0],mean:a.reduce((x,y)=>x+y,0)/a.length,p95:a[Math.ceil(a.length*.95)-1],max:a.at(-1)};
 }
+// Holdout fixtures: different synthetic page snapshots and workflows, not live browser inspections.
+const holdouts = [
+ {category:"commerce",requirements:"Log in using the displayed demo credentials. Add Sauce Labs Backpack to the cart. Verify the cart contains the backpack and remove it.",url:"https://www.saucedemo.com/",title:"Swag Labs",headings:["Swag Labs"],controls:[{kind:"textbox",name:"Username",placeholder:"Username"},{kind:"textbox",name:"Password",placeholder:"Password"},{kind:"button",name:"Login"}],sampleText:["Accepted usernames are: standard_user, locked_out_user","Password for all users: secret_sauce"]},
+ {category:"search",requirements:"Search for wireless headphones. Verify results contain headphones and do not contain refurbished.",url:"https://shop.example.test/search",title:"Product search",headings:["Search products","Popular categories"],controls:[{kind:"textbox",name:"Search",placeholder:"Search products"},{kind:"button",name:"Search"},{kind:"combobox",name:"Category"}],sampleText:["Electronics","Home and garden","Results will appear here"]},
+ {category:"form",requirements:"Fill the contact form with a name and email. Leave the message empty. Submit and verify that the required message warning is displayed. Do not send a completed message.",url:"https://forms.example.test/contact",title:"Contact us",headings:["Contact us","Send an enquiry"],controls:[{kind:"textbox",name:"Name"},{kind:"textbox",name:"Email"},{kind:"textbox",name:"Message"},{kind:"checkbox",name:"Accept terms"},{kind:"button",name:"Submit"}],sampleText:["Fields marked * are required","We aim to reply within two business days."]},
+ {category:"dashboard",requirements:"Open the reports section. Select November. Verify the revenue heading is visible. Change the period to October and verify the selected period is October.",url:"https://dashboard.example.test/home",title:"Analytics workspace",headings:["Overview","Recent activity","Revenue"],controls:[{kind:"button",name:"Reports"},{kind:"combobox",name:"Period"},{kind:"button",name:"Export"}],sampleText:["Revenue: £12,300","Active customers: 147","Last updated today","October","November","December"]},
+ {category:"unicode",requirements:"Search for \"Café 東京 🧪\". Verify the exact search heading, then clear the query. Verify that no results are shown for the previous query.",url:"https://catalogue.example.test/?lang=ja",title:"商品カタログ",headings:["Catalogue","商品検索"],controls:[{kind:"textbox",name:"Search",placeholder:"商品を検索"},{kind:"button",name:"検索"},{kind:"button",name:"Clear"}],sampleText:["Café crème","東京","商品一覧","検索結果","🧪 Test kit"]}
+];
 async function runMatrix(options) {
   const {makeGenerationPrompt}=await import("../dist/generation.js");
   const {estimateModelTokens}=await import("../dist/token-estimation.js");
@@ -80,11 +90,15 @@ async function runMatrix(options) {
   let stopped=false;
   let completed=0;
   for(let i=0;i<options.total/4 && !stopped;i++) {
-    const item=makeCase(i,options.seed);
+    const fixture=options.validation ? holdouts[i] : undefined;
+    const item=fixture ? {id:i+1,category:fixture.category,requirements:fixture.requirements} : makeCase(i,options.seed);
+    const page=fixture ? {...snapshot,...fixture,statusText:[]} : snapshot;
+    // Exclude benchmark metadata from the page snapshot sent to the model.
+    const {category:ignoredCategory,requirements:ignoredRequirements,...pageSnapshot}=page;
     // Rotate order to reduce time/order bias in live tests.
     for(let offset=0;offset<4;offset++) {
       const group=groups[(i+offset)%4], {format,effort}=group.config;
-      const request={model,...makeGenerationPrompt(item.requirements,snapshot,[],true),responseMode:format};
+      const request={model,...makeGenerationPrompt(item.requirements,pageSnapshot,[],true),responseMode:format};
       const estimate=estimateModelTokens(request,undefined,"groqcloud");
       const row={...item,format,effort,...estimate};
       if(options.live) {
@@ -147,7 +161,7 @@ async function runMatrix(options) {
       otherFinishes:rows.filter(r=>r.outcome==="other-finish").length,
       rateLimitedAttempts:rows.reduce((n,r)=>n+(r.attempts?.filter(a=>a.httpStatus===429).length??0),0)}));
   }
-  console.log("OVERALL "+JSON.stringify({requested:options.total,completed:groups.reduce((n,g)=>n+g.rows.length,0),distinctDescriptions:Math.max(...groups.map(g=>g.rows.length)),seed:options.seed,mode:options.live?"live":"offline",stopped,
+  console.log("OVERALL "+JSON.stringify({requested:options.total,completed:groups.reduce((n,g)=>n+g.rows.length,0),distinctDescriptions:Math.max(...groups.map(g=>g.rows.length)),seed:options.seed,dataset:options.validation?"independent-synthetic-holdout":"original-task-list",mode:options.live?"live":"offline",stopped,
     note:"Offline estimates include provisional GroqCloud GPT-OSS 20B format calibration; actual completion/reasoning tokens require live measurement. Normal finish does not establish functional correctness. Long cases may exceed the generation step limit and are stress cases, not functional assertions."}));
   if(stopped) process.exitCode=1;
 }
