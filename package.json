@@ -21,7 +21,7 @@
     "start:demo": "npm run build && node scripts/start-demo-and-review.mjs",
     "test:smoke": "npm run build && playwright test --grep @e2e-smoke",
     "test:sanity": "playwright test --grep \"@e2e-smoke|@sanity\"",
-    "test:tokens": "npm run build && node --test tests/unit/token-estimation.test.mjs"
+    "test:tokens": "node scripts/run-token-benchmarks.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
