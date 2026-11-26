@@ -11,5 +11,5 @@ export async function selectSavedScript(page: Page, id: string): Promise<void> {
   if (!test) throw new Error("Saved test is not available: " + id);
   await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption(test.siteUrl || "__legacy__");
-  await page.getByLabel("Test script", { exact: true }).selectOption(id);
+  await page.getByLabel("Test", { exact: true }).selectOption(id);
 }
