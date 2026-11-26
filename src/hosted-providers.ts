@@ -12,7 +12,7 @@ export function groqCompletionBudget(value = process.env.GROQ_MAX_COMPLETION_TOK
 }
 export type GroqResponsePolicy = "hybrid" | "json" | "text";
 export function groqResponsePolicy(value = process.env.GROQ_RESPONSE_POLICY): GroqResponsePolicy {
-  const mode = value?.trim() || "hybrid";
+  const mode = value?.trim() || "json";
   if (mode !== "hybrid" && mode !== "json" && mode !== "text")
     throw new Error("GROQ_RESPONSE_POLICY must be hybrid, json or text. No model request was made.");
   return mode;
