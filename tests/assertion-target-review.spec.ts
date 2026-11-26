@@ -195,7 +195,9 @@ test("same target after DOM search permits explicitly confirmed expectation corr
     const panel=page.locator("#run-steps .run-step").nth(4).locator(".assertion-dom-repair");
     await panel.getByLabel("Search visible DOM text").fill("1 item left");
     await panel.getByRole("button",{name:"Search captured DOM"}).click();
-    await panel.locator(".assertion-dom-option input").check();
+    const candidate = panel.locator(".assertion-dom-option").filter({ has: page.getByText('Visible text "1 item left"', { exact: true }) });
+    await expect(candidate).toHaveCount(1);
+    await candidate.locator("input").check();
     await expect(panel.getByLabel("Assertion correction")).toHaveValue("expectation");
     const save=panel.getByRole("button",{name:"Save corrected expectation and rerun"});
     await expect(save).toBeDisabled();
