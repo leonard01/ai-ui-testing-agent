@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { parseModelJSON } from "./model-json.js";
+import type { ResponseDiagnosticObserver } from "./response-diagnostics.js";
 import { isGroqJSONModeFailure } from "./hosted-providers.js";
 import { proposedCoverage, sourceRequirements } from "./requirement-preservation.js";
 import { requireHumanCredentialValues } from "./credential-guard.js";
@@ -21,6 +22,7 @@ export interface DraftOptions {
   model: string;
   /** Only for explicit hosted-AI generation; one extra call on malformed model JSON. */
   retryMalformedOutput?: boolean;
+  observeResponse?: ResponseDiagnosticObserver;
   /** Bounded, generic previously observed prerequisite hints; not test steps. */
   prerequisiteHints?: string[];
   /** UI generation requests independent review of each source instruction. */
@@ -149,9 +151,12 @@ export async function generateDraft(
     }
     let parsed: unknown;
     try {
-      parsed = parseModelJSON(output).value;
+      const recovered = parseModelJSON(output);
+      parsed = recovered.value;
+      options.observeResponse?.(attempt, {repairs: recovered.repairs, parsed});
     } catch {
       problems = ["test: model output was not valid JSON"];
+      options.observeResponse?.(attempt, {validation: problems.join("; ")});
       if (attempt < maxAttempts) continue;
       throw new GeneratedDraftValidationError(attempt, problems);
     }
@@ -167,6 +172,7 @@ export async function generateDraft(
     } catch (error) {
       if (!(error instanceof ZodError)) throw error;
       problems = describeSchemaIssues(error);
+      options.observeResponse?.(attempt, {validation: problems.join("; ")});
       if (attempt < maxAttempts) continue;
       throw new GeneratedDraftValidationError(attempt, problems);
     }
@@ -176,6 +182,7 @@ export async function generateDraft(
     if (definition.steps.some(step => "target" in step.action &&
       ["testid", "id", "css", "xpath"].includes(step.action.target.by))) {
       problems = ["Model returned an unverified technical locator. Use role, label, placeholder, text or live-DOM intent; the tester can select CSS/XPath/IDs in the editor."];
+      options.observeResponse?.(attempt, {validation: problems.join("; ")});
       if (attempt < maxAttempts) continue;
       throw new GeneratedDraftValidationError(attempt, problems);
     }
@@ -246,6 +253,7 @@ export async function generateDraft(
       if (options.proceedUnresolved) definition.instructionCoverage.proceedAccepted = true;
     }
     requireHumanCredentialValues(definition);
+    options.observeResponse?.(attempt, {accepted: true, validation: "Passed generator validation; human review required."});
     return { definition, snapshot, needsReview: true, generationAttempts: attempt };
   }
   throw new GeneratedDraftValidationError(maxAttempts, problems);
