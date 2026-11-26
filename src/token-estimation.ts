@@ -9,7 +9,7 @@ export function countHarmonyText(text: string): number {
   return encode(text, { disallowedSpecial: new Set<string>() }).length;
 }
 
-export function estimateModelTokens(request: ModelRequest, representativeOutput?: string) {
+export function estimateModelTokens(request: ModelRequest, representativeOutput?: string, provider?: string) {
   if (!supported.has(request.model)) {
     return {
       estimator: "characters-v1",
@@ -18,12 +18,15 @@ export function estimateModelTokens(request: ModelRequest, representativeOutput?
   }
   const systemTokens = countHarmonyText(request.system);
   const promptTokens = countHarmonyText(request.prompt);
-  // Provider-specific chat templates, injected instructions and response-mode
-  // overhead are not visible to the application. Do not claim exact billing.
+  // Provisional calibration from the 40-case GroqCloud GPT-OSS 20B experiment.
+  // Other providers/models retain the uncalibrated content estimate.
+  const calibrated = provider === "groqcloud" && request.model === "openai/gpt-oss-20b" && request.responseMode !== undefined;
+  const providerOverheadTokens = calibrated ? (request.responseMode === "json" ? 102 : 74) : 0;
   return {
-    estimator: TOKEN_ESTIMATOR_VERSION,
+    estimator: calibrated ? "harmony-groq-20b-calibrated-v1" : TOKEN_ESTIMATOR_VERSION,
     systemTokens, promptTokens,
-    estimatedInputTokens: systemTokens+promptTokens,
+    estimatedInputTokens: systemTokens+promptTokens+providerOverheadTokens,
+    ...(calibrated ? {providerOverheadTokens} : {}),
     ...(representativeOutput===undefined ? {} : {representativeOutputTokens:countHarmonyText(representativeOutput)}),
   };
 }
