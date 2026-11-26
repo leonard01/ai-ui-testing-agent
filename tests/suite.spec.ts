@@ -187,7 +187,7 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const panel = page.locator("#suite-panel");
-  await expect(panel.getByRole("heading", { name: "Run Tests", exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Select tests", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Run a test suite" })).toHaveCount(0);
   // Everything lives in one panel: website, script selection, shared timeout,
   // edit/delete/export/traceability, single run and batch selection.
