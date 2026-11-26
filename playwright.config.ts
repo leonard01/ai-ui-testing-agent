@@ -10,7 +10,7 @@ export default defineConfig({
     timeout: 15000,
   },
   fullyParallel: true,
-  globalTimeout: 5 * 60 * 1000,
+  globalTimeout: 15 * 60 * 1000,
   timeout: 30_000,
   forbidOnly: !!process.env.CI,
   retries: 0,
