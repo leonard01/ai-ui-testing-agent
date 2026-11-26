@@ -199,7 +199,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       const output = groqOverride ? await groqOverride(request) : await requestGroq(request,fetch,async attempt=>{
         try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
         catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
-      }, raw=>capture.providerError(call,raw));
+      }, raw=>capture.providerError(call,raw), evidence=>capture.evidence(call,evidence));
       capture.raw(call, output);
       return output;
     };
