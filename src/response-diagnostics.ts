@@ -1,3 +1,5 @@
+import type { GroqResponseEvidence } from "./hosted-providers.js";
+
 /** Ephemeral, automatic diagnostics. Never pass these records to the usage store. */
 export type ResponseDiagnosticEvent = {
   repairs?: string[];
@@ -9,7 +11,10 @@ export type ResponseDiagnosticObserver = (attempt: number, event: ResponseDiagno
 export function createResponseCapture() {
   type Row = { call: number; mode: "json" | "text"; raw?: string; providerError?: string;
     rawTruncated?: boolean; errorTruncated?: boolean; repairedJSON?: string; repairedTruncated?: boolean;
-    repairs?: string[]; validation?: string; accepted?: boolean };
+    repairs?: string[]; validation?: string; accepted?: boolean;
+    httpStatus?: number; httpBody?: string; httpBodyTruncated?: boolean; httpBodyCharacters?: number;
+    contentCharacters?: number; finishReason?: string; completionTokens?: number; reasoningTokens?: number;
+    completionBudget?: number; status?: string; transportAttempt?: number };
   const rows: Row[] = [];
   const max = 128_000;
   function safe(value: string) {
@@ -22,11 +27,24 @@ export function createResponseCapture() {
     start(call: number, mode: "json" | "text") { if (rows.length < 2) rows.push({call,mode}); },
     raw(call: number, raw: string) {
       const row = find(call); if (!row) return;
-      const s = safe(raw); row.raw = s.value; row.rawTruncated = s.truncated;
+      const s = safe(raw); row.raw = s.value; row.rawTruncated = s.truncated; row.contentCharacters = raw.length;
     },
     providerError(call: number, raw: string) {
       const row = find(call); if (!row) return;
       const s = safe(raw); row.providerError = s.value; row.errorTruncated = s.truncated;
+    },
+    evidence(call: number, event: GroqResponseEvidence) {
+      const row = find(call); if (!row) return;
+      const {httpBody, content, ...metadata} = event;
+      Object.assign(row, metadata);
+      if (httpBody !== undefined) {
+        const s = safe(httpBody); row.httpBody = s.value; row.httpBodyTruncated = s.truncated;
+        row.httpBodyCharacters = httpBody.length;
+      }
+      if (content !== undefined) {
+        const s = safe(content); row.raw = s.value; row.rawTruncated = s.truncated;
+        row.contentCharacters = content.length;
+      }
     },
     observe: ((call, event) => {
       const row = find(call); if (!row) return;
