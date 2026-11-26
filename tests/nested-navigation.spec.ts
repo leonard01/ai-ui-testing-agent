@@ -144,10 +144,10 @@ test("generated draft uses the snapshot's exact TodoMVC URL, including /todomvc/
       placeholder: "What needs to be done?",
     });
 
-    const system = makeGenerationPrompt("Add a task", draft.snapshot).system;
-    expect(system).toContain("FIRST step MUST use exactly the page snapshot URL");
-    expect(system).toContain(JSON.stringify(url));
-    expect(system).toContain("{by:'placeholder',value:'What needs to be done?'}");
+    const { system, prompt } = makeGenerationPrompt("Add a task", draft.snapshot);
+    expect(system).toContain("First step MUST navigate to exact snapshot URL (path/query/hash included): " + JSON.stringify(url));
+    expect(system).toContain("For fields with known placeholder use exact placeholder for fill and press on same field");
+    expect(prompt).toContain(JSON.stringify({kind: "textbox", name: "What needs to be done?", placeholder: "What needs to be done?"}));
     expect(system).not.toContain("Navigate action: {kind:'navigate',url:'/'}");
 
     const report = await runTest(draft.definition, {
