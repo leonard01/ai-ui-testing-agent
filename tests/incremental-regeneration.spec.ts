@@ -73,14 +73,8 @@ async function regenerate(data: Record<string, unknown>) {
   });
 }
 
-test("response diagnostics opt in to successful model output without saving raw responses", async () => {
-  const off = await regenerate({});
-  expect(off.status).toBe(200);
-  expect((await off.json()).aiUsage.responseDiagnostics).toBeUndefined();
-  const failuresOnly = await regenerate({responseDiagnostics:{capture:true}});
-  expect(failuresOnly.status).toBe(200);
-  expect((await failuresOnly.json()).aiUsage.responseDiagnostics).toEqual([]);
-  const on = await regenerate({responseDiagnostics:{capture:true,includeSuccess:true}});
+test("response diagnostics automatically include successful output without saving raw responses", async () => {
+  const on = await regenerate({});
   expect(on.status).toBe(200);
   const data = await on.json();
   expect(data.aiUsage.responseDiagnostics).toHaveLength(1);
@@ -193,19 +187,12 @@ test("unsafe and malformed proposals cannot alter or approve a test", async () =
   expect((await (await fetch(url + "/api/drafts")).json()).drafts).toHaveLength(0);
 });
 
-test("response diagnostics settings expose successful output and clear it on demand @sanity", async ({page}) => {
+test("automatic response diagnostics expose successful output and clear it on demand @sanity", async ({page}) => {
   await page.goto(url);
   const panel = page.locator("#response-diagnostics-panel");
   const heading = panel.locator(":scope > summary");
   await expect(page.locator("#instructions-response-diagnostics > details")).toHaveCount(1);
-  await heading.click();
-  const capture = page.getByLabel("Capture model responses", {exact:true});
-  const success = page.getByLabel("Include successful responses", {exact:true});
-  await expect(capture).not.toBeChecked();
-  await expect(success).toBeDisabled();
-  await capture.check();
-  await expect(success).toBeEnabled();
-  await success.check();
+  await expect(heading).toHaveText("View model responses (0)");
   await page.locator("#test-name").fill("Response diagnostics test");
   await page.getByLabel("Your test instructions").fill("Add and verify a task");
   await page.getByLabel("Generate with").selectOption("fixture");
@@ -232,14 +219,10 @@ test("response diagnostics settings expose successful output and clear it on dem
   await page.locator("#nav-ai-usage").click();
   await expect(page.locator("#analytics-response-diagnostics > details")).toHaveCount(1);
   await heading.click();
-  await expect(capture).toBeChecked();
-  await expect(success).toBeChecked();
   await expect(attempt).toHaveCount(1);
-  await success.uncheck();
+  await page.locator("#clear-response-diagnostics").click();
   await expect(list.locator(":scope > details")).toHaveCount(0);
-  await capture.uncheck();
-  await expect(success).toBeDisabled();
-  await expect(page.locator("#response-diagnostics-status")).toHaveText("Capture is disabled.");
+  await expect(heading).toHaveText("View model responses (0)");
 });
 
 test("UI proposes suffix replacement, requires Apply and leaves replacement steps unapproved @sanity", async ({page}) => {
