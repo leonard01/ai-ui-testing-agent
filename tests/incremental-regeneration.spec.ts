@@ -193,6 +193,45 @@ test("unsafe and malformed proposals cannot alter or approve a test", async () =
   expect((await (await fetch(url + "/api/drafts")).json()).drafts).toHaveLength(0);
 });
 
+test("response diagnostics settings expose successful output and clear it on demand @sanity", async ({page}) => {
+  await page.goto(url);
+  await page.locator("#nav-ai-usage").click();
+  const capture = page.getByLabel("Capture model responses", {exact:true});
+  const success = page.getByLabel("Include successful responses", {exact:true});
+  await expect(capture).not.toBeChecked();
+  await expect(success).toBeDisabled();
+  await capture.check();
+  await expect(success).toBeEnabled();
+  await success.check();
+  await page.locator("#nav-new").click();
+  await page.locator("#test-name").fill("Response diagnostics test");
+  await page.getByLabel("Your test instructions").fill("Add and verify a task");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", {name:"Generate draft"}).click();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.locator("#stage-instructions").click();
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#stage-draft").click();
+  await page.locator("#step-list .step").last().getByRole("button",{name:"Reinterpret with AI"}).click();
+  await page.getByLabel("New plain-English instructions for replacement steps").fill("Verify the initial count");
+  await page.getByRole("button",{name:"Generate replacement"}).click();
+  await expect(page.locator("#incremental-status")).toContainText("Proposal ready");
+  await page.locator("#nav-ai-usage").click();
+  const list=page.locator("#response-diagnostics-list");
+  const attempt=list.locator(":scope > details");
+  await expect(attempt).toHaveCount(1);
+  await expect(attempt).not.toHaveAttribute("open","");
+  await attempt.locator(":scope > summary").click();
+  await attempt.getByText("Raw model response",{exact:true}).click();
+  await expect(attempt.locator("pre")).toContainText("new-status");
+  await expect(attempt.getByRole("button",{name:"Copy raw model response"})).toBeVisible();
+  await success.uncheck();
+  await expect(list.locator(":scope > details")).toHaveCount(0);
+  await capture.uncheck();
+  await expect(success).toBeDisabled();
+  await expect(page.locator("#response-diagnostics-status")).toHaveText("Capture is disabled.");
+});
+
 test("UI proposes suffix replacement, requires Apply and leaves replacement steps unapproved @sanity", async ({page}) => {
   mockSteps = remainder;
   await page.goto(url);
