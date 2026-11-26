@@ -92,6 +92,35 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#history-suite-list .empty-state")).toContainText("No matching executions");
   });
 
+  test("reports remain independent after integrating AI usage with execution history", async ({ page }) => {
+    await saveApprovedFixture(page, "Reports integration");
+    await page.getByRole("button", { name: "Run selected test" }).click();
+    await expect(page.locator("#run-summary")).toContainText("PASSED", { timeout: 30000 });
+    await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await expect(page.locator("#history-search")).toBeVisible();
+    await page.locator("#nav-ai-usage").click();
+    await expect(page.locator("#ai-usage-panel")).toBeVisible();
+    await expect(page.locator("#diagnostics-panel")).toBeHidden();
+    await expect(page.locator("#nav-ai-usage")).toHaveAttribute("aria-current", "page");
+    await expect(page.locator("#usage-status")).toContainText("No recorded AI requests");
+    for (const days of ["1", "7", "30", "0"]) {
+      const response = page.waitForResponse(r => r.url().includes("/api/ai-usage?days=" + days) && r.ok());
+      if (await page.locator("#usage-days").inputValue() === days) {
+        await page.locator("#usage-refresh").click();
+      } else {
+        await page.locator("#usage-days").selectOption(days);
+      }
+      const payload = await (await response).json();
+      expect(payload.summary.requests).toBe(0);
+      expect(payload.totalRecords).toBe(0);
+    }
+    await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#ai-usage-panel")).toBeHidden();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await expect(page.locator("#history-site")).toHaveValue("__all__");
+  });
+
   test("fixture draft → explicit approval → saved test → execution → history", async ({ page }) => {
     const id = await saveApprovedFixture(page, "Smoke - task lifecycle");
     expect(id).toMatch(/^reviewed-.*\.json$/);
