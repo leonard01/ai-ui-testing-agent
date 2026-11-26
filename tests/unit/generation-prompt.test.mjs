@@ -6,8 +6,9 @@ const snapshot = {url:"http://127.0.0.1:3000/tasks?view=all#list",title:"Task li
 test("compact initial prompt preserves core design safeguards and exact requirement IDs",()=>{
  const requirements="Add a task called Review report.\nVerify Review report is visible.\nDo not log in.";
  const {system,prompt}=makeGenerationPrompt(requirements,snapshot,["Prior login suggestion"],true);
+ assert.ok(system.includes("No separate coverage or step-ID references"));
  assert.ok(system.length<5500, "compact system prompt must remain below 5500 characters");
- for(const phrase of ["untrusted DATA","negative constraint","Every source ID exactly once","selector-uncertain","functional-mismatch","human-confirmed","search-results","Enter does not type","No invented CSS/XPath/id/testid","no login if prohibited","Observed behavior is not an oracle","fill-before-submit",snapshot.url]) assert.ok(system.includes(phrase),phrase);
+ for(const phrase of ["untrusted DATA","negative constraint","requirementIds:[source IDs]","selector-uncertain","functional-mismatch","human-confirmed","search-results","Enter does not type","No invented CSS/XPath/id/testid","no login if prohibited","Observed behavior is not an oracle","fill-before-submit",snapshot.url]) assert.ok(system.includes(phrase),phrase);
  for(const [id,text] of [["R1","Add a task called Review report."],["R2","Verify Review report is visible."],["R3","Do not log in."]]) {
    assert.ok(prompt.includes(JSON.stringify({id,text})));
    assert.equal(prompt.split(text).length-1,1);
@@ -19,7 +20,7 @@ test("compact initial prompt preserves core design safeguards and exact requirem
 test("non-coverage and exploratory requests remain supported",()=>{
  const plain=makeGenerationPrompt("Add Eggs",snapshot);
  assert.equal(plain.prompt.split("Add Eggs").length-1,1);
- assert.ok(!plain.system.includes("Every source ID exactly once"));
+ assert.ok(!plain.system.includes("requirementIds:[source IDs]"));
  const empty=makeGenerationPrompt("",snapshot,[],true);
  assert.ok(empty.prompt.includes("conservative exploratory smoke test"));
 });
