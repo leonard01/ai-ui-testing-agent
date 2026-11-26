@@ -759,6 +759,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </details></div>
       <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
       <button id="usage-refresh" type="button" class="secondary">Refresh AI usage</button>
+      <button id="usage-export" type="button" class="secondary">Export experiment results</button>
+      <p class="muted">Results are saved locally. Assess draft correctness once per generation operation. Export includes metadata for the selected date range, not raw responses or test instructions.</p>
+      <div id="experiment-summary" class="result-metrics"></div>
       <p id="usage-status" role="status"></p><div id="usage-metrics" class="result-metrics"></div>
       <p id="usage-minute" class="muted"></p><div id="usage-records"></div>
       <div class="planned-report"><h3>Planned enhancements — to be implemented</h3><p>Provider/model filters, prompt version comparisons, charts, CSV export and persistent per-test associations.</p></div>
@@ -2326,18 +2329,62 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         $("usage-minute").textContent="Last 60 seconds (local recorded attempts): "+data.minute.totalTokens.toLocaleString()+" reported tokens; "+data.minute.unknownRequests+" unknown counts. This is not the provider quota.";
         const list=$("usage-records");list.replaceChildren();
+        const assessments=new Map((data.results??[]).map(r=>[r.operationId,r]));
+        const seen=new Set();
+        const summary=$("experiment-summary");summary.replaceChildren();
+        // The summary covers the displayed attempts (latest 200); export covers the entire selected period.
+        const groups=new Map();
+        for(const row of data.records){
+          if(row.operation!=="generate" || row.responsePolicy==="hybrid" || !row.responsePolicy) continue;
+          const key=row.model+" · "+row.responsePolicy+" / "+(row.reasoningEffort??"default");
+          if(!groups.has(key))groups.set(key,[]);
+          groups.get(key).push(row);
+        }
+        for(const [key,rows] of groups){
+          const ops=[...new Set(rows.map(r=>r.operationId))];
+          const rated=ops.filter(id=>["correct","incorrect"].includes(assessments.get(id)?.assessment));
+          const correct=rated.filter(id=>assessments.get(id)?.assessment==="correct").length;
+          const avg=k=>{const known=rows.filter(r=>typeof r[k]==="number");return known.length?Math.round(known.reduce((n,r)=>n+r[k],0)/known.length):"unknown";};
+          const metric=make("div",null,"result-metric");
+          metric.append(make("strong",key),make("p",ops.length+" operations · "+correct+"/"+rated.length+" manually correct"),make("p","Avg. tokens/attempt: "+avg("totalTokens")+" · Reasoning: "+avg("reasoningTokens"),"muted"));
+          summary.append(metric);
+        }
         for(const row of data.records) {
           const card=make("article",null,"run-step");
           card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+(row.responsePolicy ? " · "+row.responsePolicy+" policy · reasoning "+(row.reasoningEffort ?? "default") : "")+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
           if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) card.append(make("p","Provider quota figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used: "+(row.providerUsedTokens??"unknown"),"muted"));
           if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens (rough estimate)","muted"));
           if(row.retryAfter!==undefined) card.append(make("p","Retry-After: "+row.retryAfter,"muted"));
+          card.append(make("p","Finish: "+(row.finishReason??"not reported")+" · Reasoning tokens: "+(row.reasoningTokens??"not recorded"),"muted"));
+          if(!seen.has(row.operationId)){
+            seen.add(row.operationId);
+            const result=assessments.get(row.operationId);
+            card.append(make("p","Operation validation: "+(result?.validation??"not recorded")+" · Manual assessment: "+(result?.assessment??"unreviewed"),"muted"));
+            const controls=make("div");
+            for(const [value,label] of [["correct","Correct draft"],["incorrect","Incorrect draft"],["unreviewed","Clear assessment"]]){
+              const btn=make("button",label,"secondary");btn.type="button";
+              btn.disabled=(result?.assessment??"unreviewed")===value;
+              btn.addEventListener("click",async()=>{
+                for(const child of controls.children)child.disabled=true;
+                try {
+                  await requestJSON("/api/ai-usage/assessment",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operationId:row.operationId,assessment:value})});
+                  await refreshAIUsage();
+                } catch(error) {
+                  $("usage-status").textContent="Assessment not saved: "+(error.message||String(error));
+                  for(const child of controls.children)child.disabled=false;
+                }
+              });
+              controls.append(btn);
+            }
+            card.append(controls);
+          }
           list.append(card);
         }
         $("usage-status").textContent=data.totalRecords ? "Showing latest "+data.records.length+" of "+data.totalRecords+" attempts." : "No recorded AI requests for this period.";
       } catch(error) { $("usage-status").textContent=error.message||String(error); }
     }
     $("usage-refresh").addEventListener("click",()=>void refreshAIUsage());
+    $("usage-export").addEventListener("click",()=>{const link=document.createElement("a");link.href="/api/ai-usage?export=1&days="+$("usage-days").value;link.download="ai-experiment-results.json";document.body.append(link);link.click();link.remove();});
     $("usage-days").addEventListener("change",()=>void refreshAIUsage());
     async function requestJSON(url, options) {
       const capture = url === "/api/regenerate-steps" ? beginResponseCapture() : null;
