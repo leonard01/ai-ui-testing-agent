@@ -85,7 +85,7 @@ async function runMatrix(options) {
     for(let offset=0;offset<4;offset++) {
       const group=groups[(i+offset)%4], {format,effort}=group.config;
       const request={model,...makeGenerationPrompt(item.requirements,snapshot,[],true),responseMode:format};
-      const estimate=estimateModelTokens(request);
+      const estimate=estimateModelTokens(request,undefined,"groqcloud");
       const row={...item,format,effort,...estimate};
       if(options.live) {
         process.env.GROQ_RESPONSE_POLICY=format;
@@ -122,6 +122,7 @@ async function runMatrix(options) {
             row.inputErrorPercent=100*(estimate.estimatedInputTokens-actual.inputTokens)/actual.inputTokens;
           }
         }
+        row.outcome = actual?.finishReason === "length" ? "truncated" : row.error ? "failed" : actual?.finishReason === "stop" ? "normal-finish" : "other-finish";
         if((row.error && actual?.httpStatus===429) || (row.error && !attempts.length)) stopped=true;
       }
       group.rows.push(row);
@@ -140,11 +141,14 @@ async function runMatrix(options) {
       actualTotalTokens:stats(rows.map(r=>r.actualTotalTokens)),
       signedInputErrorPercent:stats(rows.map(r=>r.inputErrorPercent)),
       absoluteInputErrorPercent:stats(rows.map(r=>Math.abs(r.inputErrorPercent))),
-      failedRequests:rows.filter(r=>r.error).length,
+      failedRequests:rows.filter(r=>r.outcome==="failed").length,
+      normalFinishes:rows.filter(r=>r.outcome==="normal-finish").length,
+      truncatedResponses:rows.filter(r=>r.outcome==="truncated").length,
+      otherFinishes:rows.filter(r=>r.outcome==="other-finish").length,
       rateLimitedAttempts:rows.reduce((n,r)=>n+(r.attempts?.filter(a=>a.httpStatus===429).length??0),0)}));
   }
   console.log("OVERALL "+JSON.stringify({requested:options.total,completed:groups.reduce((n,g)=>n+g.rows.length,0),distinctDescriptions:Math.max(...groups.map(g=>g.rows.length)),seed:options.seed,mode:options.live?"live":"offline",stopped,
-    note:"Offline estimates count prompt content only; format/reasoning provider overhead and actual completion/reasoning tokens require live measurement. Long cases may exceed the generation step limit and are stress cases, not functional assertions."}));
+    note:"Offline estimates include provisional GroqCloud GPT-OSS 20B format calibration; actual completion/reasoning tokens require live measurement. Normal finish does not establish functional correctness. Long cases may exceed the generation step limit and are stress cases, not functional assertions."}));
   if(stopped) process.exitCode=1;
 }
 
@@ -200,7 +204,7 @@ try {
     await appendFile(report, "\nTests not run because the build failed.\n");
   }
 } finally {
-  await appendFile(report, "\nDetailed case data: " + details + "\nFinal status: " + (code === 0 ? "PASSED" : "FAILED") + "\nFinished: " + new Date().toISOString() + "\n");
+  await appendFile(report, "\nDetailed case data: " + details + "\nBenchmark execution status: " + (code === 0 ? "PASSED" : "FAILED") + "\nFinished: " + new Date().toISOString() + "\n");
   const { copyFile } = await import("node:fs/promises");
   await copyFile(report, latest);
   console.log("\nReport saved to: " + report);
