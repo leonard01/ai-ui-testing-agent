@@ -1,3 +1,4 @@
+import { estimateModelTokens } from "./token-estimation.js";
 import type { ModelProvider, ModelRequest } from "./generation.js";
 import { readTokenUsage, type UsageAttempt } from "./ai-usage.js";
 
@@ -223,7 +224,7 @@ export async function requestGroq(
   function evidence(fields: GroqResponseEvidence) {
     try { captureEvidence?.({completionBudget,responseMode,reasoningEffort,responsePolicy, ...fields}); } catch { /* Diagnostics must not affect generation. */ }
   }
-  const estimatedInputTokens=Math.ceil((system.length+prompt.length)/4);
+  const estimate=estimateModelTokens({model,system,prompt});
   const requestBody = JSON.stringify({
     model,
     messages: [
@@ -249,7 +250,7 @@ export async function requestGroq(
     try { await observe?.({
       provider:"groqcloud", model, startedAt:new Date(started).toISOString(),
       durationMs:Date.now()-started,status,httpStatus:response?.status,
-      ...readTokenUsage(usage), completionBudget, estimatedInputTokens, ...figures, retryAfter,
+      ...readTokenUsage(usage), completionBudget, ...estimate, ...figures, retryAfter,
       systemCharacters:system.length,promptCharacters:prompt.length,
       remainingTokens,resetTokens,transportAttempt,responseMode,reasoningEffort,responsePolicy,finishReason,reasoningTokens,
     }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
