@@ -1,5 +1,17 @@
 import { selectSavedScript } from "./helpers/select-saved-script.js";
 import { test, expect } from "@playwright/test";
+
+// Legacy recovery tests explicitly opt in; every other case exercises JSON-only.
+let previousResponsePolicy: string | undefined;
+test.beforeEach(async ({}, info) => {
+  previousResponsePolicy = process.env.GROQ_RESPONSE_POLICY;
+  const legacy = ["Test 1 repairs string-valued","two malformed responses stop"].some(prefix => info.title.startsWith(prefix));
+  process.env.GROQ_RESPONSE_POLICY = legacy ? "hybrid" : "json";
+});
+test.afterEach(() => {
+  if (previousResponsePolicy === undefined) delete process.env.GROQ_RESPONSE_POLICY;
+  else process.env.GROQ_RESPONSE_POLICY = previousResponsePolicy;
+});
 // The app runner owns traces for its test contexts; avoid harness tracing twice.
 test.use({ trace: "off" });
 import { createReviewServer } from "../src/review-server.js";
@@ -452,7 +464,7 @@ test("run approved test from browser and show per-step diagnostics without CLI",
   expect(passReport.status, JSON.stringify(passReport, null, 2)).toBe("passed");
   await expect(page.locator("#run-summary")).toContainText("PASSED");
   await expect(page.locator("#run-totals")).toContainText("9 passed");
-  await expect(page.locator(".run-step")).toHaveCount(9);
+  await expect(page.locator("#run-steps .run-step")).toHaveCount(9);
   await expect(page.locator("#run-steps")).toContainText("Verify the task appears");
   await expect(page.locator("#run-artifacts")).toContainText("View full JSON report");
   await expect(page.locator("#run-screenshot-panel")).toBeHidden();
@@ -481,7 +493,7 @@ test("failed UI run shows first assertion mismatch and screenshot/trace download
   await expect(page.locator("#run-diagnosis")).toContainText("expected result");
   await expect(page.locator("#run-steps")).toContainText("99 tasks, 0 completed");
   await expect(page.locator("#run-steps")).toContainText("0 tasks, 0 completed");
-  await expect(page.locator(".run-step").nth(1)).toContainText("assertion-failed");
+  await expect(page.locator("#run-steps .run-step").nth(1)).toContainText("assertion-failed");
   await expect(page.locator("#run-artifacts")).toContainText("Download Playwright trace");
   await expect(page.locator("#run-screenshot")).toBeVisible();
   const screenshotURL = await page.locator("#run-screenshot").getAttribute("src");
@@ -684,7 +696,7 @@ test("editable DOM search works with no initial suggestions and cannot silently 
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
-    const picker = page.locator(".run-step").nth(1).locator(".assertion-dom-repair");
+    const picker = page.locator("#run-steps .run-step").nth(1).locator(".assertion-dom-repair");
     await expect(picker).toBeVisible();
     await expect(picker.locator(".assertion-dom-option")).toHaveCount(0);
     const field = picker.getByLabel("Search visible DOM text");
@@ -707,8 +719,8 @@ test("editable DOM search works with no initial suggestions and cannot silently 
       kind: "assert-text", target: { by: "text", value: "Sauce Labs Backpack" },
       expected: "Sauce Labs Laptop", provenance: "requirements",
     });
-    await expect(page.locator(".run-step").nth(1)).toContainText('expected "Sauce Labs Laptop"');
-    await expect(page.locator(".run-step").nth(1)).toContainText('observed "Sauce Labs Backpack"');
+    await expect(page.locator("#run-steps .run-step").nth(1)).toContainText('expected "Sauce Labs Laptop"');
+    await expect(page.locator("#run-steps .run-step").nth(1)).toContainText('observed "Sauce Labs Backpack"');
   } finally {
     await new Promise<void>((resolve, reject) =>
       site.close((error) => error ? reject(error) : resolve()));
@@ -752,7 +764,7 @@ test("wrong existing button text assertion searches product div and repairs sele
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
-    const failed = page.locator(".run-step").nth(1);
+    const failed = page.locator("#run-steps .run-step").nth(1);
     await expect(failed).toContainText('expected "Sauce Labs Backpack"');
     await expect(failed).toContainText('observed "Add to cart"');
     const picker = failed.locator(".assertion-dom-repair");
@@ -889,7 +901,7 @@ test("live DOM Products text repairs missing heading assertion through UI, then 
     await page.getByRole("button", { name: "Run selected test" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25_000 });
     await expect(page.locator("#run-summary")).toContainText("FAILED");
-    const failed = page.locator(".run-step").nth(1);
+    const failed = page.locator("#run-steps .run-step").nth(1);
     await expect(failed).toContainText("getByRole('heading'");
     const picker = failed.locator(".assertion-dom-repair");
     await expect(picker).toBeVisible();
@@ -974,7 +986,7 @@ test("missing Add label exposes live Add button for UI-only repair and complete 
   await page.getByRole("button", { name: "Run selected test" }).click();
   await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 30_000 });
   await expect(page.locator("#run-summary")).toContainText("FAILED");
-  const failed = page.locator(".run-step").nth(3);
+  const failed = page.locator("#run-steps .run-step").nth(3);
   await expect(failed).toContainText("getByLabel('Add'");
   const repair = failed.locator(".locator-repair");
   await expect(repair).toBeVisible();
