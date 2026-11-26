@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
 
 
 const configurations = [
@@ -49,6 +50,20 @@ function makeCase(index, seed) {
   if (category === "edge") lines.push("Do not log in. Verify the task list heading remains visible; do not treat the input field as proof of a saved task.");
   return {id:index+1,category,requirements:lines.join("\n")};
 }
+// Wait for the provider's window to replenish, never retry indefinitely.
+function resetMilliseconds(value) {
+  if (typeof value !== "string") return 0;
+  const parts = [...value.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h|d)/g)];
+  if (!parts.length || parts.map(p=>p[0]).join("") !== value) return 0;
+  const units = {ms:1,s:1000,m:60000,h:3600000,d:86400000};
+  return parts.reduce((total,p)=>total+Number(p[1])*units[p[2]],0);
+}
+function rateLimitDelay(attempt) {
+  const raw = attempt.retryAfter;
+  const retry = typeof raw === "string" && /^\d+(?:\.\d+)?$/.test(raw)
+    ? Number(raw)*1000 : Math.max(0, Date.parse(raw ?? "")-Date.now()) || 0;
+  return Math.max(60000, retry+1000, resetMilliseconds(attempt.resetTokens)+1000);
+}
 function stats(values) {
   const a=values.filter(Number.isFinite).sort((x,y)=>x-y);
   if (!a.length) return null;
@@ -76,8 +91,26 @@ async function runMatrix(options) {
         process.env.GROQ_RESPONSE_POLICY=format;
         process.env.GROQ_REASONING_EFFORT=effort;
         const attempts=[];
-        try { await requestGroq(request,fetch,attempt=>attempts.push(attempt)); }
-        catch(error) { row.error=error.name; }
+        for (let retry=0;;retry++) {
+          const start=attempts.length;
+          try {
+            await requestGroq(request,fetch,attempt=>attempts.push(attempt));
+            delete row.error;
+            break;
+          } catch(error) {
+            row.error=error.name;
+            const rejected=attempts.length>start ? attempts.at(-1) : undefined;
+            if(rejected?.httpStatus!==429) break;
+            const wait=rateLimitDelay(rejected);
+            if(retry>=2 || wait>300000) {
+              console.log("Rate limit: stopping; " + (retry>=2 ? "retry limit reached" : "provider reset exceeds five minutes") + ".");
+              break;
+            }
+            console.log("Rate limit: case "+item.id+" "+format+"/"+effort+
+              "; waiting "+Math.ceil(wait/1000)+" seconds before retry "+(retry+1)+"/2.");
+            await sleep(wait);
+          }
+        }
         row.attempts=attempts;
         const actual=attempts.at(-1);
         if(actual) {
@@ -89,12 +122,12 @@ async function runMatrix(options) {
             row.inputErrorPercent=100*(estimate.estimatedInputTokens-actual.inputTokens)/actual.inputTokens;
           }
         }
-        if(attempts.some(a=>a.httpStatus===429) || row.error && !attempts.length) stopped=true;
+        if((row.error && actual?.httpStatus===429) || (row.error && !attempts.length)) stopped=true;
       }
       group.rows.push(row);
       console.log("CASE "+JSON.stringify(row));
       completed++;
-      if (completed % 100 === 0 || completed === options.total || stopped) console.log("Progress: " + completed + "/" + options.total);
+      if (completed % (options.live ? 4 : 100) === 0 || completed === options.total || stopped) console.log("Progress: " + completed + "/" + options.total);
       if(stopped) break;
     }
   }
@@ -107,7 +140,8 @@ async function runMatrix(options) {
       actualTotalTokens:stats(rows.map(r=>r.actualTotalTokens)),
       signedInputErrorPercent:stats(rows.map(r=>r.inputErrorPercent)),
       absoluteInputErrorPercent:stats(rows.map(r=>Math.abs(r.inputErrorPercent))),
-      failedRequests:rows.filter(r=>r.error).length}));
+      failedRequests:rows.filter(r=>r.error).length,
+      rateLimitedAttempts:rows.reduce((n,r)=>n+(r.attempts?.filter(a=>a.httpStatus===429).length??0),0)}));
   }
   console.log("OVERALL "+JSON.stringify({requested:options.total,completed:groups.reduce((n,g)=>n+g.rows.length,0),distinctDescriptions:Math.max(...groups.map(g=>g.rows.length)),seed:options.seed,mode:options.live?"live":"offline",stopped,
     note:"Offline estimates count prompt content only; format/reasoning provider overhead and actual completion/reasoning tokens require live measurement. Long cases may exceed the generation step limit and are stress cases, not functional assertions."}));
