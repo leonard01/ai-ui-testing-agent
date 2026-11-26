@@ -12,6 +12,7 @@ import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
 import { requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
 import { createUsageStore, summarizeUsage, type UsageRecord } from "./ai-usage.js";
+import { createResponseCapture } from "./response-diagnostics.js";
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
@@ -187,19 +188,22 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
   const usageStore = createUsageStore(join(savedDir,"ai-usage"));
-  function trackAI(operation: UsageRecord["operation"]) {
+  function trackAI(operation: UsageRecord["operation"], body: unknown) {
+    const capture = createResponseCapture(body);
     const operationId=randomUUID();
     const records: UsageRecord[]=[];
     let modelCall=0, storageFailed=false;
     const provider: ModelProvider=async request=>{
       const call=++modelCall;
-      if (groqOverride) return groqOverride(request);
-      return requestGroq(request,fetch,async attempt=>{
+      capture.start(call, request.responseMode ?? "json");
+      const output = groqOverride ? await groqOverride(request) : await requestGroq(request,fetch,async attempt=>{
         try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
         catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
-      });
+      }, capture.enabled ? raw=>capture.providerError(call,raw) : undefined);
+      capture.raw(call, output);
+      return output;
     };
-    return {provider, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records)})};
+    return {provider, observeResponse: capture.enabled ? capture.observe : undefined, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records), responseDiagnostics: capture.snapshot()})};
   }
   const jobs = new Map<string, RunJob>();
   const suites = new Map<string, SuiteJob>();
@@ -1634,7 +1638,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (path === "/api/regenerate-steps") {
-        const tracked=trackAI("reinterpret");
+        const tracked=trackAI("reinterpret",body);
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
           return;
@@ -1664,6 +1668,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             approvedStepIds: data.approvedStepIds as string[],
             model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
             retryMalformedOutput: true,
+            observeResponse: tracked.observeResponse,
           }, tracked.provider, suppliedBrowser);
           json(res, 200, {
             ...proposal,
@@ -1697,7 +1702,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : String(error) });
           return;
         }
-        const tracked=trackAI("generate");
+        const tracked=trackAI("generate",body);
         const provider = input.provider === "groq" ? tracked.provider : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
@@ -1707,6 +1712,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const result = await generateDraft({
             baseURL: input.baseURL, requirements: input.requirements, model,
             retryMalformedOutput: input.provider === "groq",
+            observeResponse: input.provider === "groq" ? tracked.observeResponse : undefined,
             prerequisiteHints: suggestions.map(item => item.text),
             instructionCoverage: input.provider === "groq",
             // Acknowledge warnings only after inspecting the actual draft.
