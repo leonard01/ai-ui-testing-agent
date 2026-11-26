@@ -2226,17 +2226,27 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         item.className = "run-step";
         item.append(make("summary","Call " + row.call + " — " + row.mode.toUpperCase() + " mode — " +
           (row.accepted ? "Passed validation" : "Not accepted")));
+        if (row.status || row.httpStatus !== undefined) item.append(make("p",
+          "Provider status: " + (row.status ?? "unknown") + " · HTTP: " + (row.httpStatus ?? "not received") +
+          " · Transport attempt: " + (row.transportAttempt ?? "unknown"),"muted"));
+        item.append(make("p","Finish reason: " + (row.finishReason ?? "not reported") +
+          " · Completion tokens: " + (row.completionTokens ?? "unknown") + " / " + (row.completionBudget ?? "unknown") +
+          " · Reasoning tokens: " + (row.reasoningTokens ?? "not reported"),"muted"));
+        item.append(make("p","Model content characters: " + (row.contentCharacters ?? "not returned") +
+          " · HTTP body characters: " + (row.httpBodyCharacters ?? "not captured"),"muted"));
+        if (row.finishReason === "length") item.append(make("p","Provider reported a length limit. The completion may be incomplete.","error"));
         if (row.repairs?.length) item.append(make("p","Local repairs: " + row.repairs.join(", ")));
         if (row.validation) item.append(make("p",row.validation,"muted"));
         for (const [title, value, truncated] of [
           ["Raw model response",row.raw,row.rawTruncated],
+          ["Raw HTTP response body",row.httpBody,row.httpBodyTruncated],
           ["Provider error response",row.providerError,row.errorTruncated],
           ["Locally repaired JSON",row.repairedJSON,row.repairedTruncated],
         ]) {
           if (typeof value !== "string") continue;
           const section = make("details");
           section.append(make("summary",title + (truncated ? " (truncated)" : "")));
-          const pre = make("pre",value);
+          const pre = make("pre",value === "" ? "(empty string)" : value);
           pre.style.whiteSpace = "pre-wrap";
           pre.style.overflowWrap = "anywhere";
           pre.style.maxHeight = "420px";
@@ -2251,7 +2261,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           section.append(copy,feedback,pre);
           item.append(section);
         }
-        if (row.raw === undefined && row.providerError === undefined) item.append(make("p","No response content was returned by the provider.","muted"));
+        if (row.status === "empty-response") item.append(make("p","HTTP response received, but model completion content was empty or missing.","muted"));
+        else if (row.status === "unreadable-response") item.append(make("p","HTTP response received, but the body could not be read or parsed.","muted"));
+        else if (row.httpStatus === undefined && row.status) item.append(make("p","No HTTP response was received; provider receipt of the request is unknown.","muted"));
+        else if (row.raw === undefined && row.providerError === undefined && row.httpBody === undefined) item.append(make("p","No response content captured for this attempt.","muted"));
         list.append(item);
       }
     }
