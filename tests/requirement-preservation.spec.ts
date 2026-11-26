@@ -23,7 +23,7 @@ test("initial generation permits reviewed execution with explicitly acknowledged
     await expect(page.locator("#draft")).toBeVisible();
     await expect(page.locator("#generation-exception")).toBeHidden();
     await expect(page.locator("#instruction-coverage-blockers")).toContainText("2 requirement mappings need review");
-    await page.getByRole("button",{name:"Add All",exact:true}).click();
+    await page.getByRole("button",{name:"Approve all steps",exact:true}).click();
     await expect(page.locator("#save")).toBeDisabled();
     await page.locator("#accept-coverage-warning").check();
     await expect(page.locator("#save")).toBeEnabled();
@@ -132,7 +132,7 @@ test("AI reinterpretation explains invalidated requirement mappings and allows e
     await expect(panel).toContainText("R3 — "+amendment);
     await expect(panel).toContainText("New amendment requires explicit coverage review");
     await expect(page.locator("#draft-dom-wide-summary")).toContainText("1 DOM-wide assertion");
-    await page.getByRole("button",{name:"Add All",exact:true}).click();
+    await page.getByRole("button",{name:"Approve all steps",exact:true}).click();
     await expect(page.getByRole("button",{name:"Save Test"})).toBeDisabled();
 
     await page.locator("#accept-coverage-warning").check();
