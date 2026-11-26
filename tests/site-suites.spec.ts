@@ -76,7 +76,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await page.goto(url);
   await page.locator("#nav-run").click();
   const suite = page.getByLabel("Test suite (website URL)");
-  const singleBeforeSuite = page.getByLabel("Test script", { exact: true });
+  const singleBeforeSuite = page.getByLabel("Test", { exact: true });
   await expect(suite).toHaveValue("");
   await expect(singleBeforeSuite).toBeDisabled();
   await expect(singleBeforeSuite).toHaveValue("");
@@ -89,7 +89,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await timeout.selectOption("10000");
   await expect(timeout).toHaveValue("10000");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
-  const single = page.getByLabel("Test script", { exact: true });
+  const single = page.getByLabel("Test", { exact: true });
   await expect(single.locator("option")).toHaveCount(3); // blank + two SauceDemo scripts
   await expect(single.locator('option[value="' + first + '"]')).toHaveCount(1);
   await expect(single.locator('option[value="' + second + '"]')).toHaveCount(1);
@@ -110,7 +110,7 @@ test("website suites group scripts by origin and retain exact source URL in sepa
   await expect(single.locator('option[value="' + third + '"]')).toHaveCount(1);
   await expect(single).toHaveValue("");
   await expect(page.getByRole("button", { name: "Run selected test" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Edit selected saved test in review form" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Edit test" })).toBeDisabled();
   await expect(page.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toBeHidden();
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-selection-status")).toContainText("0 tests selected");
@@ -139,10 +139,10 @@ test("confirmed individual deletion only removes its approved script and preserv
   const badID = await post("/api/delete-test", { id: "../../secrets.json", confirmed: true });
   expect(badID.status).toBe(400);
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("button", { name: "Delete selected test script" }).click();
+  await page.getByRole("button", { name: "Delete test" }).click();
   expect((await list()).tests).toHaveLength(2);
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Delete selected test script" }).click();
+  await page.getByRole("button", { name: "Delete test" }).click();
   await expect(page.locator("#run-management-status")).toContainText("Approved test script deleted");
   expect((await list()).tests.map((item) => item.id)).toEqual([second]);
   expect((await readdir(websiteDirectory(dir, sauce)))).toEqual([second]);
@@ -199,8 +199,8 @@ test("existing flat JSON scripts stay visible under unassigned suite and can be 
   await page.goto(url);
   await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
-  await expect(page.getByLabel("Test script", { exact: true }).locator("option")).toHaveCount(2);
-  await expect(page.getByLabel("Test script", { exact: true }).locator('option[value="' + other + '"]')).toHaveCount(0);
+  await expect(page.getByLabel("Test", { exact: true }).locator("option")).toHaveCount(2);
+  await expect(page.getByLabel("Test", { exact: true }).locator('option[value="' + other + '"]')).toHaveCount(0);
   await expect(page.locator("#suite-test-list input[type=checkbox]")).toHaveCount(1);
   await expect(page.locator("#suite-site-note")).toContainText("Older saved scripts");
   await expect(page.getByRole("button", { name: "Delete this website test suite" })).toBeDisabled();
