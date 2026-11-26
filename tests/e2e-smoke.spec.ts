@@ -72,7 +72,7 @@ test.describe("@e2e-smoke application smoke", () => {
     await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     await page.locator("#nav-run").click();
-    return page.getByLabel("Test", { exact: true }).inputValue();
+    return page.locator("#execution-panel").getByLabel("Test", { exact: true }).inputValue();
   }
 
   test("workspace controls share sizing and destructive actions stay distinct", async ({ page }) => {
