@@ -31,3 +31,17 @@ test("offline prompt benchmark: short, multi-step and negative assertions",async
   assert.deepEqual(estimateModelTokens(request,representative),estimate);
  }
 });
+
+test("provisional GroqCloud calibration is scoped to GPT-OSS 20B and effective response mode",()=>{
+ const req={model,system:"hello world",prompt:"hello world"};
+ const base=estimateModelTokens(req).estimatedInputTokens;
+ for(const [responseMode,overhead] of [["json",102],["text",74]]){
+  const input={...req,responseMode};
+  const calibrated=estimateModelTokens(input,undefined,"groqcloud");
+  assert.equal(calibrated.estimatedInputTokens,base+overhead);
+  assert.equal(calibrated.providerOverheadTokens,overhead);
+  assert.equal(estimateModelTokens(input).estimatedInputTokens,base);
+  assert.equal(estimateModelTokens({...input,model:"openai/gpt-oss-120b"},undefined,"groqcloud").estimatedInputTokens,base);
+ }
+ assert.equal(estimateModelTokens(req,undefined,"groqcloud").estimatedInputTokens,base);
+});
