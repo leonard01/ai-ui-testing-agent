@@ -201,8 +201,8 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
 
   await selectSavedScript(page, fileIds[0]);
   await expect(panel.getByRole("button", { name: "Run selected test" })).toBeEnabled();
-  await expect(panel.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
-  await expect(panel.getByRole("button", { name: "Delete selected test script" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Edit test" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Delete test" })).toBeEnabled();
   await expect(panel.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toHaveAttribute(
     "href", /\/api\/tests\/reviewed-.*\/export\.ts\?/);
   await expect(panel.getByRole("link", { name: "View requirement matrix (JSON)" })).toBeVisible();
