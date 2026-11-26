@@ -9,8 +9,11 @@ test("experiment settings preserve hybrid defaults and reject unsupported settin
  assert.equal(effectiveGroqMode("text","json"),"json");
  assert.equal(effectiveGroqMode("json","text"),"text");
  assert.throws(()=>groqResponsePolicy("other"),/GROQ_RESPONSE_POLICY/);
- assert.equal(groqReasoningEffort("openai/gpt-oss-20b",""),undefined);
+ assert.equal(groqReasoningEffort("openai/gpt-oss-20b",""),"low");
  assert.equal(groqReasoningEffort("openai/gpt-oss-20b","low"),"low");
+ assert.equal(groqReasoningEffort("openai/gpt-oss-20b","medium"),"medium");
+ assert.equal(groqReasoningEffort("openai/gpt-oss-120b",""),undefined);
+ assert.equal(groqReasoningEffort("unsupported",""),undefined);
  assert.throws(()=>groqReasoningEffort("openai/gpt-oss-20b","none"),/GROQ_REASONING_EFFORT/);
  assert.throws(()=>groqReasoningEffort("unsupported","low"),/GPT-OSS/);
 });
