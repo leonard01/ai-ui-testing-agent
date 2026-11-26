@@ -14,7 +14,8 @@ export function createResponseCapture() {
     repairs?: string[]; validation?: string; accepted?: boolean;
     httpStatus?: number; httpBody?: string; httpBodyTruncated?: boolean; httpBodyCharacters?: number;
     contentCharacters?: number; finishReason?: string; completionTokens?: number; reasoningTokens?: number;
-    completionBudget?: number; status?: string; transportAttempt?: number };
+    completionBudget?: number; status?: string; transportAttempt?: number;
+    responseMode?: "json" | "text"; reasoningEffort?: "low" | "medium" | "high"; responsePolicy?: "hybrid" | "json" | "text" };
   const rows: Row[] = [];
   const max = 128_000;
   function safe(value: string) {
