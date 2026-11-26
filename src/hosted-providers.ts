@@ -9,6 +9,25 @@ export function groqCompletionBudget(value = process.env.GROQ_MAX_COMPLETION_TOK
   }
   return Number(value);
 }
+export type GroqResponsePolicy = "hybrid" | "json" | "text";
+export function groqResponsePolicy(value = process.env.GROQ_RESPONSE_POLICY): GroqResponsePolicy {
+  const mode = value?.trim() || "hybrid";
+  if (mode !== "hybrid" && mode !== "json" && mode !== "text")
+    throw new Error("GROQ_RESPONSE_POLICY must be hybrid, json or text. No model request was made.");
+  return mode;
+}
+export function groqReasoningEffort(model: string, value = process.env.GROQ_REASONING_EFFORT): "low" | "medium" | "high" | undefined {
+  const effort = value?.trim();
+  if (!effort) return undefined;
+  if (effort !== "low" && effort !== "medium" && effort !== "high")
+    throw new Error("GROQ_REASONING_EFFORT must be low, medium or high. No model request was made.");
+  if (!["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model))
+    throw new Error("Explicit GROQ_REASONING_EFFORT is currently supported only for GPT-OSS models. No model request was made.");
+  return effort;
+}
+export function effectiveGroqMode(requested: "json" | "text" = "json", policy = groqResponsePolicy()): "json" | "text" {
+  return policy === "hybrid" ? requested : policy;
+}
 type LimitFigures = Pick<UsageAttempt,"providerRequestedTokens"|"providerTokenLimit"|"providerUsedTokens">;
 function tokenLimitFigures(detail:string):LimitFigures {
   // Only extract labelled numbers from a provider rate-limit message, never its raw text.
@@ -166,11 +185,14 @@ export interface GroqResponseEvidence {
   completionBudget?: number;
   status?: string;
   transportAttempt?: number;
+  responseMode?: "json" | "text";
+  reasoningEffort?: "low" | "medium" | "high";
+  responsePolicy?: GroqResponsePolicy;
 }
 
 /** Exported with injectable fetch so unit tests never contact a paid service. */
 export async function requestGroq(
-  { model, system, prompt, responseMode = "json" }: ModelRequest,
+  { model, system, prompt, responseMode: requestedMode = "json" }: ModelRequest,
   requester: typeof fetch = fetch,
   observe?: (attempt: UsageAttempt) => void | Promise<void>,
   captureError?: (raw: string) => void,
@@ -195,8 +217,11 @@ export async function requestGroq(
   // limit automatic retry to ONE extra attempt to bound potential charges.
   // Timeout/unknown errors and HTTP responses are never retried here.
   const completionBudget=groqCompletionBudget();
+  const responsePolicy=groqResponsePolicy();
+  const responseMode=effectiveGroqMode(requestedMode,responsePolicy);
+  const reasoningEffort=groqReasoningEffort(model);
   function evidence(fields: GroqResponseEvidence) {
-    try { captureEvidence?.({completionBudget, ...fields}); } catch { /* Diagnostics must not affect generation. */ }
+    try { captureEvidence?.({completionBudget,responseMode,reasoningEffort,responsePolicy, ...fields}); } catch { /* Diagnostics must not affect generation. */ }
   }
   const estimatedInputTokens=Math.ceil((system.length+prompt.length)/4);
   const requestBody = JSON.stringify({
@@ -206,6 +231,7 @@ export async function requestGroq(
       { role: "user", content: prompt },
     ],
     ...(responseMode === "json" ? { response_format: { type: "json_object" } } : {}),
+    ...(reasoningEffort ? {reasoning_effort:reasoningEffort} : {}),
     stream: false,
     temperature: 0.1,
     max_completion_tokens: completionBudget,
@@ -225,7 +251,7 @@ export async function requestGroq(
       durationMs:Date.now()-started,status,httpStatus:response?.status,
       ...readTokenUsage(usage), completionBudget, estimatedInputTokens, ...figures, retryAfter,
       systemCharacters:system.length,promptCharacters:prompt.length,
-      remainingTokens,resetTokens,transportAttempt,responseMode,
+      remainingTokens,resetTokens,transportAttempt,responseMode,reasoningEffort,responsePolicy,
     }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
   }
   for (let attempt = 0; attempt < 2; attempt++) {
