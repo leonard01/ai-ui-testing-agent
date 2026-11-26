@@ -78,7 +78,7 @@ export async function readDraft(savedDir: string, id: string): Promise<SavedDraf
   return draftSchema.parse(JSON.parse(await readFile(join(savedDir, "drafts", id), "utf8")));
 }
 
-export async function listDraftsWithDiagnostics(savedDir: string) {
+export async function listDraftsWithDiagnostics(savedDir: string, all = false) {
   let names: string[];
   try { names = await readdir(join(savedDir, "drafts")); }
   catch (error) {
@@ -92,7 +92,7 @@ export async function listDraftsWithDiagnostics(savedDir: string) {
   }> = [];
   const validNames = names.filter(name => DRAFT_ID.test(name));
   let skippedInvalid = 0;
-  for (const id of validNames.slice(0, 1000)) {
+  for (const id of (all ? validNames : validNames.slice(0, 1000))) {
     try {
       const draft = await readDraft(savedDir, id);
       drafts.push({
@@ -108,7 +108,7 @@ export async function listDraftsWithDiagnostics(savedDir: string) {
     }
   }
   return { drafts: drafts.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-    skippedInvalid, skippedOverflow: Math.max(0, validNames.length - 1000) };
+    skippedInvalid, skippedOverflow: all ? 0 : Math.max(0, validNames.length - 1000) };
 }
 
 export async function listDrafts(savedDir: string) {

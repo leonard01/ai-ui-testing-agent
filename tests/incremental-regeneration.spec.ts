@@ -212,7 +212,7 @@ test("UI proposes suffix replacement, requires Apply and leaves replacement step
   await expect(page.locator("#draft-save-status")).toContainText("2/5 approved");
   await page.getByRole("button", { name: "Choose another test" }).click();
   page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Resume draft", exact: true }).click();
+  await page.getByRole("button", { name: "Resume Incremental task test", exact: true }).click();
   await expect(page.locator("#review-workspace")).toBeVisible();
   await expect(page.locator("#workspace-main")).toHaveAttribute("data-workspace","draft");
   await page.locator("#stage-instructions").click();

@@ -118,7 +118,7 @@ for (const nth of [0, 1]) {
       await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("PASSED");
 
-      const updatedId = await page.getByLabel("Test script", { exact: true }).inputValue();
+      const updatedId = await page.locator("#execution-panel").getByLabel("Test", { exact: true }).inputValue();
       expect(updatedId).not.toBe(saved.id);
       const corrected = JSON.parse(await readFile(await approvedPath(dir, updatedId), "utf8"));
       expect(corrected.steps[2].action.target).toEqual({

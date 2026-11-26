@@ -41,7 +41,7 @@
     h2 { font-size:17px; margin:0 0 6px; }
     .sub { margin:0 0 22px; font-size:13px; color:#596d83; line-height:1.55; }
     label { display:block; font-size:13px; font-weight:650; margin:14px 0 6px; }
-    input[type=url],textarea,select,input[type=text] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
+    input[type=url],textarea,select,input[type=text],input[type=search] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
     textarea { min-height:137px; resize:vertical; line-height:1.5; }
     .url-source-inactive { background:#f1f4f7 !important; color:#8292a4 !important; border-color:#d7dfe8 !important; }
     .url-source-inactive:focus { background:white !important; color:#1c304b !important; }
@@ -129,7 +129,7 @@
     .edits label { display:block; font-weight:650; margin:10px 0 5px; }
     .edits input { margin:0; }
     .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-    .actions button { padding:8px 12px; font-size:12px; }
+    .actions button { padding:10px 14px; font-size:13px; }
     .status { margin-top:14px; font-size:13px; color:#52667c; }
     #saved pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#1f3f5a; font-size:12px; background:#eef5f7; padding:10px; border-radius:6px; }
     .run-step { border:1px solid #d7e0ea; border-radius:8px; padding:13px 15px; margin:10px 0; background:white; }
@@ -145,6 +145,21 @@
     .result-metric strong { display:block; font-size:21px; }
     .result-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
     .run-step[data-status="execution-error"], .run-step[data-status="assertion-failed"] { border-left:4px solid #b42339; }
+    .execution-step-summary { cursor:pointer; list-style:none; }
+    .execution-step-summary::-webkit-details-marker { display:none; }
+    .execution-step-summary::after { content:"▸"; margin-left:8px; color:#52667c; }
+    details[open] > .execution-step-summary::after { content:"▾"; }
+    .execution-step-summary .result-head { display:inline-flex; width:calc(100% - 25px); }
+    .execution-progress { display:flex; height:8px; border-radius:8px; overflow:hidden; background:#eef0f4; margin:8px 0 16px; }
+    .execution-progress span { display:block; }
+    .result-metric[data-kind="passed"] strong { color:#17613b; }
+    .result-metric[data-kind="failed"] strong { color:#a22639; }
+    .history-table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; }
+    .history-table th,.history-table td { padding:10px 8px; border-bottom:1px solid #dce3ed; overflow-wrap:anywhere; vertical-align:middle; }
+    .history-table th { background:#f5f8fb; font-size:11px; text-transform:uppercase; }
+    .history-table .history-entry { display:table-row; }
+    .history-table-wrap { overflow-x:auto; }
+    .history-table td:last-child { white-space:nowrap; }
     .result-detail-toggle { margin-left:8px; font-size:12px; }
     .repair-scope { border:1px solid #d7e0ea; padding:10px; margin:10px 0; border-radius:8px; }
     .result-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -220,6 +235,7 @@
     .app-nav button { display:block; width:100%; text-align:left; background:transparent; color:#34506b; padding:12px; margin:4px 0; font-weight:600; }
     .report-nav-label { border-top:1px solid #dce3ed; margin-top:16px; padding:12px 12px 4px; font-weight:700; color:#52667c; font-size:12px; }
     .report-nav { padding-left:8px; }
+    @media(max-width:820px) { .report-nav-label { width:100%; margin-top:4px; padding:8px 12px 0; } .report-nav { display:flex; flex:1 1 100%; flex-wrap:wrap; gap:4px; padding-left:0; } }
     .planned-report { border:1px dashed #b9cddd; border-radius:8px; padding:14px; margin:16px 0; background:#f8fafc; }
     .planned-report h3 { margin:0 0 8px; }
     .request-usage:not(:empty) { margin:12px 0; padding:12px 14px; border:1px solid #dce3ed; background:#f8fafc; border-radius:8px; }
@@ -240,10 +256,54 @@
     main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
     main[data-workspace="ai-usage"] > :not(#ai-usage-panel),
     main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
-    main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
-    main[data-workspace="draft"] #placeholder, main[data-workspace="draft"] #working-drafts-panel { display:none !important; }
+    main[data-workspace="existing"] #draft-usage, main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
+    main[data-workspace="draft"] #placeholder { display:none !important; }
     #results-panel[data-result-kind="single"] #suite-output,
     #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
+    .test-context { max-width:1100px; margin:0 auto 14px; padding:12px 16px; background:white; border:1px solid #dce3ed; border-radius:9px; overflow-wrap:anywhere; }
+    .test-context strong { display:block; font-size:15px; }
+    .context-top { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+    .editor-state { font-size:11px; font-weight:650; padding:4px 8px; border-radius:6px; color:#52667c; background:#eef2f7; }
+    .editor-state[data-state="dirty"] { background:#fff0d6; color:#80520a; }
+    .editor-state[data-state="saved"] { background:#e7f8ee; color:#17613b; }
+    .catalog-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .catalog-status { border:0; padding:0; margin:14px 0 0; min-width:0; }
+    .catalog-status legend { font-size:13px; font-weight:650; }
+    .catalog-status-options { display:flex; flex-wrap:wrap; gap:8px 18px; }
+    .catalog-status-options label { display:flex; align-items:center; gap:6px; margin:8px 0 0; }
+    .catalog-status-options input { accent-color:#205e86; }
+    .catalog-table-wrap { overflow-x:auto; margin:14px 0; }
+    .catalog-table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; }
+    .catalog-table th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#52667c; background:#f5f8fb; }
+    .catalog-table th,.catalog-table td { padding:10px 9px; border-bottom:1px solid #dce3ed; vertical-align:middle; overflow-wrap:anywhere; }
+    .catalog-table td:first-child { min-width:160px; }
+    .catalog-table td:last-child { white-space:nowrap; }
+    .catalog-state { display:inline-block; border-radius:6px; padding:3px 6px; font-size:11px; font-weight:650; background:#e7f8ee; color:#17613b; }
+    .catalog-state.draft-state { background:#fff0d6; color:#80520a; }
+    @media(max-width:620px) { .catalog-filters { grid-template-columns:1fr; } }
+    .test-context .context-label { font-size:11px; color:#52667c; text-transform:uppercase; letter-spacing:.05em; }
+    .draft-list-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
+    .draft-list-toolbar h3 { margin:0; font-size:15px; }
+    #step-list .step { padding:10px 12px; margin:7px 0; scroll-margin-bottom:160px; }
+    #step-list .step header { justify-content:flex-start; flex-wrap:wrap; gap:6px; }
+    #step-list .step .step-summary { margin:6px 0 3px; font-weight:600; overflow-wrap:anywhere; }
+    #step-list .step .action { padding:6px 9px; font-size:12px; }
+    #step-list .step .step-controls { display:flex; align-items:center; gap:4px 10px; flex-wrap:wrap; margin-top:6px; }
+    #step-list .step .step-controls label { margin:0; margin-right:auto; font-size:12px; }
+    #step-list .step .step-controls input { flex:none; }
+    #step-list .step[data-approved="true"] { border-left:3px solid #218052; }
+    #step-list .step .step-details { margin-top:6px; }
+    #step-list .step .step-details summary { cursor:pointer; font-size:12px; color:#205e86; font-weight:600; }
+    #step-list .step .step-details[open] summary { margin-bottom:6px; }
+    .draft-save-bar { position:sticky; bottom:0; z-index:5; background:#fff; border:1px solid #c3d2df; border-radius:10px; padding:10px 12px; box-shadow:0 -4px 18px #16304e12; margin:12px 0 0; }
+    .draft-save-bar .actions { margin:7px 0 0; }
+    .draft-save-bar .actions button { flex:0 1 auto; }
+    .draft-save-bar p { margin:5px 0; }
+    .approval-progress { width:100%; height:7px; border-radius:9px; overflow:hidden; appearance:none; display:block; }
+    .approval-progress::-webkit-progress-bar { background:#e6edf3; border-radius:9px; }
+    .approval-progress::-webkit-progress-value { background:#218052; border-radius:9px; }
+    .approval-progress::-moz-progress-bar { background:#218052; }
+    @media(max-height:520px) { .draft-save-bar { position:static; } }
     @media(max-width:820px) {
       .app-shell { grid-template-columns:1fr; }
       .app-nav { display:flex; flex-wrap:wrap; gap:4px; border-right:0; border-bottom:1px solid #dce3ed; padding:8px 12px; }
@@ -251,6 +311,29 @@
       header { padding:16px; }
       .workspace { padding:16px; }
     }
+    /* Stage 3: shared visual hierarchy; no workflow or validation changes. */
+    :root { --ui-border:#dce3ed; --ui-radius:8px; --ui-primary:#205e86; --ui-danger:#9c2335; }
+    .workspace h2 { font-size:19px; line-height:1.35; }
+    .workspace h3 { font-size:15px; line-height:1.4; }
+    .workspace .sub { margin-bottom:18px; }
+    .workspace input[type=text], .workspace input[type=url], .workspace input[type=search], .workspace select { min-height:40px; border-radius:var(--ui-radius); padding:9px 11px; }
+    .workspace button:not(.textbtn):not(.site-memory-help-toggle), .run-script-actions a.secondary { min-height:36px; font-size:13px; line-height:1.4; }
+    .workspace button:focus-visible, .workspace a:focus-visible { outline:2px solid var(--ui-primary); outline-offset:2px; }
+    .workspace button.danger { background:white; color:var(--ui-danger); border:1px solid #b42339; }
+    .workspace button.danger:enabled:hover { background:#fff0f1; }
+    .workspace .catalog-heading { margin:0 0 12px; }
+    .workspace .catalog-heading h3 { margin:0; }
+    .workspace .catalog-table th,.workspace .history-table th { letter-spacing:.04em; color:#52667c; }
+    .workspace .catalog-table td,.workspace .history-table td { padding:10px 9px; }
+    .workspace .error,.workspace .success,.workspace .note,.workspace .ai-feedback,.workspace .ai-progress { border-radius:var(--ui-radius); padding:12px 14px; font-size:13px; line-height:1.5; border:1px solid transparent; border-left-width:4px; }
+    .workspace .error { border-color:#eab3be; border-left-color:#b42339; }
+    .workspace .success { border-color:#a5dbbc; border-left-color:#218052; }
+    .workspace .note { border-color:#efdcb8; border-left-color:#cf9f48; }
+    .workspace .ai-feedback,.workspace .ai-progress { border-color:#bfd0e0; border-left-color:var(--ui-primary); }
+    .workspace .error:empty,.workspace .success:empty,.workspace .note:empty { display:none; }
+    .workspace .empty-state { padding:14px; border:1px dashed #bfcbd8; border-radius:var(--ui-radius); background:#f8fafc; color:#52667c; }
+    .workspace .run-timeout-wrap select { min-height:0; border-radius:0; padding:9px 8px; }
+    @media(max-width:620px) { .workspace section { padding:16px; } .workspace .catalog-heading { gap:8px; } }
   </style>
 </head>
 <body>
@@ -328,6 +411,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <button type="button" id="stage-draft" data-view="draft" disabled>2. Draft</button><span aria-hidden="true">›</span>
         <button type="button" id="stage-results" data-view="results" disabled>3. Results</button>
       </nav>
+      <div id="test-context" class="test-context" aria-label="Current test context" hidden>
+        <div class="context-top"><div class="context-label" id="context-label">Current test</div><span id="editor-state" class="editor-state" role="status" hidden></span></div>
+        <strong id="context-name"></strong>
+        <div id="context-url" class="muted"></div>
+      </div>
       <main id="workspace-main" data-workspace="instructions">
     <section id="instructions-screen" aria-labelledby="instructions-heading">
       <div id="site-memory-option" class="site-memory-option">
@@ -350,7 +438,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <h2 id="instructions-heading">Test Instructions</h2>
       <p class="sub">Write what should happen, not Playwright code. Start with one simple scenario and include expected results wherever you know them.</p>
       <label for="test-name">Test name <span class="required-marker">(required)</span></label>
-      <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" required>
+      <input id="test-name" type="text" maxlength="200" placeholder="Required — e.g. SD-001 — Successful login" autocomplete="off" aria-describedby="test-name-conflict" required>
+      <p id="test-name-conflict" class="error" role="status" hidden style="margin:6px 0 0">A test with this name already exists in this website suite.</p>
       <form id="generate-form" novalidate>
         <label for="base-url">Application URL <span class="required-marker">(required)</span></label>
         <input id="base-url" type="url" required value="http://127.0.0.1:3000" autocomplete="off">
@@ -386,7 +475,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
 
     </section>
     <section id="review-workspace" aria-labelledby="review-heading" hidden>
-      <h2 id="review-heading">Test Draft</h2><div id="draft-usage"></div>
+      <h2 id="review-heading">Test Draft</h2><div id="draft-usage" class="request-usage" aria-live="polite"></div>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
@@ -395,7 +484,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p>These instructions could not be confidently mapped. The inspected page may not expose all functionality. No new draft is available.</p>
         <div id="exception-list"></div>
         <div class="actions" style="display:grid;gap:8px">
-          <button type="button" id="exception-edit-desc" class="secondary">Edit test description</button>
+          <button type="button" id="exception-edit-desc" class="secondary">Edit test instructions</button>
           <button type="button" id="exception-edit-reqs" class="secondary">Edit or delete problematic requirements</button>
           <button type="button" id="exception-proceed" class="secondary">Proceed without changes</button>
         </div>
@@ -413,32 +502,28 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </section>
       <div id="placeholder">
         <p id="generation-review-status" class="muted" role="status"></p>
-        <h3>Edit Existing Test</h3>
-        <p class="muted">Choose an approved test to edit or a <strong>Draft</strong> to resume. Drafts are not runnable and will not appear under Run Tests. To create a new test, use New Test in the navigation.</p>
-        <div class="run-test-selectors">
-          <div>
-            <label for="edit-suite">Test suite</label>
-            <select id="edit-suite"><option value="">Select a test suite</option></select>
-          </div>
-          <div>
-            <label for="edit-script">Existing test script or draft</label>
-            <select id="edit-script" disabled><option value="">Select a suite first</option></select>
-          </div>
+        <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3>Saved tests and drafts</h3><button type="button" id="catalog-refresh" class="secondary">Refresh</button></div>
+        <p class="muted">Browse approved tests or resume an unfinished draft. Only approved tests can run. Use New Test to create a separate test.</p>
+        <div class="catalog-filters">
+          <div><label for="edit-suite">Test suite</label><select id="edit-suite"><option value="">All suites</option></select></div>
+          <div><label for="edit-script">Test</label><select id="edit-script"><option value="">All tests</option></select></div>
         </div>
-        <div class="actions"><button type="button" id="edit-load" class="secondary" disabled>Load selected test</button></div>
-        <p id="edit-scripts-summary" class="muted" role="status"></p>
+        <fieldset id="catalog-status" class="catalog-status">
+          <legend>Status</legend>
+          <div class="catalog-status-options">
+            <label><input type="radio" name="catalog-status" value="all" checked>All</label>
+            <label><input type="radio" name="catalog-status" value="approved">Approved tests</label>
+            <label><input type="radio" name="catalog-status" value="draft">Drafts</label>
+          </div>
+        </fieldset>
+        <label for="catalog-search">Search tests</label><input id="catalog-search" type="text" placeholder="Search test name or website" autocomplete="off">
+        <p id="catalog-summary" class="muted" role="status"></p>
+        <div class="catalog-table-wrap"><table class="catalog-table" aria-label="Saved tests and working drafts"><thead><tr><th scope="col">Test name / website</th><th scope="col">Status</th><th scope="col">Steps</th><th scope="col">Action</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
+        <p id="catalog-empty" class="muted empty-state" hidden>No matching tests. Try changing the search or filter.</p>
+        <p id="catalog-error" class="error" role="alert"></p>
+        <p id="catalog-refresh-status" class="muted" role="status"></p>
+        <p id="catalog-draft-warning" class="error" role="status"></p>
       </div>
-      <section id="working-drafts-panel" aria-label="Saved working drafts" style="padding:12px 0;margin:12px 0;border-top:1px solid #d5dce3">
-        <h3>Saved working drafts</h3>
-        <p class="muted">Working drafts can contain unfinished steps and are not executable until approved. Saved drafts remain available while a test is open in the editor.</p>
-        <label for="draft-select">Choose saved working draft</label>
-        <select id="draft-select"><option value="">Select a working draft</option></select>
-        <div class="actions">
-          <button type="button" id="draft-load" class="secondary" disabled>Resume draft</button>
-          <button type="button" id="draft-refresh" class="secondary">Refresh drafts</button>
-        </div>
-        <p id="draft-list-status" class="muted" role="status"></p>
-      </section>
       <div id="draft" hidden>
         <p id="draft-title" style="font-weight:700"></p>
         <p class="muted">The saved test uses the name you supplied in Test Instructions, not the AI's suggested title.</p>
@@ -478,9 +563,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="selector-preflight-status" class="status" role="status"></p>
           <div id="selector-preflight-results"></div>
         </div>
-        <div class="actions" style="margin:12px 0">
-          <button type="button" id="review-add-all" class="secondary">Add All</button>
-          <span class="muted">Confirm all proposed steps at once. Review them before saving; editing a step clears its confirmation.</span>
+        <div class="draft-list-toolbar">
+          <h3>Test steps</h3>
+          <div class="actions" style="margin:0">
+            <button type="button" id="expand-steps" class="secondary">Expand all details</button>
+            <button type="button" id="collapse-steps" class="secondary">Collapse all details</button>
+          </div>
         </div>
         <div id="step-list"></div>
         <section id="incremental-panel" class="incremental-editor" hidden aria-labelledby="incremental-heading">
@@ -509,7 +597,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             </div>
           </div>
         </section>
-        <p id="review-progress" class="muted"></p>
         <section id="traceability-panel" style="margin:20px 0;padding:14px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="traceability-heading">
           <h3 id="traceability-heading">Requirements traceability (optional)</h3>
           <p class="muted">One requirement per line. Click Load requirements to create a reviewable matrix, then explicitly link each requirement to its test steps and assertions. No AI-generated claim of coverage is accepted.</p>
@@ -521,17 +608,22 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <div id="traceability-list"></div>
         </section>
         <div class="actions">
-          <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
-          <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
+          <button type="button" id="save-as-new" class="secondary" disabled>Save as new test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
         <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
         <input id="save-test-name" type="text" maxlength="200" placeholder="Required — e.g. Add two tasks" autocomplete="off">
-        <div class="actions" style="display:flex;gap:10px;margin-top:10px">
-          <button type="button" id="save" class="secondary" disabled style="flex:1">Save Test</button>
-          <button type="button" id="save-and-run" disabled style="flex:1">Save &amp; Run</button>
+        <div class="draft-save-bar" id="draft-save-bar" role="region" aria-label="Draft approval and save">
+          <p id="review-progress" class="muted" role="status"></p>
+          <progress id="approval-progress" class="approval-progress" aria-label="Step approvals" max="1" value="0"></progress>
+          <div class="actions">
+            <button type="button" id="review-add-all" class="secondary" title="Confirm all proposed steps after reviewing them">Approve all steps</button>
+            <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
+            <button type="button" id="save" class="secondary" disabled>Save Test</button>
+            <button type="button" id="save-and-run" disabled>Save &amp; Run</button>
+          </div>
+          <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         </div>
-        <p id="save-readiness" class="muted" role="status">Name your test and confirm its steps to save an executable script.</p>
         <p id="draft-save-status" role="status" class="muted"></p>
         <div id="saved" class="success" style="margin-top:12px"></div>
         <div id="save-error" class="error" style="margin-top:12px"></div>
@@ -541,7 +633,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <h2 id="execution-heading">Run Tests</h2>
       <p class="sub">Select an approved, saved test and configure execution. Test Results opens automatically when execution starts.</p>
       <div id="suite-panel" class="run-tests-panel">
-        <h3 style="margin:0 0 8px">Run Tests</h3>
+        <h3 style="margin:0 0 8px">Select tests</h3>
         <p class="muted">Choose a website test suite, then run one saved script or a selection of scripts. All scripts run from their approved, saved JSON.</p>
         <div class="run-test-selectors">
           <div>
@@ -549,7 +641,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             <select id="suite-site"><option value="">Select a test suite</option></select>
           </div>
           <div>
-            <label for="approved-tests">Test script</label>
+            <label for="approved-tests">Test</label>
             <select id="approved-tests" disabled><option value="">Select a test suite first</option></select>
           </div>
         </div>
@@ -571,8 +663,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
           <p class="muted">Timeout defaults to 5 seconds per step and also applies to batch runs.</p>
           <div class="run-script-actions">
-            <button type="button" id="edit-saved" class="secondary" disabled>Edit selected saved test in review form</button>
-            <button type="button" id="delete-script" class="secondary" disabled>Delete selected test script</button>
+            <button type="button" id="edit-saved" class="secondary" disabled>Edit test</button>
+            <button type="button" id="delete-script" class="secondary danger" disabled>Delete test</button>
             <button type="button" id="assign-legacy" class="secondary" disabled>Assign older script to website URL</button>
             <a id="saved-traceability" hidden target="_blank" rel="noopener">View requirement matrix (JSON)</a>
             <a id="export-playwright" class="secondary" hidden download>Export Playwright (.spec.ts)</a>
@@ -581,7 +673,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         </div>
 
         <div class="run-tests-group">
-          <h4>Run multiple test scripts</h4>
+          <h4>Run multiple tests</h4>
           <p class="muted">Select up to 10 scripts from this website. They run sequentially in separate browser contexts. A failed script does not stop the others.</p>
           <div id="suite-test-list" role="group" aria-label="Tests to include in suite"></div>
           <p id="suite-selection-status" class="muted">0 tests selected</p>
@@ -591,7 +683,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
         </div>
         <div class="run-suite-management">
-          <button type="button" id="delete-site" class="secondary" disabled>Delete this website test suite</button>
+          <button type="button" id="delete-site" class="secondary danger" disabled>Delete this website test suite</button>
           <p class="muted">Deleting a website suite permanently removes its approved test scripts. Historical run reports are retained.</p>
         </div>
       </div>
@@ -602,7 +694,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </div>
     </section>
     <section id="results-panel" aria-labelledby="results-heading" data-result-kind="single">
-      <h2 id="results-heading">Test Results</h2><div id="results-usage"></div>
+      <h2 id="results-heading">Test Results</h2>
       <p class="sub">Review execution progress, outcomes and failure evidence. Return to Instructions, Draft or Run Tests using the navigation above.</p>
       <div id="suite-output">
         <p id="suite-status" role="status" class="status"></p>
@@ -618,6 +710,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <h2 id="run-summary" style="margin-top:18px"></h2>
         <p id="run-totals" class="muted"></p>
         <div id="run-metrics" class="result-metrics" aria-label="Execution totals"></div>
+        <div id="run-progress-bar" class="execution-progress" aria-hidden="true"></div>
         <div id="result-actions" class="result-actions"></div>
         <div id="run-diagnosis" class="note"></div>
         <div id="run-coverage-warnings" class="review-advisories" hidden></div>
@@ -627,29 +720,29 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <img id="run-screenshot" alt="Screenshot captured when the test failed">
         </div>
         <h2 style="margin-top:20px">Step-by-step execution</h2>
+        <fieldset class="catalog-status"><legend>Show execution steps</legend><div class="catalog-status-options"><label><input type="radio" name="run-step-filter" value="all" checked>All steps</label><label><input type="radio" name="run-step-filter" value="failed">Failed</label></div></fieldset>
+        <p id="run-step-empty" class="muted empty-state" hidden>No failed steps.</p>
         <div id="run-steps"></div>
       </div>
       </div>
     </section>
     <section id="diagnostics-panel" aria-labelledby="diagnostics-heading">
       <h2 id="diagnostics-heading">Test Execution History</h2>
-      <section id="history-panel" hidden style="margin-top:12px;padding:16px;border:1px solid #d5dce3;border-radius:12px" aria-labelledby="history-heading">
-        <h3 id="history-heading">Execution history</h3>
-        <div class="planned-report" id="history-planned"><h3>Planned enhancements — to be implemented</h3><p class="muted">Date range and verdict filters, historical pass/fail trends, test-level execution comparisons, and exportable reports. Existing website-suite history remains available below.</p></div>
-        <p class="muted">Choose a website test suite to see its previous executions. Individual test runs are included under their website suite, not listed separately.</p>
+      <section id="history-panel" hidden aria-labelledby="history-heading">
+        <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 id="history-heading">Execution history</h3><button type="button" id="refresh-history" class="secondary">Refresh</button></div>
+        <div id="history-metrics" class="result-metrics" aria-label="Filtered execution totals"></div>
         <label for="history-site">History filter — website test suite</label>
-        <select id="history-site"><option value="">Select a website test suite</option></select>
-        <div class="history-toolbar">
-          <button type="button" id="refresh-history" class="secondary">Refresh history</button>
-          <button type="button" id="delete-all-history" class="secondary">Delete All History</button>
-        </div>
+        <select id="history-site"><option value="__all__">All suites</option></select>
+        <fieldset class="catalog-status"><legend>Result</legend><div class="catalog-status-options"><label><input type="radio" name="history-verdict" value="" checked>All</label><label><input type="radio" name="history-verdict" value="passed">Passed</label><label><input type="radio" name="history-verdict" value="failed">Failed</label></div></fieldset>
+        <label for="history-search">Search executions</label><input type="search" id="history-search" maxlength="200" placeholder="Search test name or website">
         <p id="history-status" role="status" class="muted"></p>
-        <div id="history-suite-list"></div>
+        <div class="history-table-wrap"><table class="history-table" aria-label="Execution history"><thead><tr><th scope="col">Test / execution date</th><th scope="col">Result</th><th scope="col">Tests</th><th scope="col">Action</th></tr></thead><tbody id="history-suite-list"></tbody></table></div>
         <div class="history-pagination">
           <button type="button" id="history-prev" class="secondary" disabled>Previous</button>
           <span id="history-page-info" role="status" class="muted"></span>
           <button type="button" id="history-next" class="secondary" disabled>Next</button>
         </div>
+        <div class="history-toolbar" style="justify-content:flex-end"><button type="button" id="delete-all-history" class="secondary danger">Delete All History</button></div>
       </section>
     </section>
     <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
@@ -699,11 +792,55 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     let preflightRevision = 0;
     let preflightFindings = [];
     let currentWorkspace = "instructions";
+    let editorRevision = 0;
+    let editorLoading = false;
     let hasResults = false;
+    let resultContext = null;
+    let persistedEditorState = null;
+    function editorFingerprint() {
+      return JSON.stringify({
+        name:$("test-name").value.trim(), url:$("base-url").value.trim(),
+        generatedURL:selectedBaseURL, instructions:$("requirements").value,
+        originalInstructions, definition,
+        approvals:[...approvals].sort((a,b)=>a-b),
+      });
+    }
+    function recordEditorSaved(kind, fingerprint = editorFingerprint()) {
+      persistedEditorState = {kind,fingerprint};
+      updateEditorState();
+    }
+    function updateEditorState() {
+      const node = $("editor-state");
+      const authoring = currentWorkspace === "instructions" || currentWorkspace === "draft";
+      node.hidden = !authoring || (!definition && !$("test-name").value.trim() && !$("requirements").value.trim());
+      const unchanged = definition && persistedEditorState?.fingerprint === editorFingerprint();
+      node.dataset.state = unchanged ? "saved" : "dirty";
+      const label = unchanged
+        ? persistedEditorState.kind === "draft" ? "Working draft saved" : "Approved test saved"
+        : definition ? "Unsaved changes" : "Unsaved instructions";
+      if (node.textContent !== label) node.textContent = label;
+    }
+    const expandedStepIds = new Set();
+    function updateTestContext() {
+      const result = currentWorkspace === "results";
+      const authoring = currentWorkspace === "instructions" || currentWorkspace === "draft";
+      const name = result ? resultContext?.name : $("test-name").value.trim();
+      const url = result ? resultContext?.url :
+        currentWorkspace === "draft" && definition ? selectedBaseURL : $("base-url").value.trim();
+      $("test-context").hidden = !(result || authoring) || !name;
+      $("context-label").textContent = result ? "Execution context" : "Current test";
+      $("context-name").textContent = name || "";
+      // Do not echo credentials or sensitive query fragments from application URLs.
+      let displayUrl = "";
+      try { const parsed = new URL(url); displayUrl = parsed.origin + parsed.pathname; } catch {}
+      $("context-url").textContent = displayUrl || "Application URL not set";
+      updateEditorState();
+    }
     function syncWorkspaceNavigation() {
       $("stage-draft").disabled = !definition && $("generation-exception").hidden;
       $("stage-results").disabled = !hasResults;
       $("start-new-test").hidden = !definition && $("generation-exception").hidden;
+      updateTestContext();
     }
     function showWorkspace(view) {
       if (view === "draft" && !definition && $("generation-exception").hidden) return;
@@ -714,7 +851,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (view === "draft" || view === "existing") {
         $("review-workspace").hidden = false;
         $("placeholder").hidden = view !== "existing";
-        $("working-drafts-panel").hidden = view !== "existing";
       }
       if (view === "ai-usage") void refreshAIUsage();
       if (view === "diagnostics") {
@@ -800,17 +936,60 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           ? "Original instructions unavailable for this older saved test."
           : originalInstructions;
     }
+    function catalogRecords() {
+      return [...approvedCatalog.map(item=>({...item,kind:"approved"})), ...draftCatalog.map(item=>({...item,kind:"draft"}))]
+        .sort((a,b)=>a.title.localeCompare(b.title) || a.kind.localeCompare(b.kind) || (a.siteUrl || "").localeCompare(b.siteUrl || ""));
+    }
+    function catalogSite(item) { return item.siteUrl || "__legacy__"; }
+    function catalogStatus() { return $("catalog-status").querySelector("input:checked")?.value || "all"; }
+    function catalogMatchesScope(item) {
+      const suite = $("edit-suite").value;
+      const status = catalogStatus();
+      return (!suite || catalogSite(item) === suite) && (status === "all" || item.kind === status);
+    }
+    function renderTestCatalog() {
+      const search = $("catalog-search").value.trim().toLowerCase();
+      const selected = $("edit-script").value;
+      const all = catalogRecords();
+      const filtered = all.filter(item => catalogMatchesScope(item) && (!selected || item.id === selected) &&
+        (item.title+" "+(item.siteUrl || "Older / unassigned")).toLowerCase().includes(search));
+      const body = $("catalog-rows");
+      body.replaceChildren();
+      const approvedCount = filtered.filter(item => item.kind === "approved").length;
+      const draftCount = filtered.length - approvedCount;
+      $("catalog-summary").textContent = filtered.length + " of " + all.length + " saved test records · " + approvedCount + " approved · " + draftCount + (draftCount === 1 ? " draft" : " drafts");
+      $("catalog-empty").hidden = filtered.length !== 0;
+      for (const item of filtered) {
+        const row = make("tr");
+        row.dataset.recordId = item.id;
+        const title = make("td");
+        title.append(make("strong", item.title), make("div", item.siteUrl || "Older / unassigned", "muted"));
+        const state = make("td");
+        state.append(make("span",item.kind === "draft" ? "Draft — not runnable" : "Approved","catalog-state"+(item.kind === "draft" ? " draft-state":"")));
+        const count = make("td",item.kind === "draft" ? item.approved+"/"+item.steps+" confirmed":String(item.steps));
+        const action = make("td");
+        const open = make("button",item.kind === "draft" ? "Resume" : "Edit","secondary");
+        open.type = "button";
+        open.setAttribute("aria-label",(item.kind === "draft" ? "Resume " : "Edit ")+item.title);
+        open.addEventListener("click",()=> {
+          $("catalog-error").textContent = "";
+          if (item.kind === "draft") void loadWorkingDraft(item.id);
+          else void loadSavedForEditing(item.id);
+        });
+        action.append(open);
+        row.append(title,state,count,action);
+        body.append(row);
+      }
+    }
+    $("catalog-search").addEventListener("input",renderTestCatalog);
+    $("catalog-status").addEventListener("change",()=>renderExistingScripts());
     function renderExistingEditorChoices() {
       const suite = $("edit-suite");
-      const script = $("edit-script");
       const priorSuite = suite.value;
-      const priorScript = script.value;
-      const sites = [...new Set([
-        ...approvedCatalog.map(test => test.siteUrl || "__legacy__"),
-        ...draftCatalog.map(draft => draft.siteUrl),
-      ])].sort();
+      const priorScript = $("edit-script").value;
+      const sites = [...new Set(catalogRecords().map(catalogSite))].sort();
       suite.replaceChildren();
-      const blank = make("option", "Select a test suite");
+      const blank = make("option", "All suites");
       blank.value = "";
       suite.append(blank);
       for (const site of sites) {
@@ -818,96 +997,55 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         option.value = site;
         suite.append(option);
       }
-      if (sites.includes(priorSuite)) suite.value = priorSuite;
-      renderExistingScripts(priorScript);
+      suite.value = sites.includes(priorSuite) ? priorSuite : "";
+      renderExistingScripts(suite.value === priorSuite ? priorScript : "");
     }
     function renderExistingScripts(selected = "") {
       const script = $("edit-script");
-      const suite = $("edit-suite").value;
       script.replaceChildren();
-      const placeholder = make("option", suite ? "Select a test script" : "Select a suite first");
+      const placeholder = make("option", "All tests");
       placeholder.value = "";
       script.append(placeholder);
-      const approved = approvedCatalog.filter(item =>
-        (item.siteUrl || "__legacy__") === suite);
-      const drafts = draftCatalog.filter(item => item.siteUrl === suite);
-      for (const item of approved) {
-        const option = make("option", "[Approved] " + item.title + " (" + item.steps + " steps)");
+      const choices = catalogRecords().filter(catalogMatchesScope);
+      for (const item of choices) {
+        const website = item.siteUrl || "Older / unassigned";
+        const prefix = item.kind === "draft" ? "[Draft — not runnable] " : "[Approved] ";
+        const option = make("option", prefix + item.title + " — " + website);
         option.value = item.id;
         script.append(option);
       }
-      for (const item of drafts) {
-        const option = make("option", "[Draft — not runnable] " + item.title +
-          " (" + item.approved + "/" + item.steps + " approved)");
-        option.value = item.id;
-        script.append(option);
-      }
-      if ([...approved, ...drafts].some(item => item.id === selected)) script.value = selected;
-      script.disabled = !suite;
-      $("edit-scripts-summary").textContent = suite
-        ? approved.length + " approved test(s), " + drafts.length +
-          " working draft(s). Drafts cannot be run."
-        : "Select a website suite to see approved tests and working drafts.";
-      updateEditLoadButton();
+      script.value = choices.some(item => item.id === selected) ? selected : "";
+      renderTestCatalog();
     }
     $("edit-suite").addEventListener("change", () => renderExistingScripts());
-    function updateEditLoadButton() {
-      const id = $("edit-script").value;
-      $("edit-load").disabled = !id || running;
-      $("edit-load").textContent = id.startsWith("draft-")
-        ? "Resume selected draft" : "Load selected test";
-    }
-    $("edit-script").addEventListener("change", updateEditLoadButton);
-    $("edit-load").addEventListener("click", () => {
-      const id = $("edit-script").value;
-      if (!id) return;
-      if (id.startsWith("draft-")) void loadWorkingDraft(id);
-      else void loadSavedForEditing(id);
-    });
-    async function refreshDraftPicker(selected = $("draft-select").value) {
+    $("edit-script").addEventListener("change", renderTestCatalog);
+    async function refreshDraftCatalog() {
       const data = await requestJSON("/api/drafts");
       draftCatalog = data.drafts;
-      const select = $("draft-select");
-      select.replaceChildren();
-      const blank = make("option", "Select a working draft");
-      blank.value = "";
-      select.append(blank);
-      for (const draft of data.drafts) {
-        const option = make("option", draft.title + " — " + draft.approved +
-          "/" + draft.steps + " approved (" + draft.siteUrl + ")");
-        option.value = draft.id;
-        select.append(option);
-      }
-      if (data.drafts.some(item => item.id === selected)) select.value = selected;
-      $("draft-load").disabled = !select.value;
-      $("draft-list-status").textContent = data.drafts.length +
-        " working draft" + (data.drafts.length === 1 ? "" : "s") + " available." +
-        (data.skippedInvalid ? " WARNING: " + data.skippedInvalid +
-          " saved draft file(s) could not be read; the server did not include them." : "") +
-        (data.skippedOverflow ? " WARNING: " + data.skippedOverflow +
-          " draft(s) exceed the current index limit." : "");
-      $("draft-list-status").classList.toggle("error",
-        Boolean(data.skippedInvalid || data.skippedOverflow));
+      updateGenerateReadiness();
+      $("catalog-draft-warning").textContent =
+        (data.skippedInvalid ? "WARNING: " + data.skippedInvalid + " saved draft file(s) could not be read. " : "") +
+        (data.skippedOverflow ? "WARNING: " + data.skippedOverflow + " draft(s) exceed the current index limit." : "");
       renderExistingEditorChoices();
-      if (selected) {
-        const item = draftCatalog.find(item => item.id === selected);
-        if (item) {
-          $("edit-suite").value = item.siteUrl;
-          renderExistingScripts(item.id);
-        }
-      }
     }
-    $("draft-select").addEventListener("change", () => {
-      $("draft-load").disabled = !$("draft-select").value;
-    });
-    $("draft-refresh").addEventListener("click", () => {
-      void refreshDraftPicker().catch(error => {
-        $("draft-list-status").textContent = error.message || String(error);
-      });
+    $("catalog-refresh").addEventListener("click", async () => {
+      const button = $("catalog-refresh");
+      if (button.disabled) return;
+      button.disabled = true;
+      $("catalog-refresh-status").textContent = "Refreshing tests and drafts...";
+      $("catalog-error").textContent = "";
+      try {
+        const results = await Promise.allSettled([refreshApprovedTests(), refreshDraftCatalog()]);
+        const errors = results.flatMap((result,index)=>result.status === "rejected"
+          ? [(index === 0 ? "Approved tests: " : "Drafts: ") + (result.reason?.message || String(result.reason))] : []);
+        $("catalog-error").textContent = errors.join(" · ");
+        $("catalog-refresh-status").textContent = errors.length ? "Refresh incomplete; previously loaded records are retained where possible." : "Tests and drafts refreshed.";
+      } finally { button.disabled = false; }
     });
     async function loadWorkingDraft(id) {
-      if (!id || running || !draftCatalog.some(item => item.id === id)) return;
+      if (!id || running || saving || generatingDraft || editorLoading || !draftCatalog.some(item => item.id === id)) return;
       if (!confirmReplaceWorkspace()) return;
+      editorLoading = true;
       try {
         const data = await requestJSON("/api/drafts/" + encodeURIComponent(id));
         definition = data.draft.definition;
@@ -932,39 +1070,73 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft-title").textContent = "Working draft: " + definition.title;
         $("draft-hint").textContent = "Resumed saved draft. Approval state and original instructions restored. This is not executable until fully reviewed and approved.";
         $("draft-save-status").textContent = "";
+        recordEditorSaved("draft");
         renderSteps();
         $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (error) {
-        $("draft-list-status").textContent = error.message || String(error);
-      }
+        $("catalog-error").textContent = error.message || String(error);
+      } finally { editorLoading = false; }
     }
-    $("draft-load").addEventListener("click", () => {
-      void loadWorkingDraft($("draft-select").value);
-    });
     function confirmReplaceWorkspace() {
       return (!definition && !$("requirements").value.trim() && !$("test-name").value.trim()) ||
         window.confirm("Opening a different test replaces the current editor contents. Save any unfinished changes first. Continue?");
     }
     $("back-to-selector").addEventListener("click", () => {
       showWorkspace("existing");
-      void refreshDraftPicker();
+      void refreshDraftCatalog().catch(error => { $("catalog-error").textContent = error.message || String(error); });
     });
-    $("start-new-test").addEventListener("click", () => {
-      if (running || saving || generatingDraft || !confirmReplaceWorkspace()) return;
+    function startNewTest() {
+      if (running || saving || generatingDraft || editorLoading || (definition && ($("incremental-generate").disabled || $("selector-preflight").disabled))) {
+        window.alert("Finish the current operation before starting a new test.");
+        return;
+      }
+      if (!confirmReplaceWorkspace()) return;
+      editorRevision++;
+      persistedEditorState = null;
+      expandedStepIds.clear();
+      resultContext = null;
+      incrementalRevision++;
+      incrementalSelectedId = null;
+      incrementalPending = null;
+      lastSavedId = "";
+      savedFingerprint = "";
+      exceptionRequest = null;
+      exceptionRootInstructions = undefined;
       hideException();
       clearGenerationPreview();
       $("test-name").value = "";
       $("requirements").value = "";
+      $("base-url").value = "";
+      $("recent-url").value = "";
+      activeURLSource = "manual";
+      $("base-url").classList.remove("url-source-inactive");
+      $("recent-url").classList.add("url-source-inactive");
+      $("url-source-status").textContent = "Enter an application URL or choose a previous website.";
+      $("requirements-file").value = "";
+      $("import-note").textContent = "File contents will be added to the instructions above. Max 12,000 characters total.";
+      for (const id of ["generation-status","generation-error","generation-review-status","application-memory-status","incremental-status","incremental-warnings"]) $(id).textContent = "";
+      $("incremental-instructions").value = "";
+      $("incremental-panel").hidden = true;
+      $("incremental-preview").hidden = true;
+      $("incremental-progress").hidden = true;
+      $("incremental-status").hidden = true;
+      $("incremental-proposed-steps").replaceChildren();
+      hasResults = false;
+      updateApproval();
       showOriginalInstructions();
       updateGenerateReadiness();
       showWorkspace("instructions");
-    });
+    }
+    $("start-new-test").addEventListener("click", startNewTest);
     $("save-draft").addEventListener("click", async () => {
-      if (!definition || !$("test-name").value.trim()) return;
+      if (saving || running || editorLoading || !definition || !$("test-name").value.trim()) return;
+      saving = true;
+      updateApproval();
       $("draft-save-status").classList.remove("error");
       $("draft-save-status").textContent = "Saving working draft...";
       try {
         const name = $("test-name").value.trim();
+        const fingerprint = editorFingerprint();
         const result = await requestJSON("/api/drafts/save", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -973,30 +1145,30 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             sourceInstructions: originalInstructions,
             workingInstructions: $("requirements").value,
             approvedStepIds: [...approvals].map(index => definition.steps[index].id),
-            ...(editingSavedId ? { sourceApprovedId: editingSavedId } : {}),
+            ...((editingSavedId || lastSavedId) ? { sourceApprovedId: editingSavedId || lastSavedId } : {}),
           }),
         });
         if (!result.listed || !result.id || !result.file) {
           throw new Error("The server did not verify that this working draft is saved and listed.");
         }
         workingDraftId = result.id;
-        await refreshDraftPicker(result.id);
-        const listed = draftCatalog.some(item => item.id === result.id) &&
-          $("draft-select").value === result.id &&
-          $("edit-script").value === result.id;
+        recordEditorSaved("draft", fingerprint);
+        await refreshDraftCatalog();
+        // Catalog filters are user preferences: saving must not force a suite,
+        // status or case selection. Verify the record in the underlying catalog.
+        const listed = draftCatalog.some(item => item.id === result.id);
         if (!listed) {
-          throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and try Refresh drafts.");
+          throw new Error("The save succeeded, but the new draft is missing from the editor list. Check the draft index and use Refresh in Existing Tests.");
         }
         $("draft-save-status").classList.remove("error");
         $("draft-save-status").textContent = "Working draft saved and verified (" +
           approvals.size + "/" + definition.steps.length + " approved). " +
-          "Listed as [Draft — not runnable] in Edit Existing Test, and selected " +
-          "under Saved working drafts. File: " + result.file;
+          "Available in Existing Tests as [Draft — not runnable]. File: " + result.file;
         $("draft-save-status").scrollIntoView({ behavior: "smooth", block: "nearest" });
       } catch(error) {
         $("draft-save-status").classList.add("error");
         $("draft-save-status").textContent = error.message || String(error);
-      }
+      } finally { saving = false; updateApproval(); }
     });
     function describeTarget(target) {
       if (!target) return "unknown element";
@@ -1250,7 +1422,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       };
       const cancel = make("button", "Cancel", "secondary");
       cancel.type = "button";
-      cancel.onclick = () => edits.remove();
+      cancel.onclick = () => { edits.remove(); const edit = card.querySelector("button.textbtn"); if (edit) edit.disabled = false; };
       buttons.append(apply, cancel);
       edits.append(buttons);
       card.append(edits);
@@ -1392,6 +1564,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("incremental-panel").hidden = true;
       const list = $("step-list");
       list.replaceChildren();
+      for (const id of expandedStepIds) if (!definition.steps.some(step => step.id === id)) expandedStepIds.delete(id);
       renderTestDesignIssues();
       for (const [index, step] of definition.steps.entries()) {
         const card = make("article", null, "step");
@@ -1405,37 +1578,47 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           top.append(scopeBadge);
         }
         card.append(top);
-        card.append(make("p", step.description));
+        card.append(make("p", step.description, "step-summary"));
         card.append(make("div", describeAction(step.action), "action"));
+        const details = make("details", null, "step-details");
+        details.append(make("summary", "Technical details"));
+        details.open = expandedStepIds.has(step.id);
+        details.addEventListener("toggle", () => {
+          if (!details.isConnected) return;
+          if (details.open) expandedStepIds.add(step.id); else expandedStepIds.delete(step.id);
+        });
         if ("target" in step.action && ["css", "xpath"].includes(step.action.target.by)) {
-          card.append(make("div", step.action.target.by === "xpath"
+          details.append(make("div", step.action.target.by === "xpath"
             ? "XPath fallback: may be brittle as the DOM changes; review this selector before relying on it."
             : "CSS fallback: stability depends on the attributes and structure used. Positional or generated-class selectors can be brittle.", "note"));
         }
         if ("provenance" in step.action) {
           const status = make("div", "Expected result source: " + step.action.provenance, "muted");
           status.style.marginTop = "8px";
-          card.append(status);
+          details.append(status);
           if (step.action.provenance === "inferred") {
-            card.append(make("div", "AI assumption — confirm this is the expected behaviour, not just what the application currently does.", "note"));
+            details.append(make("div", "AI assumption — confirm this is the expected behaviour, not just what the application currently does.", "note"));
           }
         }
         if (step.action.target && step.action.target.by === "role" &&
             step.action.target.role === "listitem" && step.action.target.name) {
-          card.append(make("div", "Check this locator: list items do not always have accessible names.", "note"));
+          details.append(make("div", "Check this locator: list items do not always have accessible names.", "note"));
         }
         if (step.action.target && step.action.target.by === "intent" &&
             ["checkbox", "button"].includes(step.action.target.role) &&
             /^(complete|delete|remove|edit|finish|mark complete)$/i.test(step.action.target.value.trim())) {
-          card.append(make("div",
+          details.append(make("div",
             "Ambiguous target risk: this action names only a generic control. " +
             "If the page contains multiple tasks or rows, include the specific item name " +
             '(for example "Complete preparing a presentation").', "note"));
         }
+        if (details.childElementCount === 1) details.append(make("p", "No additional step warnings.", "muted"));
+        card.append(details);
+        const controls = make("div", null, "step-controls");
         const edit = make("button", "Edit fields", "textbtn");
         edit.type = "button";
-        edit.onclick = () => { edit.disabled = true; beginEdit(card, step, index); };
-        card.append(edit);
+        edit.onclick = () => { details.open = true; expandedStepIds.add(step.id); edit.disabled = true; beginEdit(card, step, index); };
+        controls.append(edit);
         if (index > 0) {
           const reinterpret = make("button", "Reinterpret with AI", "textbtn");
           reinterpret.type = "button";
@@ -1453,7 +1636,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             updateIncrementalReadiness();
             $("incremental-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
           });
-          card.append(reinterpret);
+          controls.append(reinterpret);
         }
         const label = make("label");
         const check = make("input");
@@ -1464,7 +1647,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           updateApproval();
         });
         label.append(check, make("span", "This step matches my intent"));
-        card.append(label);
+        controls.prepend(label);
+        card.append(controls);
         list.append(card);
       }
       renderDomWideSummary();
@@ -1887,6 +2071,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function updateApproval() {
       const total = definition?.steps.length ?? 0;
       $("review-progress").textContent = approvals.size + " of " + total + " steps confirmed";
+      $("approval-progress").max = Math.max(total, 1);
+      $("approval-progress").value = approvals.size;
+      $("step-list").querySelectorAll(".step").forEach((card, index) => { card.dataset.approved = String(approvals.has(index)); });
+      updateTestContext();
       const missingName = !$("test-name").value.trim();
       if ($("save-test-name").value !== $("test-name").value) {
         $("save-test-name").value = $("test-name").value;
@@ -1913,13 +2101,16 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             ". Save Draft is available for unfinished work once a name is entered."
           : "Ready to save or run. Save & Run will save the reviewed test and automatically open Test Results.";
       $("save-readiness").classList.toggle("ready", total > 0 && !missing.length);
-      const cannotSave = saving || running || total === 0 || approvals.size !== total ||
+      const duplicate = duplicateName($("test-name").value, selectedBaseURL);
+      $("save-readiness").classList.toggle("ready", total > 0 && !missing.length && !duplicate);
+      if (duplicate) $("save-readiness").textContent = "A test with this name already exists in this website suite. Choose a different name.";
+      const cannotSave = duplicate || saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !$("test-name").value.trim();
       $("save").disabled = cannotSave;
       $("save-and-run").disabled = cannotSave;
       $("review-add-all").disabled = total === 0 || approvals.size === total;
-      $("save-draft").disabled = saving || running || total === 0 || !$("test-name").value.trim();
-      $("save-as-new").disabled = saving || running || total === 0 || approvals.size !== total ||
+      $("save-draft").disabled = duplicate || saving || running || total === 0 || !$("test-name").value.trim();
+      $("save-as-new").disabled = duplicateName($("test-name").value, selectedBaseURL, true) || saving || running || total === 0 || approvals.size !== total ||
         credentialReview || unresolvedCoverage.length > 0 || !editingSavedId || !$("test-name").value.trim();
     }
     $("test-name").addEventListener("input", () => {
@@ -1928,7 +2119,19 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       updateGenerateReadiness();
     });
     let generatingDraft = false;
+    function duplicateName(name, url, asNew = false) {
+      const valid = validRecentUrl(url);
+      if (!valid || !name.trim()) return false;
+      const site = new URL(valid).origin;
+      const key = name.trim().toLowerCase();
+      return approvedCatalog.some(item => item.siteUrl === site &&
+        item.title.trim().toLowerCase() === key &&
+        (asNew || (item.id !== editingSavedId && item.id !== lastSavedId))) ||
+        draftCatalog.some(item => item.siteUrl === site &&
+          item.title.trim().toLowerCase() === key && (asNew || item.id !== workingDraftId));
+    }
     function updateGenerateReadiness() {
+      updateTestContext();
       const name = $("test-name").value.trim();
       const instructions = $("requirements").value.trim();
       const invalid = {
@@ -1936,20 +2139,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         "base-url": !validRecentUrl($("base-url").value),
         "requirements": !instructions || instructions.length > 12000,
       };
+      const duplicate = duplicateName(name, $("base-url").value);
+      invalid["test-name"] ||= duplicate;
       const missing = [];
-      if (invalid["test-name"]) missing.push("a Test name (1–200 characters)");
+      if (invalid["test-name"] && !duplicate) missing.push("a Test name (1–200 characters)");
       if (invalid["base-url"]) missing.push("a valid Application URL");
       if (invalid.requirements) missing.push("test instructions (1–12,000 characters)");
-      $("generate-readiness").textContent = missing.length
+      $("test-name-conflict").hidden = !duplicate;
+      $("generate-readiness").textContent = duplicate ? "Choose a different Test name before generating." : missing.length
         ? "Before generating, enter " + missing.join(", ") + "."
         : "All required fields complete. Ready to generate.";
-      $("generate-readiness").classList.toggle("ready", !missing.length);
-      $("generate").disabled = generatingDraft || missing.length > 0;
+      $("generate-readiness").classList.toggle("ready", !missing.length && !duplicate);
+      $("generate").disabled = generatingDraft || missing.length > 0 || duplicate;
       for (const id of ["test-name", "base-url", "requirements"]) {
         $(id).classList.toggle("missing-field", invalid[id]);
         $(id).setAttribute("aria-invalid", String(Boolean(invalid[id])));
       }
-      return missing.length === 0;
+      return missing.length === 0 && !duplicate;
     }
     function updateIncrementalReadiness() {
       const instructions = $("incremental-instructions").value.trim();
@@ -1972,6 +2178,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("save-error").textContent = "";
       updateApproval();
       updateGenerateReadiness();
+    });
+    $("expand-steps").addEventListener("click", () => {
+      for (const detail of $("step-list").querySelectorAll(".step-details")) detail.open = true;
+      for (const step of definition?.steps || []) expandedStepIds.add(step.id);
+    });
+    $("collapse-steps").addEventListener("click", () => {
+      for (const detail of $("step-list").querySelectorAll(".step-details")) detail.open = false;
+      expandedStepIds.clear();
     });
     $("review-add-all").addEventListener("click", () => {
       if (!definition?.steps.length) return;
@@ -2137,6 +2351,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const previousSite = $("suite-site").value;
       const payload = await requestJSON("/api/tests");
       approvedCatalog = payload.tests;
+      updateGenerateReadiness();
       renderRecentUrls();
       const website = $("suite-site");
       website.replaceChildren();
@@ -2178,6 +2393,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function renderResult(result, fromSuite = false) {
       const report = result.report;
       if (!report) return;
+      resultContext = {name:report.title, url:result.baseURL};
       setResultKind(fromSuite ? "suite-detail" : "single");
       $("run-results").hidden = false;
       hasResults = true;
@@ -2193,10 +2409,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const metrics = $("run-metrics");
       metrics.replaceChildren();
       const failed = report.steps.filter(s=>s.status==="execution-error" || s.status==="assertion-failed").length;
-      for (const [label,value] of [["Passed",passed],["Failed",failed],["Skipped",skipped],["Duration",(report.durationMs/1000).toFixed(1)+"s"]]) {
+      for (const [label,value] of [["Total",report.steps.length],["Passed",passed],["Failed",failed],["Skipped",skipped]]) {
         const metric = make("div",null,"result-metric");
+        metric.dataset.kind = label.toLowerCase();
         metric.append(make("span",label,"muted"),make("strong",String(value)));
         metrics.append(metric);
+      }
+      const progress = $("run-progress-bar");
+      progress.replaceChildren();
+      for (const [count,color] of [[passed,"#23965d"],[failed,"#dc4545"],[skipped,"#a1a1aa"]]) {
+        if (!count) continue;
+        const segment = make("span"); segment.style.flex = String(count); segment.style.background = color; progress.append(segment);
       }
       const actions = $("result-actions");
       actions.replaceChildren();
@@ -2218,8 +2441,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           if (result.baseURL) $("execution-url").value=result.baseURL;
           await executeApproved(result.fileId);
         });
-        actions.append(edit,instructions,rerun);
+        actions.append(rerun,edit,instructions);
       }
+      const diagnostics = make("button","Diagnostics","secondary");
+      diagnostics.type="button";
+      diagnostics.addEventListener("click",()=>showWorkspace("diagnostics"));
+      actions.append(diagnostics);
       if (fromSuite) {
         const back = make("button","Back to suite results","secondary");
         back.type="button";
@@ -2257,10 +2484,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       else $("run-screenshot").removeAttribute("src");
       const container = $("run-steps");
       container.replaceChildren();
+      document.querySelector('input[name="run-step-filter"][value="all"]').checked = true;
+      $("run-step-empty").hidden = true;
       if (report.error) container.append(make("pre", report.error, "error"));
       for (const [index, step] of report.steps.entries()) {
-        const card = make("article", null, "run-step");
+        const card = make("details", null, "run-step");
         card.dataset.status = step.status;
+        card.open = step.status === "execution-error" || step.status === "assertion-failed";
         const head = make("div", null, "result-head");
         const heading = make("div");
         heading.append(make("strong", "Step " + (index + 1) + " · " + step.description));
@@ -2271,7 +2501,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           heading.append(scopeBadge);
         }
         head.append(heading, make("span", step.durationMs + " ms", "muted"));
-        card.append(head);
+        const summary = make("summary",null,"execution-step-summary");
+        summary.append(head);
+        card.append(summary);
         if (step.expected !== undefined) card.append(make("p", "Expected: " + step.expected));
         if (step.observed !== undefined) card.append(make("p", "Observed: " + step.observed));
         if (step.resolution) {
@@ -2914,8 +3146,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         container.append(card);
       }
     }
+    for (const radio of document.querySelectorAll('input[name="run-step-filter"]')) radio.addEventListener("change",()=> {
+      const failedOnly = document.querySelector('input[name="run-step-filter"]:checked').value === "failed";
+      const cards = [...$("run-steps").querySelectorAll(".run-step")];
+      for (const card of cards) card.hidden = failedOnly && !["assertion-failed","execution-error"].includes(card.dataset.status);
+      $("run-step-empty").hidden = !failedOnly || cards.some(card=>!card.hidden);
+    });
     let historyPage = 1;
-    let historySite = "";
+    let historySite = "__all__";
     let historyVersion = 0;
     async function refreshHistory() {
       if ($("history-panel").hidden) return;
@@ -2923,46 +3161,46 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const status = $("history-status");
       status.textContent = "Loading website suite execution history...";
       try {
-        const query = "?page=" + historyPage +
-          (historySite ? "&siteUrl=" + encodeURIComponent(historySite) : "");
+        const query = "?" + new URLSearchParams({page:String(historyPage),siteUrl:historySite,verdict:document.querySelector('input[name="history-verdict"]:checked').value,search:$("history-search").value});
         const history = await requestJSON("/api/history" + query);
         if (version !== historyVersion || $("history-panel").hidden) return;
-        historySite = history.selectedSiteUrl || "";
+        historySite = history.selectedSiteUrl || "__all__";
         historyPage = history.page;
         const select = $("history-site");
         select.replaceChildren();
-        if (!history.sites.length) {
-          const option = make("option", "No saved execution history");
-          option.value = "";
-          select.append(option);
-          select.disabled = true;
-        } else {
-          select.disabled = false;
-          for (const site of history.sites) {
-            const option = make("option",
-              site.label + " (" + site.executions + " executions)");
-            option.value = site.siteUrl;
-            select.append(option);
-          }
-          select.value = historySite;
+        const allOption = make("option","All suites");
+        allOption.value = "__all__"; select.append(allOption);
+        select.disabled = false;
+        for (const site of history.sites) {
+          const option = make("option",site.label + " (" + site.executions + " executions)");
+          option.value = site.siteUrl; select.append(option);
+        }
+        if (![...select.options].some(option=>option.value===historySite)) {
+          const option = make("option",historySite); option.value=historySite; select.append(option);
+        }
+        select.value = historySite;
+        const metrics = $("history-metrics");
+        metrics.replaceChildren();
+        for (const [label,value] of [["Executions",history.scopedTotal],["Passed",history.passed],["Failed",history.failed]]) {
+          const metric = make("div",null,"result-metric");
+          metric.dataset.kind = label.toLowerCase();
+          metric.append(make("span",label,"muted"),make("strong",String(value)));
+          metrics.append(metric);
         }
         const list = $("history-suite-list");
         list.replaceChildren();
         for (const entry of history.entries) {
-          const card = make("div", null, "history-entry");
-          const content = make("div", null, "history-entry-content");
-          const siteName = entry.siteUrl === "__legacy__"
-            ? "Older / unknown website" : entry.siteUrl;
-          content.append(make("strong", siteName + " · " + entry.verdict.toUpperCase()));
-          content.append(make("span", new Date(entry.startedAt).toLocaleString() +
-            " · " + entry.summary.total + " test script(s) · " +
-            entry.summary.passed + " passed / " +
-            entry.summary.failed + " failed / " +
-            entry.summary.errors + " errors", "muted"));
-          if (entry.kind === "single") {
-            content.append(make("span", "Script: " + entry.title, "muted"));
-          }
-          card.append(content);
+          const card = make("tr", null, "history-entry");
+          const content = make("td", null, "history-entry-content");
+          const siteName = entry.siteUrl === "__legacy__" ? "Older / unknown website" : entry.siteUrl;
+          content.append(make("strong",entry.kind==="batch"?"Website suite":entry.title));
+          content.append(make("span",siteName,"muted"),make("span",new Date(entry.startedAt).toLocaleString(),"muted"));
+          const verdict = make("td");
+          verdict.append(make("span",entry.verdict.toUpperCase(),"verdict "+(entry.verdict==="passed"?"passed":"assertion-failed")));
+          const totals = make("td",entry.summary.passed+" / "+entry.summary.total+" passed");
+          if(entry.summary.errors) totals.append(make("div",entry.summary.errors+" runner error(s)","muted"));
+          const action = make("td");
+          card.append(content,verdict,totals,action);
           const button = make("button", "Open results", "secondary");
           button.type = "button";
           button.addEventListener("click", async () => {
@@ -2988,11 +3226,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 (error.message || String(error));
             }
           });
-          card.append(button);
+          action.append(button);
           list.append(card);
         }
         if (!history.entries.length) {
-          list.append(make("p", "No executions for this test suite.", "muted"));
+          const empty = make("tr"); const cell=make("td","No matching executions. Try changing the search or filters.","muted empty-state"); cell.colSpan=4; empty.append(cell); list.append(empty);
         }
         $("history-prev").disabled = history.page <= 1;
         $("history-next").disabled = history.page >= history.pages;
@@ -3002,10 +3240,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             Math.min(history.page * 10, history.total) +
             " of " + history.total + " executions"
           : "No executions";
-        status.textContent = history.total
-          ? history.total + " saved executions for " +
-            (historySite === "__legacy__" ? "older / unknown websites" : historySite)
-          : "No completed execution history. Your saved test scripts are unaffected.";
+        status.textContent = history.total + " of " + history.overallTotal + " saved executions · Latest first";
       } catch (error) {
         if (version !== historyVersion) return;
         status.textContent = "History unavailable: " + (error.message || String(error));
@@ -3023,6 +3258,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       historyPage = 1;
       void refreshHistory();
     });
+    let historySearchTimer;
+    $("history-search").addEventListener("input",()=>{
+      historyPage=1; clearTimeout(historySearchTimer); historyVersion++;
+      historySearchTimer=setTimeout(()=>void refreshHistory(),200);
+    });
+    for(const radio of document.querySelectorAll('input[name="history-verdict"]')) radio.addEventListener("change",()=>{historyPage=1;void refreshHistory();});
     $("history-prev").addEventListener("click", () => {
       if (historyPage > 1) { historyPage--; void refreshHistory(); }
     });
@@ -3052,7 +3293,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }),
         });
         historyPage = 1;
-        historySite = "";
+        historySite = "__all__";
+        $("history-search").value = "";
+        document.querySelector('input[name="history-verdict"][value=""]').checked = true;
         $("run-results").hidden = true;
         $("suite-summary").textContent = "";
         $("suite-results").replaceChildren();
@@ -3083,6 +3326,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
     function renderSuite(suite) {
+      resultContext = {name:"Website suite", url:suite.baseURL || resultContext?.url};
       setResultKind("suite");
       hasResults = true;
       showWorkspace("results");
@@ -3153,6 +3397,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("suite-results").replaceChildren();
       $("suite-artifacts").replaceChildren();
       $("suite-status").textContent = "Starting sequential test suite...";
+      resultContext = {name:"Website suite", url:$("execution-url").value};
       setResultKind("suite");
       $("run-results").hidden = true;
       $("run-error").textContent = "";
@@ -3225,6 +3470,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("run-error").textContent = "";
       $("run-results").hidden = true;
       $("run-status").textContent = "Starting Playwright test...";
+      resultContext = {name:approvedCatalog.find(item=>item.id===id)?.title || "Selected test", url:$("execution-url").value};
       setResultKind("single");
       hasResults = true;
       showWorkspace("results");
@@ -3306,8 +3552,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     });
     async function loadSavedForEditing(id, focusStepId) {
-      if (!id || running) return;
+      if (!id || running || saving || generatingDraft || editorLoading) return;
       if (!confirmReplaceWorkspace()) return;
+      editorLoading = true;
       $("edit-saved").disabled = true;
       $("run-error").textContent = "";
       try {
@@ -3326,9 +3573,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("traceability-note").textContent = "";
         editingSavedId = id;
         approvals = new Set();
+        // Opening an approved test starts a new review, but does not itself edit the saved definition.
+        persistedEditorState = null;
         clearPreflight();
         clearGeneratedReviewWarnings();
         selectedBaseURL = definition.sourceUrl || $("base-url").value;
+        recordEditorSaved("approved");
         $("saved").replaceChildren();
         $("save-error").textContent = "";
         $("approved-tests").value = "";
@@ -3353,18 +3603,20 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
       } catch(error) {
         $("run-error").textContent = error.message || String(error);
+        $("catalog-error").textContent = error.message || String(error);
         updateRunButton();
-      }
+      } finally { editorLoading = false; }
     }
     $("edit-saved").addEventListener("click", () => {
       void loadSavedForEditing(selectedApprovedId);
     });
 
-    void refreshDraftPicker().catch(error => {
-      $("draft-list-status").textContent = error.message || String(error);
+    void refreshDraftCatalog().catch(error => {
+      $("catalog-draft-warning").textContent = "Could not load drafts: " + (error.message || String(error));
     });
     void refreshApprovedTests().catch((error) => {
       $("run-error").textContent = "Could not load saved tests: " + (error.message || error);
+      $("catalog-error").textContent = "Could not load saved tests: " + (error.message || error);
     });
     // History remains collapsed and does not fetch data until requested.
 
@@ -3379,7 +3631,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("generation-error").textContent = "File too large. Use up to 12,000 characters of instructions.";
         return;
       }
+      const revision = editorRevision;
       const text = await file.text();
+      if (revision !== editorRevision) return;
       const previous = $("requirements").value.trim();
       const combined = [previous, text.trim()].filter(Boolean).join("\n\n");
       if (combined.length > 12_000) {
@@ -3398,6 +3652,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       // A previous successful attempt must never masquerade as the new draft.
       // Do NOT clear persisted approved tests, execution history or input text.
       definition = null;
+      expandedStepIds.clear();
       syncWorkspaceNavigation();
       approvals = new Set();
       editingSavedId = null;
@@ -3453,7 +3708,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           baseURL: $("base-url").value,
           instructions: $("requirements").value,
         });
+        const revision = editorRevision;
         const result = await requestJSON("/api/application-memory?" + query);
+        if (revision !== editorRevision) return;
         status.textContent = result.suggestions?.length
           ? result.suggestions.map(item => item.text).join(" ")
           : "No matching prerequisite has been learned from successful tests on this website.";
@@ -3510,7 +3767,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function hideException() {
       $("generation-exception").hidden=true;
       syncWorkspaceNavigation();
-      $("working-drafts-panel").hidden=false;
       pendingException=null;
       for (const id of ["exception-reqs-panel","exception-proceed-panel"]) $(id).hidden=true;
       $("exception-risk").checked=false;
@@ -3527,7 +3783,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("review-workspace").hidden=false;
       $("placeholder").hidden=true;
       $("draft").hidden=true;
-      $("working-drafts-panel").hidden=true;
       $("generation-exception").hidden=false;
       showWorkspace("draft");
       $("exception-count").textContent=data.problematicIds.length+" of "+data.total+" requirements could not be confidently mapped.";
@@ -3609,19 +3864,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       // Guard keyboard/programmatic submissions as well as the disabled button.
-      if (generatingDraft || !updateGenerateReadiness()) {
-        $("generation-error").textContent = "Complete the Test name, Application URL and test instructions before generating.";
+      if (generatingDraft || saving || running || editorLoading || !updateGenerateReadiness()) {
+        $("generation-error").textContent = duplicateName($("test-name").value, $("base-url").value) ? "A test with this name already exists in this website suite. Choose a different name." : "Complete the Test name, Application URL and test instructions before generating.";
         const first = ["test-name", "base-url", "requirements"].find(id =>
           $(id).getAttribute("aria-invalid") === "true");
         if (first) $(first).focus();
         return;
       }
       generatingDraft = true;
+      const currentIdentity = { editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions };
       updateGenerateReadiness();
       const decision=exceptionRequest;
       exceptionRequest=null;
       hideException();
       clearGenerationPreview();
+      ({ editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions } = currentIdentity);
       $("generation-error").textContent = "";
       showRequestUsage("instructions-usage",null);
       showRequestUsage("draft-usage",null);
@@ -3684,7 +3941,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           throw new Error(origin + category + attempts + inputLength + inspection + "\n" +
             (data.error || "Could not generate draft"));
         }
-        const wasEditing = Boolean(editingSavedId || workingDraftId);
+        const wasEditing = Boolean(editingSavedId || workingDraftId || lastSavedId);
+        persistedEditorState = null;
         definition = data.definition;
         lastSavedId = "";
         savedFingerprint = "";
@@ -3728,6 +3986,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           (data.diagnostics?.warnings?.length ? " Review the advisory quality warnings in Test Editor." : "");
       } catch(error) {
         clearGenerationPreview();
+        ({ editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions } = currentIdentity);
+        showOriginalInstructions();
         showWorkspace("instructions");
         $("generation-review-status").textContent = "Generation failed. No draft steps are available from this attempt. Update the instructions or retry.";
         $("generation-error").textContent = error.message || String(error);
@@ -3758,6 +4018,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("test-name").focus();
         return;
       }
+      if (duplicateName(testName, selectedBaseURL, saveAsNew)) {
+        $("save-error").textContent = "A test with this name already exists in this website suite. Choose a different name.";
+        return;
+      }
       if (saveAsNew && editingSavedId) {
         const previous = approvedCatalog.find(item => item.id === editingSavedId);
         if (previous && previous.title === testName) {
@@ -3777,6 +4041,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           const existing = approvedCatalog.find(item => item.id === lastSavedId);
           if (!existing) throw new Error("Previously saved test is no longer available. Save the test again.");
           approvedId = lastSavedId;
+          recordEditorSaved("approved");
           await refreshApprovedTests(approvedId, existing.siteUrl || "");
           $("saved").textContent = runAfterSave
             ? "This test is unchanged. Starting the previously saved approved test."
@@ -3791,6 +4056,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               workingInstructions: $("requirements").value,
             },
             testName, baseURL: selectedBaseURL,
+            ...(!saveAsNew && workingDraftId ? { draftId: workingDraftId } : {}),
             ...(!saveAsNew && (editingSavedId || lastSavedId)
               ? { replaceId: editingSavedId || lastSavedId } : {}),
           }),
@@ -3800,6 +4066,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         definition.title = testName;
         editingSavedId = null;
         workingDraftId = null;
+        await refreshDraftCatalog();
         // The save response records the website actually persisted by the server.
         // Keep Run Tests (and its execution URL) in sync with that saved script.
         selectedBaseURL = data.sourceUrl;
@@ -3808,6 +4075,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         approvedId = data.id;
         lastSavedId = data.id;
         savedFingerprint = currentSaveFingerprint(testName);
+        recordEditorSaved("approved");
         if (data.replacedId) {
           $("run-results").hidden = true;
           $("run-status").textContent = "Previous saved test replaced. Select Run selected test to execute the amendment.";
@@ -3847,7 +4115,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("save-and-run").addEventListener("click", () => { void approveAndSave(false, true); });
     $("save-as-new").addEventListener("click", () => { void approveAndSave(true); });
     for (const button of document.querySelectorAll("nav [data-view]")) {
-      button.addEventListener("click", () => showWorkspace(button.dataset.view));
+      button.addEventListener("click", () => button.id === "nav-new" ? startNewTest() : showWorkspace(button.dataset.view));
     }
     showWorkspace("instructions");
   </script>

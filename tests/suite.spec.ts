@@ -187,7 +187,7 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
   await page.locator("#nav-run").click();
   await page.getByLabel("Test suite (website URL)").selectOption("__legacy__");
   const panel = page.locator("#suite-panel");
-  await expect(panel.getByRole("heading", { name: "Run Tests", exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: "Select tests", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Run a test suite" })).toHaveCount(0);
   // Everything lives in one panel: website, script selection, shared timeout,
   // edit/delete/export/traceability, single run and batch selection.
@@ -201,8 +201,8 @@ test("Run Tests panel contains both one-script tools and multi-script execution 
 
   await selectSavedScript(page, fileIds[0]);
   await expect(panel.getByRole("button", { name: "Run selected test" })).toBeEnabled();
-  await expect(panel.getByRole("button", { name: "Edit selected saved test in review form" })).toBeEnabled();
-  await expect(panel.getByRole("button", { name: "Delete selected test script" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Edit test" })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Delete test" })).toBeEnabled();
   await expect(panel.getByRole("link", { name: "Export Playwright (.spec.ts)" })).toHaveAttribute(
     "href", /\/api\/tests\/reviewed-.*\/export\.ts\?/);
   await expect(panel.getByRole("link", { name: "View requirement matrix (JSON)" })).toBeVisible();
