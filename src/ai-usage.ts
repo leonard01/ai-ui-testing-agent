@@ -23,6 +23,8 @@ export interface UsageAttempt {
   resetTokens?: string;
   transportAttempt: number;
   responseMode?: "json" | "text";
+  reasoningEffort?: "low" | "medium" | "high";
+  responsePolicy?: "hybrid" | "json" | "text";
 }
 export interface UsageRecord extends UsageAttempt {
   id: string;
