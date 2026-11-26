@@ -118,7 +118,7 @@ for (const [description, wrongTarget] of [
       await failed.getByRole("button", { name: "Save corrected assertion target and rerun" }).click();
       await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
       await expect(page.locator("#run-summary")).toContainText("PASSED");
-      const updated = await page.getByLabel("Test script", { exact: true }).inputValue();
+      const updated = await page.locator("#execution-panel").getByLabel("Test", { exact: true }).inputValue();
       const amended = JSON.parse(await readFile(await approvedPath(dir, updated), "utf8"));
       expect(amended.steps[3].action).toEqual({
         kind: "assert-visible", target: { by: "text", value: "Buy groceries" },
