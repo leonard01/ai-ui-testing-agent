@@ -20,7 +20,8 @@
     "start": "npm run build && npm run review",
     "start:demo": "npm run build && node scripts/start-demo-and-review.mjs",
     "test:smoke": "npm run build && playwright test --grep @e2e-smoke",
-    "test:sanity": "playwright test --grep \"@e2e-smoke|@sanity\""
+    "test:sanity": "playwright test --grep \"@e2e-smoke|@sanity\"",
+    "test:tokens": "npm run build && node --test tests/unit/token-estimation.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
@@ -29,6 +30,7 @@
   },
   "dependencies": {
     "playwright": "1.65.1",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "gpt-tokenizer": "3.4.0"
   }
 }
