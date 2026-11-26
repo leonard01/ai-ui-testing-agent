@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { parseModelJSON } from "./model-json.js";
 import type { ResponseDiagnosticObserver } from "./response-diagnostics.js";
-import { isGroqJSONModeFailure } from "./hosted-providers.js";
+import { groqResponsePolicy, isGroqJSONModeFailure } from "./hosted-providers.js";
 import { decodeEmbeddedCoverage, proposedCoverage, sourceRequirements } from "./requirement-preservation.js";
 import { requireHumanCredentialValues } from "./credential-guard.js";
 import { ZodError } from "zod";
@@ -122,7 +122,7 @@ export async function generateDraft(
   const coverageEnabled = options.instructionCoverage === true;
   const { system, prompt } = makeGenerationPrompt(instructions, snapshot, hints, coverageEnabled);
   const overridePrompt = options.proceedUnresolved ? "\nThe tester explicitly requests an attempt despite uncertain functionality. Retain EVERY instruction and provide executable intent actions for each, even if targets are not yet identifiable. Do not substitute unrelated assertions. Mark uncertainties honestly." : "";
-  const maxAttempts = options.retryMalformedOutput ? 2 : 1;
+  const maxAttempts = options.retryMalformedOutput && groqResponsePolicy() === "hybrid" ? 2 : 1;
   let problems: string[] = [];
   let textFallback = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
