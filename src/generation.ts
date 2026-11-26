@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { parseModelJSON } from "./model-json.js";
+import { isGroqJSONModeFailure } from "./hosted-providers.js";
 import { proposedCoverage, sourceRequirements } from "./requirement-preservation.js";
 import { requireHumanCredentialValues } from "./credential-guard.js";
 import { ZodError } from "zod";
@@ -29,6 +31,7 @@ export interface ModelRequest {
   model: string;
   system: string;
   prompt: string;
+  responseMode?: "json" | "text";
 }
 export type ModelProvider = (request: ModelRequest) => Promise<string>;
 export interface GeneratedDraft {
@@ -119,6 +122,7 @@ export async function generateDraft(
   const overridePrompt = options.proceedUnresolved ? "\nThe tester explicitly requests an attempt despite uncertain functionality. Retain EVERY instruction and provide executable intent actions for each, even if targets are not yet identifiable. Do not substitute unrelated assertions. Mark uncertainties honestly." : "";
   const maxAttempts = options.retryMalformedOutput ? 2 : 1;
   let problems: string[] = [];
+  let textFallback = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const correction = attempt === 1 ? "" : [
       "\nSCHEMA CORRECTION REQUIRED: The previous attempt was rejected.",
@@ -129,13 +133,23 @@ export async function generateDraft(
       "Do not drop requirements or invent extra actions merely to satisfy the schema.",
       "Return a fresh valid JSON object with the same test intent.",
     ].join("\n");
-    const output = await provider({
-      model: options.model, system,
-      prompt: prompt + overridePrompt + correction,
-    });
+    let output: string;
+    try {
+      output = await provider({
+        model: options.model, system,
+        prompt: prompt + overridePrompt + (textFallback ? "" : correction),
+        ...(textFallback ? { responseMode: "text" as const } : {}),
+      });
+    } catch (error) {
+      if (attempt < maxAttempts && !textFallback && isGroqJSONModeFailure(error)) {
+        textFallback = true;
+        continue;
+      }
+      throw error;
+    }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(output);
+      parsed = parseModelJSON(output).value;
     } catch {
       problems = ["test: model output was not valid JSON"];
       if (attempt < maxAttempts) continue;
