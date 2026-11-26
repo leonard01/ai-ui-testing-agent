@@ -85,7 +85,7 @@ function safeIdentifier(value: unknown): string | undefined {
     ? value : undefined;
 }
 
-async function classifyGroqFailure(response: Response, capture?: (raw: string) => void): Promise<GroqProviderError> {
+async function classifyGroqFailure(response: Response, body: string): Promise<GroqProviderError> {
   // Bound provider parsing to avoid retaining extremely large/hostile bodies.
   let code: string | undefined;
   let type: string | undefined;
@@ -93,8 +93,6 @@ async function classifyGroqFailure(response: Response, capture?: (raw: string) =
   let detail = "";
   let reportedUsage: unknown;
   try {
-    const body = await response.text();
-    try { capture?.(body); } catch { /* Diagnostics must not change failure classification. */ }
     const raw = body.slice(0, 8192);
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "usage" in parsed) reportedUsage = parsed.usage;
@@ -156,12 +154,27 @@ export const groqProvider: ModelProvider = async function (
   return requestGroq(request);
 };
 
+/** Per-call transient diagnostics; never persist HTTP bodies in usage analytics. */
+export interface GroqResponseEvidence {
+  httpStatus?: number;
+  httpBody?: string;
+  content?: string;
+  contentCharacters?: number;
+  finishReason?: string;
+  completionTokens?: number;
+  reasoningTokens?: number;
+  completionBudget?: number;
+  status?: string;
+  transportAttempt?: number;
+}
+
 /** Exported with injectable fetch so unit tests never contact a paid service. */
 export async function requestGroq(
   { model, system, prompt, responseMode = "json" }: ModelRequest,
   requester: typeof fetch = fetch,
   observe?: (attempt: UsageAttempt) => void | Promise<void>,
   captureError?: (raw: string) => void,
+  captureEvidence?: (evidence: GroqResponseEvidence) => void,
 ): Promise<string> {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) {
@@ -182,6 +195,9 @@ export async function requestGroq(
   // limit automatic retry to ONE extra attempt to bound potential charges.
   // Timeout/unknown errors and HTTP responses are never retried here.
   const completionBudget=groqCompletionBudget();
+  function evidence(fields: GroqResponseEvidence) {
+    try { captureEvidence?.({completionBudget, ...fields}); } catch { /* Diagnostics must not affect generation. */ }
+  }
   const estimatedInputTokens=Math.ceil((system.length+prompt.length)/4);
   const requestBody = JSON.stringify({
     model,
@@ -229,6 +245,7 @@ export async function requestGroq(
     } catch (error) {
       const category = error instanceof Error && error.name === "TimeoutError"
         ? "timeout" : error instanceof TypeError ? "network" : "transport";
+      evidence({status:category, transportAttempt});
       await record(category);
       if (category === "network" && attempt === 0 && responseMode === "json") {
         await new Promise<void>((resolve) => setTimeout(resolve, 300));
@@ -238,24 +255,49 @@ export async function requestGroq(
     }
   }
   if (!response) throw new GroqTransportError("transport");
+  let body: string;
+  evidence({httpStatus:response.status, transportAttempt});
+  try {
+    body = await response.text();
+  } catch {
+    evidence({status:"unreadable-response",httpStatus:response.status,transportAttempt});
+    if (!response.ok) {
+      const failure=await classifyGroqFailure(response,"");
+      await record(failure.category,response,failure.reportedUsage,failure.limitFigures);
+      throw failure;
+    }
+    await record("unreadable-response",response);
+    throw new Error("GroqCloud returned an unreadable response");
+  }
+  evidence({httpStatus:response.status,httpBody:body,transportAttempt});
   if (!response.ok) {
-    const failure=await classifyGroqFailure(response,captureError);
+    try { captureError?.(body); } catch { /* Diagnostics only. */ }
+    const failure=await classifyGroqFailure(response,body);
+    evidence({status:failure.category,completionTokens:readTokenUsage(failure.reportedUsage).outputTokens});
     await record(failure.category,response,failure.reportedUsage,failure.limitFigures);
     throw failure;
   }
   let data: unknown;
   try {
-    data = await response.json();
+    data = JSON.parse(body);
   } catch {
+    evidence({status:"unreadable-response"});
     await record("unreadable-response",response);
     throw new Error("GroqCloud returned an unreadable response");
   }
   const parsed = data as {
-    choices?: Array<{ message?: { content?: unknown } }>;
-    usage?: unknown;
+    choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>;
+    usage?: { completion_tokens_details?: { reasoning_tokens?: unknown } };
   } | null;
   const text = parsed?.choices?.[0]?.message?.content;
-  await record(typeof text === "string" && text.trim() ? "response-received" : "empty-response",response,parsed?.usage);
+  const status = typeof text === "string" && text.trim() ? "response-received" : "empty-response";
+  const reasoning = parsed?.usage?.completion_tokens_details?.reasoning_tokens;
+  evidence({status, content:typeof text === "string" ? text : undefined,
+    contentCharacters:typeof text === "string" ? text.length : undefined,
+    finishReason:safeIdentifier(parsed?.choices?.[0]?.finish_reason),
+    completionTokens:readTokenUsage(parsed?.usage).outputTokens,
+    reasoningTokens:typeof reasoning === "number" && Number.isSafeInteger(reasoning) && reasoning >= 0 ? reasoning : undefined});
+  await record(status,response,parsed?.usage);
   if (typeof text !== "string" || !text.trim()) {
     throw new Error("GroqCloud returned no generated JSON text");
   }
