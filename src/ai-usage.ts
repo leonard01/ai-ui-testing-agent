@@ -22,6 +22,7 @@ export interface UsageAttempt {
   remainingTokens?: number;
   resetTokens?: string;
   transportAttempt: number;
+  responseMode?: "json" | "text";
 }
 export interface UsageRecord extends UsageAttempt {
   id: string;
