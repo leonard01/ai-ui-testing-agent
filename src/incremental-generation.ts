@@ -9,6 +9,7 @@ import type { TestDefinition, TestStep } from "./domain.js";
 import type { ModelProvider } from "./generation.js";
 import { isGroqJSONModeFailure } from "./hosted-providers.js";
 import { parseModelJSON } from "./model-json.js";
+import type { ResponseDiagnosticObserver } from "./response-diagnostics.js";
 
 const patchSchema = z.object({
   steps: z.array(testStepSchema).min(1).max(25),
@@ -24,6 +25,7 @@ export interface IncrementalOptions {
   approvedStepIds: string[];
   model: string;
   retryMalformedOutput?: boolean;
+  observeResponse?: ResponseDiagnosticObserver;
 }
 
 export interface IncrementalProposal {
@@ -141,7 +143,9 @@ export async function generateIncrementalProposal(
       throw error;
     }
     try {
-      const parsed = patchSchema.parse(parseModelJSON(raw).value);
+      const recovered = parseModelJSON(raw);
+      options.observeResponse?.(attempt, {repairs: recovered.repairs, parsed: recovered.value});
+      const parsed = patchSchema.parse(recovered.value);
       if (original.instructionCoverage && parsed.reconciliation === undefined) {
         throw new Error("Reconciliation response is missing");
       }
@@ -227,6 +231,7 @@ export async function generateIncrementalProposal(
       if (options.mode === "step" && suffix.length) {
         warnings.push("Later steps are unchanged but may depend on the replaced step; review dependencies.");
       }
+      options.observeResponse?.(attempt, {accepted: true, validation: "Passed patch validation; human review required."});
       return {
         definition, replacement, fromIndex: index, removed,
         preservedApprovedStepIds, warnings, generationAttempts: attempt,
@@ -242,6 +247,7 @@ export async function generateIncrementalProposal(
         }).join("; ")
         : error instanceof SyntaxError ? "Malformed JSON response"
         : error instanceof Error ? error.message.slice(0, 300) : "Invalid replacement patch";
+      options.observeResponse?.(attempt, {validation: problem});
       if (attempt === attempts) throw new Error(
         "The AI could not produce valid replacement test steps after " + attempts +
         " attempts. Your existing steps were not changed. Please retry or adjust the replacement instructions. " +
