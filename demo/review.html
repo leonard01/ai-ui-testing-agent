@@ -256,7 +256,7 @@
     main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
     main[data-workspace="ai-usage"] > :not(#ai-usage-panel),
     main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
-    main[data-workspace="existing"] #draft-usage, main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
+    main[data-workspace="existing"] #draft-response-diagnostics, main[data-workspace="existing"] #draft-usage, main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
     main[data-workspace="draft"] #placeholder { display:none !important; }
     #results-panel[data-result-kind="single"] #suite-output,
     #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
@@ -470,12 +470,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
       <div id="instructions-usage" class="request-usage" aria-live="polite"></div>
+      <div id="instructions-response-diagnostics"></div>
       <button type="button" id="start-new-test" class="secondary" hidden style="margin-top:12px">Start a separate new test</button>
       <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
 
     </section>
     <section id="review-workspace" aria-labelledby="review-heading" hidden>
       <h2 id="review-heading">Test Draft</h2><div id="draft-usage" class="request-usage" aria-live="polite"></div>
+      <div id="draft-response-diagnostics"></div>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
@@ -748,15 +750,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
       <h2 id="ai-usage-heading">AI Usage Analytics</h2>
       <p class="muted">Historical provider attempts, independent of execution history. Only reported tokens are included in totals.</p>
-      <section aria-labelledby="response-diagnostics-heading" class="run-step">
-        <h3 id="response-diagnostics-heading">AI Response Diagnostics</h3>
+      <div id="analytics-response-diagnostics"><details id="response-diagnostics-panel" class="run-step">
+        <summary id="response-diagnostics-heading">AI Response Diagnostics</summary>
         <label><input type="checkbox" id="capture-model-responses"> Capture model responses</label>
         <label><input type="checkbox" id="capture-successful-responses" disabled> Include successful responses</label>
         <p class="muted">Opt in before generating or reinterpreting. Responses can contain sensitive test data. Only the latest operation is kept in this browser tab; not saved to analytics history. The configured API key is redacted, but other secrets may remain. Review before copying.</p>
         <button type="button" id="clear-response-diagnostics" class="secondary">Clear captured responses</button>
         <p id="response-diagnostics-status" role="status">Capture is disabled.</p>
         <div id="response-diagnostics-list"></div>
-      </section>
+      </details></div>
       <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
       <button id="usage-refresh" type="button" class="secondary">Refresh AI usage</button>
       <p id="usage-status" role="status"></p><div id="usage-metrics" class="result-metrics"></div>
@@ -860,6 +862,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (view === "draft" || view === "existing") {
         $("review-workspace").hidden = false;
         $("placeholder").hidden = view !== "existing";
+      }
+      if (["instructions","draft","ai-usage"].includes(view)) {
+        const host = $(view === "ai-usage" ? "analytics-response-diagnostics" : view + "-response-diagnostics");
+        const panel = $("response-diagnostics-panel");
+        if (panel.parentElement !== host) {
+          host.append(panel);
+          panel.open = false;
+          for (const item of panel.querySelectorAll("details")) item.open = false;
+        }
       }
       if (view === "ai-usage") void refreshAIUsage();
       if (view === "diagnostics") {
@@ -2250,6 +2261,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       }
     }
     function clearResponseDiagnostics() {
+      $("response-diagnostics-panel").open = false;
       responseCaptureRevision++;
       latestResponseDiagnostics = [];
       renderResponseDiagnostics();
@@ -2300,10 +2312,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
       }
       if(usage.storageFailed) details.append(make("p","Usage could not be fully saved to history.","error"));
-      const diagnostics = make("button","View AI Response Diagnostics","secondary");
-      diagnostics.type = "button";
-      diagnostics.addEventListener("click",()=>{ showWorkspace("ai-usage"); $("response-diagnostics-heading").scrollIntoView({block:"start"}); });
-      details.append(diagnostics);
       panel.append(details);
     }
     async function refreshAIUsage() {
