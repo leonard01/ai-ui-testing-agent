@@ -24,17 +24,19 @@ test("creates a review-first prompt with provenance constraints", () => {
   const { system, prompt } = makeGenerationPrompt(
     "One new task must increase the count", snapshot,
   );
-  assert.match(system, /NEVER claim 'human-confirmed'/);
+  assert.match(system, /NEVER 'human-confirmed'/);
   assert.match(system, /untrusted DATA/);
-  assert.match(system, /PREFER live DOM intent targets/);
-  assert.match(system, /label locator targets form fields/);
-  assert.match(system, /HTML listitem roles often have NO accessible name/);
-  assert.match(system, /runner resolves intent from the live DOM at EACH step/);
-  assert.match(system, /Never invent an ID, CSS class/);
-  assert.match(system, /repeated row controls/);
-  assert.match(system, /Complete preparing a presentation/);
-  assert.match(system, /Delete reviewing documentation/);
-  assert.match(system, /prefer .*by:'text'.*Task text/);
+  assert.match(system, /Prefer grounded live DOM intent/);
+  assert.match(system, /Use associated form labels, never button text as label/);
+  assert.match(system, /Listitem often has no accessible name/);
+  assert.match(system, /resolution occurs at each step/);
+  assert.match(system, /No invented CSS\/XPath\/id\/testid/);
+  assert.match(system, /named repeated controls carry exact item identity/);
+  assert.match(system, /Never generic Delete\/Edit\/Complete with multiple items/);
+  assert.match(system, /Do not invent row selection when a direct control exists/);
+  assert.match(system, /'Complete Eggs', role checkbox/);
+  assert.match(system, /'Delete Eggs', role button/);
+  assert.match(system, /use unique visible text for added task assertions rather than guessed listitem name or label/);
   assert.match(prompt, /One new task must increase/);
   assert.match(prompt, /review it before execution/);
 });
