@@ -10,7 +10,8 @@ import { assertInstructionCoverageReviewed } from "./requirement-preservation.js
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
-import { groqProvider, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
+import { requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
+import { createUsageStore, summarizeUsage, type UsageRecord } from "./ai-usage.js";
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
@@ -185,6 +186,21 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const html = await readFile(new URL("../demo/review.html", import.meta.url));
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
+  const usageStore = createUsageStore(join(savedDir,"ai-usage"));
+  function trackAI(operation: UsageRecord["operation"]) {
+    const operationId=randomUUID();
+    const records: UsageRecord[]=[];
+    let modelCall=0, storageFailed=false;
+    const provider: ModelProvider=async request=>{
+      const call=++modelCall;
+      if (groqOverride) return groqOverride(request);
+      return requestGroq(request,fetch,async attempt=>{
+        try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
+        catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
+      });
+    };
+    return {provider, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records)})};
+  }
   const jobs = new Map<string, RunJob>();
   const suites = new Map<string, SuiteJob>();
   let activeRun: string | null = null;
@@ -585,6 +601,19 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       }
       if (req.method === "GET" && path === "/health") {
         json(res, 200, { ok: true });
+        return;
+      }
+      if (req.method === "GET" && path === "/api/ai-usage") {
+        try {
+          const all=await usageStore.list();
+          const query=new URL(req.url??"/","http://127.0.0.1").searchParams;
+          const days=Number(query.get("days")??7);
+          if (![1,7,30,0].includes(days)) { json(res,400,{error:"Invalid usage date range"}); return; }
+          const now=Date.now();
+          const records=all.filter(row=>!days || Date.parse(row.startedAt)>=now-days*86400000);
+          const minute=all.filter(row=>Date.parse(row.startedAt)>=now-60000);
+          json(res,200,{records:records.slice(-200).reverse(),summary:summarizeUsage(records),minute:summarizeUsage(minute),totalRecords:records.length});
+        } catch { json(res,500,{error:"AI usage history unavailable"}); }
         return;
       }
       if (req.method === "GET" && path === "/api/history") {
@@ -1332,8 +1361,16 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                   evidence.query !== failed.expected.replace(/\s+/g, " ").trim())))) {
             throw new Error("Saved assertion differs from the failing run; rerun before repairing");
           }
+          const mode = input.mode ?? "target";
+          if (mode !== "target" && mode !== "expectation" && mode !== "both") {
+            throw new Error("Choose a valid assertion repair mode");
+          }
           const target = selected.target;
-          if (JSON.stringify(target) === JSON.stringify(step.action.target)) {
+          const sameTarget = JSON.stringify(target) === JSON.stringify(step.action.target);
+          if (mode === "expectation" && !sameTarget) {
+            throw new Error("Expectation-only repair requires the existing assertion target; choose both to change the locator");
+          }
+          if (mode === "target" && sameTarget) {
             throw new Error("Selected element uses the existing locator. No locator change is possible; review the expected text or comparison mode instead.");
           }
           if (target.by !== "text" && target.by !== "role") {
@@ -1343,17 +1380,33 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               target.by === "text" && !target.value.trim()) {
             throw new Error("Assertion target must uniquely identify a named element");
           }
-          // Only the target is changed. Expected text, provenance, assertion
-          // kind and all other steps are preserved. Actual page text is never
-          // promoted to a passing expectation.
           const previousTarget = step.action.target;
-          step.action.target = target;
+          const previousExpected = step.action.kind === "assert-text" ? step.action.expected : undefined;
+          if (mode !== "target") {
+            if (step.action.kind !== "assert-text" || failed.status !== "assertion-failed" ||
+                input.confirmed !== true || typeof input.expected !== "string" ||
+                input.expected.length > 10_000 ||
+                (input.match !== "exact" && input.match !== "contains")) {
+              throw new Error("Explicitly confirm a valid expected text and comparison for this failed text assertion");
+            }
+            if (input.expected === step.action.expected &&
+                input.match === (step.action.match ?? "exact")) {
+              throw new Error("Expected text and comparison mode are unchanged");
+            }
+            if (failed.textMatch !== undefined && (step.action.match ?? "exact") !== failed.textMatch) {
+              throw new Error("Saved comparison mode differs from the failed run; rerun before repairing");
+            }
+            step.action.expected = input.expected;
+            step.action.match = input.match;
+            step.action.provenance = "human-confirmed";
+          }
+          if (mode !== "expectation") step.action.target = target;
           const corrected = parseTestDefinition(definition);
           const { id, replacedId } = await saveApproved(corrected, job.fileId);
           json(res, 201, {
             id, replacedId, repairedStepId: step.id,
-            previousTarget, approvedTarget: target,
-            message: "Assertion target corrected from reviewed DOM evidence; expected results unchanged. No run started.",
+            previousTarget, approvedTarget: step.action.target, previousExpected,
+            message: mode === "target" ? "Assertion target corrected from reviewed DOM evidence; expected results unchanged. No run started." : "Explicitly reviewed assertion correction saved. No run started.",
           });
         } catch (error) {
           json(res, 400, {
@@ -1581,6 +1634,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (path === "/api/regenerate-steps") {
+        const tracked=trackAI("reinterpret");
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
           return;
@@ -1610,9 +1664,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             approvedStepIds: data.approvedStepIds as string[],
             model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
             retryMalformedOutput: true,
-          }, groqOverride ?? groqProvider, suppliedBrowser);
+          }, tracked.provider, suppliedBrowser);
           json(res, 200, {
             ...proposal,
+            aiUsage: tracked.snapshot(),
             needsReview: true,
             message: "Incremental AI proposal ready. Nothing has been saved or approved.",
           });
@@ -1620,10 +1675,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (error instanceof GroqProviderError) {
             json(res, 502, {
               source: error.source, providerStatus: error.httpStatus,
+              aiUsage: tracked.snapshot(),
               category: error.category, error: error.message,
             });
           } else {
             json(res, 422, {
+              aiUsage: tracked.snapshot(),
               error: error instanceof Error ? error.message : "Incremental regeneration failed",
             });
           }
@@ -1640,7 +1697,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : String(error) });
           return;
         }
-        const provider = input.provider === "groq" ? (groqOverride ?? groqProvider) : fixtureProvider();
+        const tracked=trackAI("generate");
+        const provider = input.provider === "groq" ? tracked.provider : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
           const memory = input.provider === "groq" && (body as Record<string, unknown>)?.useApplicationMemory !== false
@@ -1655,6 +1713,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
+            aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             generationAttempts: result.generationAttempts,
             memorySuggestions: suggestions,
             diagnostics: {
@@ -1697,6 +1756,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               providerParam: error.providerParam,
               error: error.message,
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           } else if (error instanceof GroqTransportError) {
             json(res, 502, {
@@ -1704,6 +1764,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               category: error.category,
               error: error.message,
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           } else if (error instanceof GeneratedDraftValidationError) {
             json(res, 422, {
@@ -1713,12 +1774,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               problems: error.problems,
               error: error.message,
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           } else {
             json(res, 422, {
               source: "generator",
               error: error instanceof Error ? error.message : "Generation failed",
               requirementsCharacters: input.requirements.length,
+              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
             });
           }
         }

@@ -174,3 +174,47 @@ test("unverified locator still offers direct manual edit of the failing assertio
     await rm(dir, { force: true, recursive: true });
   }
 });
+
+test("same target after DOM search permits explicitly confirmed expectation correction", async ({ browser, page }) => {
+  const dir = await mkdtemp(join(tmpdir(), "todo-assert-expectation-"));
+  const website = createServer((_req,res)=>{res.writeHead(200,{"Content-Type":"text/html"});res.end(markup);});
+  let review: Server | undefined;
+  try {
+    const appURL=await start(website);
+    review=await createReviewServer(dir,browser);
+    const reviewURL=await start(review);
+    const original=definition({by:"text",value:"Buy groceries"});
+    const submitted={...original,steps:original.steps.map(step=>step.id==="verify-count"
+      ? {...step,action:{...step.action,expected:"1 items"}} : step)};
+    const saved=await page.request.post(reviewURL+"/api/save",{data:{testName:"DOM expectation correction",definition:submitted,baseURL:appURL+"/todomvc/#/"}});
+    expect(saved.status()).toBe(200);
+    await page.goto(reviewURL);
+    await selectSavedScript(page,(await saved.json()).id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-summary")).toContainText("FAILED",{timeout:25000});
+    const panel=page.locator("#run-steps .run-step").nth(4).locator(".assertion-dom-repair");
+    await panel.getByLabel("Search visible DOM text").fill("1 item left");
+    await panel.getByRole("button",{name:"Search captured DOM"}).click();
+    const candidate = panel.locator(".assertion-dom-option").filter({ has: page.getByText('Visible text "1 item left"', { exact: true }) });
+    await expect(candidate).toHaveCount(1);
+    await candidate.locator("input").check();
+    await expect(panel.getByLabel("Assertion correction")).toHaveValue("expectation");
+    const save=panel.getByRole("button",{name:"Save corrected expectation and rerun"});
+    await expect(save).toBeDisabled();
+    await panel.getByRole("button",{name:"Use selected element text as expectation"}).click();
+    await expect(panel.getByLabel("Corrected expected text")).toHaveValue("1 item left");
+    await expect(save).toBeDisabled();
+    await panel.getByLabel("I confirm this expectation matches the test requirements.").check();
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.locator("#run-summary")).toContainText("PASSED",{timeout:25000});
+    const updated=await page.locator("#execution-panel").getByLabel("Test", { exact: true }).inputValue();
+    const amended=JSON.parse(await readFile(await approvedPath(dir,updated),"utf8"));
+    expect(amended.steps.slice(0,4)).toEqual(submitted.steps.slice(0,4));
+    expect(amended.steps[4].action).toEqual({kind:"assert-text",target:{by:"text",value:"1 item left"},expected:"1 item left",match:"exact",provenance:"human-confirmed"});
+  } finally {
+    if(review) await close(review);
+    await close(website);
+    await rm(dir,{force:true,recursive:true});
+  }
+});

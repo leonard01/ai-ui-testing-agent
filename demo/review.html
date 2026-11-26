@@ -233,6 +233,14 @@
     .app-shell { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:calc(100vh - 76px); max-width:1600px; margin:auto; }
     .app-nav { background:#f8fafc; border-right:1px solid #dce3ed; padding:24px 14px; }
     .app-nav button { display:block; width:100%; text-align:left; background:transparent; color:#34506b; padding:12px; margin:4px 0; font-weight:600; }
+    .report-nav-label { border-top:1px solid #dce3ed; margin-top:16px; padding:12px 12px 4px; font-weight:700; color:#52667c; font-size:12px; }
+    .report-nav { padding-left:8px; }
+    @media(max-width:820px) { .report-nav-label { width:100%; margin-top:4px; padding:8px 12px 0; } .report-nav { display:flex; flex:1 1 100%; flex-wrap:wrap; gap:4px; padding-left:0; } }
+    .planned-report { border:1px dashed #b9cddd; border-radius:8px; padding:14px; margin:16px 0; background:#f8fafc; }
+    .planned-report h3 { margin:0 0 8px; }
+    .request-usage:not(:empty) { margin:12px 0; padding:12px 14px; border:1px solid #dce3ed; background:#f8fafc; border-radius:8px; }
+    .request-usage summary { cursor:pointer; font-weight:600; }
+    .request-usage p { margin:8px 0; overflow-wrap:anywhere; }
     .app-nav button[aria-current="page"] { background:#e0edf7; color:#174e77; }
     .app-nav button:focus-visible,.workflow-nav button:focus-visible { outline:2px solid #205e86; outline-offset:2px; }
     .workspace { min-width:0; padding:24px clamp(16px,3vw,40px); }
@@ -246,8 +254,9 @@
     main[data-workspace="existing"] > :not(#review-workspace),
     main[data-workspace="run"] > :not(#execution-panel),
     main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
+    main[data-workspace="ai-usage"] > :not(#ai-usage-panel),
     main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
-    main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
+    main[data-workspace="existing"] #draft-usage, main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
     main[data-workspace="draft"] #placeholder { display:none !important; }
     #results-panel[data-result-kind="single"] #suite-output,
     #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
@@ -390,7 +399,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <button type="button" id="nav-new" data-view="instructions" aria-current="page">New Test</button>
       <button type="button" id="nav-existing" data-view="existing">Existing Tests</button>
       <button type="button" id="nav-run" data-view="run">Run Tests</button>
-      <button type="button" id="nav-diagnostics" data-view="diagnostics">Diagnostics</button>
+      <div class="report-nav-label" id="reports-nav-heading">Reports</div>
+      <div role="group" aria-labelledby="reports-nav-heading" class="report-nav">
+        <button type="button" id="nav-diagnostics" data-view="diagnostics">Test Execution History</button>
+        <button type="button" id="nav-ai-usage" data-view="ai-usage">AI Usage Analytics</button>
+      </div>
     </nav>
     <div class="workspace">
       <nav class="workflow-nav" aria-label="Test workflow">
@@ -456,12 +469,13 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
+      <div id="instructions-usage" class="request-usage" aria-live="polite"></div>
       <button type="button" id="start-new-test" class="secondary" hidden style="margin-top:12px">Start a separate new test</button>
       <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
 
     </section>
     <section id="review-workspace" aria-labelledby="review-heading" hidden>
-      <h2 id="review-heading">Test Draft</h2>
+      <h2 id="review-heading">Test Draft</h2><div id="draft-usage" class="request-usage" aria-live="polite"></div>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
@@ -713,7 +727,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       </div>
     </section>
     <section id="diagnostics-panel" aria-labelledby="diagnostics-heading">
-      <h2 id="diagnostics-heading">Diagnostics</h2>
+      <h2 id="diagnostics-heading">Test Execution History</h2>
       <section id="history-panel" hidden aria-labelledby="history-heading">
         <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 id="history-heading">Execution history</h3><button type="button" id="refresh-history" class="secondary">Refresh</button></div>
         <div id="history-metrics" class="result-metrics" aria-label="Filtered execution totals"></div>
@@ -730,6 +744,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         </div>
         <div class="history-toolbar" style="justify-content:flex-end"><button type="button" id="delete-all-history" class="secondary danger">Delete All History</button></div>
       </section>
+    </section>
+    <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
+      <h2 id="ai-usage-heading">AI Usage Analytics</h2>
+      <p class="muted">Historical provider attempts, independent of execution history. Only reported tokens are included in totals.</p>
+      <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
+      <button id="usage-refresh" type="button" class="secondary">Refresh AI usage</button>
+      <p id="usage-status" role="status"></p><div id="usage-metrics" class="result-metrics"></div>
+      <p id="usage-minute" class="muted"></p><div id="usage-records"></div>
+      <div class="planned-report"><h3>Planned enhancements — to be implemented</h3><p>Provider/model filters, prompt version comparisons, charts, CSV export and persistent per-test associations.</p></div>
     </section>
       </main>
     </div>
@@ -829,6 +852,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("review-workspace").hidden = false;
         $("placeholder").hidden = view !== "existing";
       }
+      if (view === "ai-usage") void refreshAIUsage();
       if (view === "diagnostics") {
         $("history-panel").hidden = false;
         $("toggle-history").textContent = "Hide History";
@@ -2170,9 +2194,59 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       approvals = new Set(definition.steps.map((_, index) => index));
       renderSteps();
     });
+    function showRequestUsage(target, usage) {
+      const panel=$(target);
+      panel.replaceChildren();
+      if (!usage) return;
+      const totals=usage.summary;
+      const details=make("details");
+      const label=totals.knownRequests ? totals.totalTokens.toLocaleString()+" reported tokens" : "Actual token count unavailable";
+      details.append(make("summary","AI Usage — "+label+(totals.knownRequests && totals.unknownRequests ? " (partial)" : "")));
+      const limited=usage.records.some(row=>row.httpStatus===429);
+      details.open=limited;
+      if (limited) details.append(make("p","GroqCloud rejected a request due to its rate limit. Rejected requests may not return actual token counts; unknown does not mean zero. The completion budget is a maximum, not actual usage.","muted"));
+      if (!totals.requests) details.append(make("p","No hosted provider attempt was recorded for this operation.","muted"));
+      details.append(make("p",totals.requests+" provider attempts · "+usage.modelCalls+" model calls · "+totals.unknownRequests+" unknown counts","muted"));
+      for (const row of usage.records) {
+        details.append(make("p",row.status+" · "+row.model+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
+        details.append(make("p","Input size: "+row.systemCharacters.toLocaleString()+" system characters + "+row.promptCharacters.toLocaleString()+" prompt characters (not token counts).","muted"));
+        if(row.estimatedInputTokens!==undefined) details.append(make("p","Estimated input: "+row.estimatedInputTokens.toLocaleString()+" tokens (rough characters/4 estimate, not tokenizer output). Estimated input + completion allowance: "+(row.estimatedInputTokens+row.completionBudget).toLocaleString()+" tokens. Not actual usage.","muted"));
+        if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) details.append(make("p","Provider rate-limit figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used in quota window: "+(row.providerUsedTokens??"unknown")+". These are not per-request actual usage."));
+        if(row.retryAfter!==undefined) details.append(make("p","Provider Retry-After: "+row.retryAfter+(/^\d+(?:\.\d+)?$/.test(row.retryAfter)?" seconds":" (HTTP date)"),"muted"));
+        if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
+      }
+      if(usage.storageFailed) details.append(make("p","Usage could not be fully saved to history.","error"));
+      panel.append(details);
+    }
+    async function refreshAIUsage() {
+      $("usage-status").textContent="Loading usage history…";
+      try {
+        const data=await requestJSON("/api/ai-usage?days="+$("usage-days").value);
+        const metrics=$("usage-metrics");
+        metrics.replaceChildren();
+        for(const [name,value] of [["Reported input",data.summary.inputTokens],["Reported output",data.summary.outputTokens],["Reported total",data.summary.totalTokens],["Attempts",data.summary.requests],["Unknown counts",data.summary.unknownRequests],["Rate limits",data.summary.rateLimits]]) {
+          const metric=make("div",null,"result-metric");
+          metric.append(make("span",name,"muted"),make("strong",value.toLocaleString()));metrics.append(metric);
+        }
+        $("usage-minute").textContent="Last 60 seconds (local recorded attempts): "+data.minute.totalTokens.toLocaleString()+" reported tokens; "+data.minute.unknownRequests+" unknown counts. This is not the provider quota.";
+        const list=$("usage-records");list.replaceChildren();
+        for(const row of data.records) {
+          const card=make("article",null,"run-step");
+          card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
+          if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) card.append(make("p","Provider quota figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used: "+(row.providerUsedTokens??"unknown"),"muted"));
+          if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens (rough estimate)","muted"));
+          if(row.retryAfter!==undefined) card.append(make("p","Retry-After: "+row.retryAfter,"muted"));
+          list.append(card);
+        }
+        $("usage-status").textContent=data.totalRecords ? "Showing latest "+data.records.length+" of "+data.totalRecords+" attempts." : "No recorded AI requests for this period.";
+      } catch(error) { $("usage-status").textContent=error.message||String(error); }
+    }
+    $("usage-refresh").addEventListener("click",()=>void refreshAIUsage());
+    $("usage-days").addEventListener("change",()=>void refreshAIUsage());
     async function requestJSON(url, options) {
       const response = await fetch(url, options);
       const payload = await response.json();
+      if (url === "/api/regenerate-steps") showRequestUsage("draft-usage",payload.aiUsage);
       if (!response.ok) {
         const error = new Error(payload.error || "Request failed (" + response.status + ")");
         error.category = payload.category;
@@ -2483,8 +2557,84 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           save.disabled = true;
           let selected = -1;
           let activeEvidence = step.assertionAlternatives || null;
+          let searching = false;
+          let savingRepair = false;
+          const canReviewExpectation = mismatch && step.actionKind === "assert-text" &&
+            typeof step.expected === "string";
+          const review = make("div", null, "repair-scope");
+          review.hidden = true;
+          const modeLabel = make("label", "Assertion correction");
+          const mode = make("select");
+          mode.setAttribute("aria-label", "Assertion correction");
+          modeLabel.append(mode);
+          const expectationFields = make("div");
+          const expectedLabel = make("label", "Corrected expected text");
+          const expected = make("textarea");
+          expected.maxLength = 10000;
+          expected.value = step.expected ?? "";
+          expectedLabel.append(expected);
+          const matchLabel = make("label", "Corrected comparison");
+          const match = make("select");
+          for (const [value, label] of [["exact", "Exact"], ["contains", "Contains"]]) {
+            const option = make("option", label);
+            option.value = value;
+            match.append(option);
+          }
+          match.value = step.textMatch ?? "exact";
+          matchLabel.append(match);
+          const useText = make("button", "Use selected element text as expectation", "secondary");
+          useText.type = "button";
+          const confirmLabel = make("label");
+          const confirm = make("input");
+          confirm.type = "checkbox";
+          confirmLabel.append(confirm, document.createTextNode(" I confirm this expectation matches the test requirements."));
+          expectationFields.append(expectedLabel, matchLabel, useText, confirmLabel);
+          review.append(modeLabel, expectationFields);
+          const selectedCandidate = () => activeEvidence?.candidates?.[selected];
+          const sameTarget = () => JSON.stringify(selectedCandidate()?.target) === JSON.stringify(activeEvidence?.attempted);
+          function updateRepair() {
+            const candidate = selectedCandidate();
+            const changesExpectation = mode.value === "expectation" || mode.value === "both";
+            expectationFields.hidden = !changesExpectation;
+            save.textContent = changesExpectation
+              ? mode.value === "both" ? "Save corrected target and expectation and rerun" : "Save corrected expectation and rerun"
+              : "Save corrected assertion target and rerun";
+            const expectationChanged = expected.value !== step.expected || match.value !== (step.textMatch ?? "exact");
+            save.disabled = running || searching || savingRepair || !candidate ||
+              activeEvidence.total !== activeEvidence.candidates.length ||
+              (changesExpectation ? !confirm.checked || !expectationChanged : sameTarget());
+          }
+          function selectCorrection() {
+            mode.replaceChildren();
+            const options = sameTarget()
+              ? (canReviewExpectation ? [["expectation", "Update expected text or comparison"]] : [])
+              : [["target", "Replace assertion target"], ...(canReviewExpectation ? [["both", "Update target and expectation"]] : [])];
+            for (const [value, label] of options) {
+              const option = make("option", label);
+              option.value = value;
+              mode.append(option);
+            }
+            expected.value = step.expected ?? "";
+            match.value = step.textMatch ?? "exact";
+            confirm.checked = false;
+            review.hidden = !canReviewExpectation || options.length === 0;
+            updateRepair();
+          }
+          mode.addEventListener("change", () => { confirm.checked = false; updateRepair(); });
+          expected.addEventListener("input", () => { confirm.checked = false; updateRepair(); });
+          match.addEventListener("change", () => { confirm.checked = false; updateRepair(); });
+          confirm.addEventListener("change", updateRepair);
+          useText.addEventListener("click", () => {
+            const candidate = selectedCandidate();
+            if (!candidate) return;
+            expected.value = candidate.text ?? candidate.target.value ?? candidate.target.name ?? "";
+            confirm.checked = false;
+            updateRepair();
+          });
           const renderChoices = (evidence) => {
             selected = -1;
+            review.hidden = true;
+            confirm.checked = false;
             save.disabled = true;
             activeEvidence = evidence;
             choices.replaceChildren(make("legend", "Choose a verified element from the page"));
@@ -2508,9 +2658,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 selected = index;
                 const unchanged = JSON.stringify(candidate.target) ===
                   JSON.stringify(evidence.attempted);
-                save.disabled = running || unchanged || evidence.total !== candidates.length;
-                if (unchanged) searchStatus.textContent =
-                  "This is already the assertion target. Changing it cannot fix an exact-text mismatch. Use Review failed text assertion below to change the expectation or choose Contains.";
+                selectCorrection();
+                if (unchanged) searchStatus.textContent = canReviewExpectation
+                  ? "This is already the correct assertion target. Review the expected text or comparison below, then explicitly confirm your correction."
+                  : "This is already the assertion target. No locator change is possible.";
+                else searchStatus.textContent = "Verified element selected. Review the correction before saving.";
               });
               choices.append(label);
             });
@@ -2532,18 +2684,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               "No searchable DOM evidence was retained for this failed assertion. " +
               "You can still edit its locator in the test review form.";
           }
-          repair.append(choices);
+          repair.append(choices, review);
           searchInput.addEventListener("input", () => {
             save.disabled = true;
             selected = -1;
-            searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
+            review.hidden = true;
+            confirm.checked = false;
+            choices.querySelectorAll("input").forEach(radio => { radio.checked = false; radio.disabled = true; });
+            searchButton.disabled = searching || !canSearchCapturedDOM || !searchInput.value.trim();
             searchStatus.textContent = canSearchCapturedDOM
               ? "Search again to refresh the matching elements."
               : "No searchable DOM snapshot was retained. Edit the assertion locator manually.";
           });
           searchButton.addEventListener("click", async () => {
             const query = searchInput.value.trim();
-            if (!query || running || !canSearchCapturedDOM) return;
+            if (!query || running || searching || savingRepair || !canSearchCapturedDOM) return;
+            searching = true;
+            renderChoices(null);
             searchButton.disabled = true;
             save.disabled = true;
             searchStatus.textContent = "Searching text captured at the failed step...";
@@ -2553,6 +2710,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ runId: result.id, stepId: step.id, query }),
               });
+              if (searchInput.value.trim() !== query) return;
               renderChoices(response.alternatives);
               if (!response.alternatives.candidates.length) {
                 searchStatus.textContent = 'No uniquely identifiable visible text matched "' +
@@ -2561,16 +2719,19 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             } catch (error) {
               searchStatus.textContent = error.message || String(error);
             } finally {
+              searching = false;
               searchButton.disabled = !canSearchCapturedDOM || !searchInput.value.trim();
+              updateRepair();
             }
           });
           repair.append(make("p",
-            "This is a locator-only repair. Selecting an element does NOT replace expected text with what the page displays. " +
-            "To change the expected text or compare with Contains, use Review failed text assertion below. The failed saved version is replaced " +
+            "Selecting an element never changes the expectation automatically. Locator-only repair preserves the expected result. " +
+            "Any expectation or comparison change requires explicit confirmation against your requirements. The failed saved version is replaced " +
             "after a successful save; the corrected test reruns from step 1.", "muted"));
           save.addEventListener("click", async () => {
-            if (running || selected < 0 || !activeEvidence ||
-                activeEvidence.total !== activeEvidence.candidates.length) return;
+            updateRepair();
+            if (save.disabled) return;
+            savingRepair = true;
             save.disabled = true;
             $("run-error").textContent = "";
             try {
@@ -2579,16 +2740,21 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   runId: result.id, stepId: step.id, candidateIndex: selected,
+                  mode: mode.value || "target",
+                  ...(mode.value === "expectation" || mode.value === "both"
+                    ? { expected: expected.value, match: match.value, confirmed: confirm.checked } : {}),
                   ...(activeEvidence.searched ? { searchToken: activeEvidence.searchToken } : {}),
                 }),
               });
               await refreshApprovedTests(updated.id);
-              $("run-status").textContent = "Saved corrected assertion target for " +
+              $("run-status").textContent = "Saved reviewed assertion correction for " +
                 updated.repairedStepId + ". Rerunning from step 1...";
               await executeApproved(updated.id);
             } catch (error) {
               $("run-error").textContent = error.message || String(error);
-              save.disabled = false;
+            } finally {
+              savingRepair = false;
+              updateRepair();
             }
           });
           const manual = make("button", "Edit failing assertion locator", "secondary");
@@ -3714,6 +3880,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       clearGenerationPreview();
       ({ editingSavedId, workingDraftId, lastSavedId, savedFingerprint, originalInstructions } = currentIdentity);
       $("generation-error").textContent = "";
+      showRequestUsage("instructions-usage",null);
+      showRequestUsage("draft-usage",null);
       $("saved").replaceChildren();
       $("save-error").textContent = "";
       const requirements = $("requirements").value.trim();
@@ -3742,6 +3910,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }),
         });
         const data = await response.json();
+        showRequestUsage("instructions-usage",data.aiUsage);
+        showRequestUsage("draft-usage",data.aiUsage);
         if (response.status===409 && data.category==="instruction-mismatch") {
           showGenerationException(data,{baseURL,requirements,provider,useApplicationMemory:$("use-application-memory").checked});
           if(decision?.proceed) $("exception-edit-error").textContent=data.error;

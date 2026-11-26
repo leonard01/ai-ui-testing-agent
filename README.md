@@ -1,5 +1,7 @@
 # AI UI Testing Agent
 
+**Project direction:** [Product roadmap — from UI testing to a unified AI-native testing platform](ROADMAP.md) · [Roadmap discussion and feedback](https://github.com/leonard01/ai-ui-testing-agent/issues/103)
+
 **v0.2.0 release candidate · AI-assisted browser test creation, review and execution · Playwright-powered**
 
 **Describe a test in plain English, generate proposed browser steps, review or edit them, and execute the approved test.** No test automation code is needed for the primary web UI workflow.
