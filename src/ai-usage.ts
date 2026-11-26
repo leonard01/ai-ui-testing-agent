@@ -22,6 +22,8 @@ export interface UsageAttempt {
   remainingTokens?: number;
   resetTokens?: string;
   transportAttempt: number;
+  finishReason?: string;
+  reasoningTokens?: number;
   responseMode?: "json" | "text";
   reasoningEffort?: "low" | "medium" | "high";
   responsePolicy?: "hybrid" | "json" | "text";
@@ -51,10 +53,44 @@ export function summarizeUsage(records: UsageRecord[]) {
     rateLimits: records.filter(r=>r.httpStatus===429).length,
   };
 }
+export type ExperimentOutcome = "correct" | "incorrect" | "unreviewed";
+export interface OperationResult {
+  operationId: string;
+  validation?: "accepted" | "rejected";
+  assessment?: ExperimentOutcome;
+}
 export function createUsageStore(directory: string) {
   const file = join(directory,"requests.jsonl");
+  const resultFile = join(directory,"operation-results.jsonl");
   let pending: Promise<void> = Promise.resolve();
+  async function readLines<T>(path: string): Promise<T[]> {
+    await pending;
+    let raw: string;
+    try { raw=await readFile(path,"utf8"); }
+    catch(error) { if ((error as NodeJS.ErrnoException).code==="ENOENT") return []; throw error; }
+    return raw.split("\n").filter(Boolean).flatMap(line=>{
+      try { return [JSON.parse(line) as T]; } catch { return []; }
+    });
+  }
   return {
+    async recordResult(result: OperationResult) {
+      // Store only explicit scalar metadata, never response content or test instructions.
+      const safe: OperationResult = {operationId:result.operationId,validation:result.validation,assessment:result.assessment};
+      const write=pending.then(async()=>{
+        await mkdir(directory,{recursive:true});
+        await appendFile(resultFile,JSON.stringify(safe)+"\n",{encoding:"utf8",mode:0o600});
+      });
+      pending=write.catch(()=>{});
+      await write;
+    },
+    async results(): Promise<OperationResult[]> {
+      const merged=new Map<string,OperationResult>();
+      for(const row of await readLines<OperationResult>(resultFile)) {
+        if (!row || typeof row.operationId!=="string") continue;
+        merged.set(row.operationId,{...merged.get(row.operationId),...row});
+      }
+      return [...merged.values()];
+    },
     async record(operationId: string, operation: UsageRecord["operation"], modelCall: number, attempt: UsageAttempt) {
       const record: UsageRecord = {...attempt,id:randomUUID(),operationId,operation,modelCall};
       const write = pending.then(async()=>{
