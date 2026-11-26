@@ -748,6 +748,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
       <h2 id="ai-usage-heading">AI Usage Analytics</h2>
       <p class="muted">Historical provider attempts, independent of execution history. Only reported tokens are included in totals.</p>
+      <section aria-labelledby="response-diagnostics-heading" class="run-step">
+        <h3 id="response-diagnostics-heading">AI Response Diagnostics</h3>
+        <label><input type="checkbox" id="capture-model-responses"> Capture model responses</label>
+        <label><input type="checkbox" id="capture-successful-responses" disabled> Include successful responses</label>
+        <p class="muted">Opt in before generating or reinterpreting. Responses can contain sensitive test data. Only the latest operation is kept in this browser tab; not saved to analytics history. The configured API key is redacted, but other secrets may remain. Review before copying.</p>
+        <button type="button" id="clear-response-diagnostics" class="secondary">Clear captured responses</button>
+        <p id="response-diagnostics-status" role="status">Capture is disabled.</p>
+        <div id="response-diagnostics-list"></div>
+      </section>
       <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
       <button id="usage-refresh" type="button" class="secondary">Refresh AI usage</button>
       <p id="usage-status" role="status"></p><div id="usage-metrics" class="result-metrics"></div>
@@ -1091,6 +1100,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         return;
       }
       if (!confirmReplaceWorkspace()) return;
+      clearResponseDiagnostics();
       editorRevision++;
       persistedEditorState = null;
       expandedStepIds.clear();
@@ -2194,6 +2204,80 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       approvals = new Set(definition.steps.map((_, index) => index));
       renderSteps();
     });
+    let responseCaptureRevision = 0;
+    let latestResponseDiagnostics = [];
+    function renderResponseDiagnostics() {
+      const list = $("response-diagnostics-list");
+      list.replaceChildren();
+      const capture = $("capture-model-responses").checked;
+      const includeSuccess = $("capture-successful-responses").checked;
+      const rows = capture ? latestResponseDiagnostics.filter(row => includeSuccess || !row.accepted) : [];
+      $("response-diagnostics-status").textContent = !capture ? "Capture is disabled." :
+        rows.length ? rows.length + " captured model attempt(s) from the latest operation." :
+        "No captured responses. Generate or reinterpret a test with capture enabled.";
+      for (const row of rows) {
+        const item = make("details");
+        item.className = "run-step";
+        item.append(make("summary","Call " + row.call + " — " + row.mode.toUpperCase() + " mode — " +
+          (row.accepted ? "Passed validation" : "Not accepted")));
+        if (row.repairs?.length) item.append(make("p","Local repairs: " + row.repairs.join(", ")));
+        if (row.validation) item.append(make("p",row.validation,"muted"));
+        for (const [title, value, truncated] of [
+          ["Raw model response",row.raw,row.rawTruncated],
+          ["Provider error response",row.providerError,row.errorTruncated],
+          ["Locally repaired JSON",row.repairedJSON,row.repairedTruncated],
+        ]) {
+          if (typeof value !== "string") continue;
+          const section = make("details");
+          section.append(make("summary",title + (truncated ? " (truncated)" : "")));
+          const pre = make("pre",value);
+          pre.style.whiteSpace = "pre-wrap";
+          pre.style.overflowWrap = "anywhere";
+          pre.style.maxHeight = "420px";
+          pre.style.overflow = "auto";
+          const copy = make("button","Copy " + title.toLowerCase(),"secondary");
+          copy.type = "button";
+          const feedback = make("span","","muted");
+          copy.addEventListener("click", async () => {
+            try { await navigator.clipboard.writeText(value); feedback.textContent = "Copied."; }
+            catch { feedback.textContent = "Clipboard unavailable. Select and copy the response manually."; }
+          });
+          section.append(copy,feedback,pre);
+          item.append(section);
+        }
+        if (row.raw === undefined && row.providerError === undefined) item.append(make("p","No response content was returned by the provider.","muted"));
+        list.append(item);
+      }
+    }
+    function clearResponseDiagnostics() {
+      responseCaptureRevision++;
+      latestResponseDiagnostics = [];
+      renderResponseDiagnostics();
+    }
+    function beginResponseCapture() {
+      clearResponseDiagnostics();
+      return {revision:responseCaptureRevision, settings:{
+        capture:$("capture-model-responses").checked,
+        includeSuccess:$("capture-successful-responses").checked
+      }};
+    }
+    function receiveResponseCapture(usage, capture) {
+      const rows = usage?.responseDiagnostics;
+      if (usage) delete usage.responseDiagnostics;
+      if (capture.revision !== responseCaptureRevision || !$("capture-model-responses").checked) return;
+      latestResponseDiagnostics = Array.isArray(rows) ? rows.filter(row => $("capture-successful-responses").checked || !row.accepted) : [];
+      renderResponseDiagnostics();
+    }
+    $("capture-model-responses").addEventListener("change",()=>{
+      $("capture-successful-responses").disabled = !$("capture-model-responses").checked;
+      if (!$("capture-model-responses").checked) $("capture-successful-responses").checked = false;
+      clearResponseDiagnostics();
+    });
+    $("capture-successful-responses").addEventListener("change",()=>{
+      if (!$("capture-successful-responses").checked) latestResponseDiagnostics = latestResponseDiagnostics.filter(row=>!row.accepted);
+      renderResponseDiagnostics();
+    });
+    $("clear-response-diagnostics").addEventListener("click",clearResponseDiagnostics);
     function showRequestUsage(target, usage) {
       const panel=$(target);
       panel.replaceChildren();
@@ -2216,6 +2300,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
       }
       if(usage.storageFailed) details.append(make("p","Usage could not be fully saved to history.","error"));
+      const diagnostics = make("button","View AI Response Diagnostics","secondary");
+      diagnostics.type = "button";
+      diagnostics.addEventListener("click",()=>{ showWorkspace("ai-usage"); $("response-diagnostics-heading").scrollIntoView({block:"start"}); });
+      details.append(diagnostics);
       panel.append(details);
     }
     async function refreshAIUsage() {
@@ -2244,9 +2332,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("usage-refresh").addEventListener("click",()=>void refreshAIUsage());
     $("usage-days").addEventListener("change",()=>void refreshAIUsage());
     async function requestJSON(url, options) {
+      const capture = url === "/api/regenerate-steps" ? beginResponseCapture() : null;
+      if (capture) options = {...options, body: JSON.stringify({...JSON.parse(options.body), responseDiagnostics:capture.settings})};
       const response = await fetch(url, options);
       const payload = await response.json();
-      if (url === "/api/regenerate-steps") showRequestUsage("draft-usage",payload.aiUsage);
+      if (capture) {
+        receiveResponseCapture(payload.aiUsage,capture);
+        showRequestUsage("draft-usage",payload.aiUsage);
+      }
       if (!response.ok) {
         const error = new Error(payload.error || "Request failed (" + response.status + ")");
         error.category = payload.category;
@@ -3899,6 +3992,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-status").classList.add("ai-progress");
       $("generation-status").textContent = "Generating test steps with AI… Inspecting the application and preparing a draft. No test has been modified.";
       $("generation-review-status").textContent = "Generating a new draft; previous steps have been cleared.";
+      const capture = beginResponseCapture();
       try {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -3907,9 +4001,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             baseURL, requirements, provider,
             useApplicationMemory: $("use-application-memory").checked,
             proceedUnresolved: decision?.proceed === true,
+            responseDiagnostics: capture.settings,
           }),
         });
         const data = await response.json();
+        receiveResponseCapture(data.aiUsage,capture);
         showRequestUsage("instructions-usage",data.aiUsage);
         showRequestUsage("draft-usage",data.aiUsage);
         if (response.status===409 && data.category==="instruction-mismatch") {
