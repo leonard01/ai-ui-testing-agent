@@ -7,7 +7,7 @@ import { ensureAllowedNavigation, inspectApplication } from "./inspect.js";
 import { parseTestDefinition, testStepSchema } from "./schema.js";
 import type { TestDefinition, TestStep } from "./domain.js";
 import type { ModelProvider } from "./generation.js";
-import { isGroqJSONModeFailure } from "./hosted-providers.js";
+import { groqResponsePolicy, isGroqJSONModeFailure } from "./hosted-providers.js";
 import { parseModelJSON } from "./model-json.js";
 import type { ResponseDiagnosticObserver } from "./response-diagnostics.js";
 
@@ -118,7 +118,7 @@ export async function generateIncrementalProposal(
     JSON.stringify(snapshot).slice(0, 9000),
     original.instructionCoverage ? "Return a patch JSON object with steps and reconciliation." : "Return only a patch JSON object with a steps array.",
   ].join("\n\n");
-  const attempts = options.retryMalformedOutput ? 2 : 1;
+  const attempts = options.retryMalformedOutput && groqResponsePolicy() === "hybrid" ? 2 : 1;
   let problem = "invalid JSON patch";
   let textFallback = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
