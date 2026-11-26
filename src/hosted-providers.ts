@@ -239,7 +239,7 @@ export async function requestGroq(
   let response: Response | undefined;
   let started = Date.now();
   let transportAttempt = 1;
-  async function record(status: string, response?: Response, usage?: unknown, figures: LimitFigures = {}) {
+  async function record(status: string, response?: Response, usage?: unknown, figures: LimitFigures = {}, finishReason?: string, reasoningTokens?: number) {
     const remaining = response?.headers.get("x-ratelimit-remaining-tokens");
     const reset = response?.headers.get("x-ratelimit-reset-tokens");
     const retry = response?.headers.get("retry-after");
@@ -251,7 +251,7 @@ export async function requestGroq(
       durationMs:Date.now()-started,status,httpStatus:response?.status,
       ...readTokenUsage(usage), completionBudget, estimatedInputTokens, ...figures, retryAfter,
       systemCharacters:system.length,promptCharacters:prompt.length,
-      remainingTokens,resetTokens,transportAttempt,responseMode,reasoningEffort,responsePolicy,
+      remainingTokens,resetTokens,transportAttempt,responseMode,reasoningEffort,responsePolicy,finishReason,reasoningTokens,
     }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
   }
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -323,7 +323,7 @@ export async function requestGroq(
     finishReason:safeIdentifier(parsed?.choices?.[0]?.finish_reason),
     completionTokens:readTokenUsage(parsed?.usage).outputTokens,
     reasoningTokens:typeof reasoning === "number" && Number.isSafeInteger(reasoning) && reasoning >= 0 ? reasoning : undefined});
-  await record(status,response,parsed?.usage);
+  await record(status,response,parsed?.usage,{},safeIdentifier(parsed?.choices?.[0]?.finish_reason),typeof reasoning === "number" && Number.isSafeInteger(reasoning) && reasoning >= 0 ? reasoning : undefined);
   if (typeof text !== "string" || !text.trim()) {
     throw new Error("GroqCloud returned no generated JSON text");
   }
