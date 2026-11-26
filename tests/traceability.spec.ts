@@ -68,7 +68,7 @@ test("reviewer maps requirements, sees gaps and persists only explicit links", a
   await page.getByRole("button", { name: "Save Test" }).click();
   await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
   await page.locator("#nav-run").click();
-  const savedId = await page.getByLabel("Test script", { exact: true }).inputValue();
+  const savedId = await page.getByLabel("Test", { exact: true }).inputValue();
   const saved = JSON.parse(await readFile(await approvedPath(dir, savedId), "utf8"));
   expect(saved.requirements).toEqual([
     { id: "R1", text: "Task creation is visible", stepIds: ["enter", "visible"] },
@@ -89,7 +89,7 @@ test("reviewer maps requirements, sees gaps and persists only explicit links", a
 
   // Existing saved scripts may be edited without losing links or requiring JSON edits.
   page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("button", { name: "Edit selected saved test in review form" }).click();
+  await page.getByRole("button", { name: "Edit test" }).click();
   await expect(rows).toHaveCount(3);
   await rows.nth(0).locator("summary").click();
   await expect(rows.nth(0).locator('input[value="enter"]')).toBeChecked();
