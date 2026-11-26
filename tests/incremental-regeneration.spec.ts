@@ -33,18 +33,21 @@ let dir: string;
 let url: string;
 let mockSteps: unknown[] = [];
 let mockCalls = 0;
+let mockRawResponses: string[] = [];
 let mockReconciliation: unknown;
 let prompts: string[] = [];
 
 test.beforeEach(async ({ browser }) => {
   dir = await mkdtemp(join(tmpdir(), "incremental-regeneration-"));
   mockCalls = 0;
+  mockRawResponses = [];
   mockReconciliation = undefined;
   prompts = [];
   mockSteps = [newStatus];
   const mock = async ({ prompt }: { prompt: string }) => {
     mockCalls++;
     prompts.push(prompt);
+    if (mockRawResponses.length) return mockRawResponses.shift()!;
     return JSON.stringify({ steps: mockSteps, reconciliation: mockReconciliation });
   };
   server = await createReviewServer(dir, browser, mock);
@@ -83,6 +86,41 @@ test("response diagnostics automatically include successful output without savin
   const history = await (await fetch(url + "/api/ai-usage?days=0")).json();
   expect(JSON.stringify(history)).not.toContain("responseDiagnostics");
   expect(JSON.stringify(history)).not.toContain("new-status");
+});
+
+test("failed initial generation displays both actual malformed responses without enabling capture @sanity", async ({page}) => {
+  mockRawResponses = ['{"steps":[FIRST_INCOMPLETE', '{"steps":[SECOND_INCOMPLETE'];
+  await page.goto(url);
+  await page.locator("#test-name").fill("Failed response diagnostics");
+  await page.getByLabel("Your test instructions").fill("Add and verify a task");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button",{name:"Generate draft"}).click();
+  await expect(page.locator("#generation-error")).toContainText("model output was not valid JSON");
+  const panel = page.locator("#instructions-response-diagnostics > details");
+  await expect(panel.locator(":scope > summary")).toHaveText("View model responses (2)");
+  await panel.locator(":scope > summary").click();
+  const attempts=panel.locator("#response-diagnostics-list > details");
+  await expect(attempts).toHaveCount(2);
+  for (const [i, marker] of ["FIRST_INCOMPLETE","SECOND_INCOMPLETE"].entries()) {
+    const attempt=attempts.nth(i);
+    await attempt.locator(":scope > summary").click();
+    await attempt.getByText("Raw model response",{exact:true}).click();
+    await expect(attempt.locator("pre")).toContainText(marker);
+    await expect(attempt.locator("pre")).toBeVisible();
+  }
+  expect(mockCalls).toBe(2);
+});
+
+test("automatic capture retains failed first response and successful retry", async () => {
+  mockRawResponses = ['{"steps":[INCOMPLETE', JSON.stringify({steps:[newStatus]})];
+  const res=await regenerate({});
+  expect(res.status).toBe(200);
+  const data=await res.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(2);
+  expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics[0].accepted).not.toBe(true);
+  expect(data.aiUsage.responseDiagnostics[1].accepted).toBe(true);
+  expect(JSON.parse(data.aiUsage.responseDiagnostics[1].raw).steps).toEqual([newStatus]);
 });
 
 test("single-step proposal preserves unaffected steps and confirmed approvals", async () => {
