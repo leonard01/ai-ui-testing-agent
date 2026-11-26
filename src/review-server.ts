@@ -10,7 +10,7 @@ import { assertInstructionCoverageReviewed } from "./requirement-preservation.js
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
-import { requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
+import { effectiveGroqMode, requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
 import { createUsageStore, summarizeUsage, type UsageRecord } from "./ai-usage.js";
 import { createResponseCapture } from "./response-diagnostics.js";
 import { parseTestDefinition } from "./schema.js";
@@ -195,7 +195,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
     let modelCall=0, storageFailed=false;
     const provider: ModelProvider=async request=>{
       const call=++modelCall;
-      capture.start(call, request.responseMode ?? "json");
+      capture.start(call, effectiveGroqMode(request.responseMode));
       const output = groqOverride ? await groqOverride(request) : await requestGroq(request,fetch,async attempt=>{
         try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
         catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
