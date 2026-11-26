@@ -751,12 +751,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <h2 id="ai-usage-heading">AI Usage Analytics</h2>
       <p class="muted">Historical provider attempts, independent of execution history. Only reported tokens are included in totals.</p>
       <div id="analytics-response-diagnostics"><details id="response-diagnostics-panel" class="run-step">
-        <summary id="response-diagnostics-heading">AI Response Diagnostics</summary>
-        <label><input type="checkbox" id="capture-model-responses"> Capture model responses</label>
-        <label><input type="checkbox" id="capture-successful-responses" disabled> Include successful responses</label>
-        <p class="muted">Opt in before generating or reinterpreting. Responses can contain sensitive test data. Only the latest operation is kept in this browser tab; not saved to analytics history. The configured API key is redacted, but other secrets may remain. Review before copying.</p>
+        <summary id="response-diagnostics-heading">View model responses (0)</summary>
+        <p class="muted">Responses are captured automatically for successful and failed AI attempts. They can contain sensitive test data. Only the latest operation is kept in this browser tab; not saved to analytics history. The configured API key is redacted, but other secrets may remain. Review before copying.</p>
         <button type="button" id="clear-response-diagnostics" class="secondary">Clear captured responses</button>
-        <p id="response-diagnostics-status" role="status">Capture is disabled.</p>
+        <p id="response-diagnostics-status" role="status">No model responses yet.</p>
         <div id="response-diagnostics-list"></div>
       </details></div>
       <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
@@ -2220,12 +2218,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function renderResponseDiagnostics() {
       const list = $("response-diagnostics-list");
       list.replaceChildren();
-      const capture = $("capture-model-responses").checked;
-      const includeSuccess = $("capture-successful-responses").checked;
-      const rows = capture ? latestResponseDiagnostics.filter(row => includeSuccess || !row.accepted) : [];
-      $("response-diagnostics-status").textContent = !capture ? "Capture is disabled." :
-        rows.length ? rows.length + " captured model attempt(s) from the latest operation." :
-        "No captured responses. Generate or reinterpret a test with capture enabled.";
+      const rows = latestResponseDiagnostics;
+      $("response-diagnostics-heading").textContent = ($("response-diagnostics-panel").open ? "Hide" : "View") + " model responses (" + rows.length + ")";
+      $("response-diagnostics-status").textContent = rows.length ? rows.length + " model attempt(s) from the latest operation." : "No model responses yet. Generate or reinterpret a test.";
       for (const row of rows) {
         const item = make("details");
         item.className = "run-step";
@@ -2268,26 +2263,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     }
     function beginResponseCapture() {
       clearResponseDiagnostics();
-      return {revision:responseCaptureRevision, settings:{
-        capture:$("capture-model-responses").checked,
-        includeSuccess:$("capture-successful-responses").checked
-      }};
+      return {revision:responseCaptureRevision};
     }
     function receiveResponseCapture(usage, capture) {
       const rows = usage?.responseDiagnostics;
       if (usage) delete usage.responseDiagnostics;
-      if (capture.revision !== responseCaptureRevision || !$("capture-model-responses").checked) return;
-      latestResponseDiagnostics = Array.isArray(rows) ? rows.filter(row => $("capture-successful-responses").checked || !row.accepted) : [];
+      if (capture.revision !== responseCaptureRevision) return;
+      latestResponseDiagnostics = Array.isArray(rows) ? rows : [];
       renderResponseDiagnostics();
     }
-    $("capture-model-responses").addEventListener("change",()=>{
-      $("capture-successful-responses").disabled = !$("capture-model-responses").checked;
-      if (!$("capture-model-responses").checked) $("capture-successful-responses").checked = false;
-      clearResponseDiagnostics();
-    });
-    $("capture-successful-responses").addEventListener("change",()=>{
-      if (!$("capture-successful-responses").checked) latestResponseDiagnostics = latestResponseDiagnostics.filter(row=>!row.accepted);
-      renderResponseDiagnostics();
+    $("response-diagnostics-panel").addEventListener("toggle",()=>{
+      $("response-diagnostics-heading").textContent = ($("response-diagnostics-panel").open ? "Hide" : "View") + " model responses (" + latestResponseDiagnostics.length + ")";
     });
     $("clear-response-diagnostics").addEventListener("click",clearResponseDiagnostics);
     function showRequestUsage(target, usage) {
@@ -2341,7 +2327,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("usage-days").addEventListener("change",()=>void refreshAIUsage());
     async function requestJSON(url, options) {
       const capture = url === "/api/regenerate-steps" ? beginResponseCapture() : null;
-      if (capture) options = {...options, body: JSON.stringify({...JSON.parse(options.body), responseDiagnostics:capture.settings})};
       const response = await fetch(url, options);
       const payload = await response.json();
       if (capture) {
@@ -4009,7 +3994,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             baseURL, requirements, provider,
             useApplicationMemory: $("use-application-memory").checked,
             proceedUnresolved: decision?.proceed === true,
-            responseDiagnostics: capture.settings,
           }),
         });
         const data = await response.json();
