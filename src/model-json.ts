@@ -34,7 +34,7 @@ export function parseModelJSON(raw: string): { value: unknown; repairs: string[]
     if (depth > 64) fail();
     const t = take();
     if (t === "{") {
-      const result: Record<string, unknown> = Object.create(null);
+      const result: Record<string, unknown> = {};
       const keys = new Set<string>();
       if (peek() === "}") { take(); return result; }
       for (;;) {
@@ -44,7 +44,7 @@ export function parseModelJSON(raw: string): { value: unknown; repairs: string[]
         if (keys.has(key)) fail();
         keys.add(key);
         expect(":");
-        result[key] = value(depth + 1);
+        Object.defineProperty(result, key, { value: value(depth + 1), enumerable: true, writable: true, configurable: true });
         const delimiter = take();
         if (delimiter === "}") return result;
         if (delimiter !== ",") fail();
@@ -72,6 +72,5 @@ export function parseModelJSON(raw: string): { value: unknown; repairs: string[]
   }
   const parsed = value(0);
   if (peek() !== "" || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) fail();
-  // Return ordinary JSON objects, not custom prototypes. All values are preserved.
-  return { value: JSON.parse(JSON.stringify(parsed)), repairs: [...repairs] };
+  return { value: repairs.size ? parsed : JSON.parse(raw), repairs: [...repairs] };
 }
