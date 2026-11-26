@@ -2229,6 +2229,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (row.status || row.httpStatus !== undefined) item.append(make("p",
           "Provider status: " + (row.status ?? "unknown") + " · HTTP: " + (row.httpStatus ?? "not received") +
           " · Transport attempt: " + (row.transportAttempt ?? "unknown"),"muted"));
+        if (row.responsePolicy) item.append(make("p","Response policy: " + row.responsePolicy + " · Reasoning effort: " + (row.reasoningEffort ?? "provider default"),"muted"));
         item.append(make("p","Finish reason: " + (row.finishReason ?? "not reported") +
           " · Completion tokens: " + (row.completionTokens ?? "unknown") + " / " + (row.completionBudget ?? "unknown") +
           " · Reasoning tokens: " + (row.reasoningTokens ?? "not reported"),"muted"));
@@ -2327,7 +2328,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const list=$("usage-records");list.replaceChildren();
         for(const row of data.records) {
           const card=make("article",null,"run-step");
-          card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
+          card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+(row.responsePolicy ? " · "+row.responsePolicy+" policy · reasoning "+(row.reasoningEffort ?? "default") : "")+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
           if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) card.append(make("p","Provider quota figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used: "+(row.providerUsedTokens??"unknown"),"muted"));
           if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens (rough estimate)","muted"));
           if(row.retryAfter!==undefined) card.append(make("p","Retry-After: "+row.retryAfter,"muted"));
