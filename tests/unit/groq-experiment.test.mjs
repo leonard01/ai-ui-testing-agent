@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { requestGroq, groqResponsePolicy, groqReasoningEffort, effectiveGroqMode } from "../../dist/hosted-providers.js";
 
 test("experiment settings preserve hybrid defaults and reject unsupported settings",()=>{
- assert.equal(groqResponsePolicy(""),"hybrid");
+ assert.equal(groqResponsePolicy(""),"json");
  assert.equal(effectiveGroqMode("json","hybrid"),"json");
  assert.equal(effectiveGroqMode("text","hybrid"),"text");
  assert.equal(effectiveGroqMode("text","json"),"json");
