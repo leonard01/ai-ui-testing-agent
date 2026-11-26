@@ -464,6 +464,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <option value="fixture">Prewritten demonstration · no AI</option>
         </select>
         <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. If a draft fails schema validation, the generator makes at most one extra Groq model call to correct it (two calls maximum). The API key stays on your computer's local server.</div>
+        <button type="button" id="estimate-tokens" class="secondary">Estimate tokens (no AI request)</button>
+        <p id="estimate-tokens-status" role="status" class="muted"></p>
         <button type="submit" id="generate" style="margin-top:20px;width:100%">Generate draft</button>
         <p id="generate-readiness" class="field-readiness" role="status"></p>
       </form>
@@ -2309,7 +2311,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       for (const row of usage.records) {
         details.append(make("p",row.status+" · "+row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
         details.append(make("p","Input size: "+row.systemCharacters.toLocaleString()+" system characters + "+row.promptCharacters.toLocaleString()+" prompt characters (not token counts).","muted"));
-        if(row.estimatedInputTokens!==undefined) details.append(make("p","Estimated input: "+row.estimatedInputTokens.toLocaleString()+" tokens (rough characters/4 estimate, not tokenizer output). Estimated input + completion allowance: "+(row.estimatedInputTokens+row.completionBudget).toLocaleString()+" tokens. Not actual usage.","muted"));
+        if(row.estimatedInputTokens!==undefined) details.append(make("p","Estimated input: "+row.estimatedInputTokens.toLocaleString()+" tokens ("+(row.estimator??"legacy characters/4 estimate")+"). Estimated input + completion allowance: "+(row.estimatedInputTokens+row.completionBudget).toLocaleString()+" tokens. Not actual usage.","muted"));
         if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) details.append(make("p","Provider rate-limit figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used in quota window: "+(row.providerUsedTokens??"unknown")+". These are not per-request actual usage."));
         if(row.retryAfter!==undefined) details.append(make("p","Provider Retry-After: "+row.retryAfter+(/^\d+(?:\.\d+)?$/.test(row.retryAfter)?" seconds":" (HTTP date)"),"muted"));
         if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
@@ -2353,7 +2355,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           const card=make("article",null,"run-step");
           card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+(row.responsePolicy ? " · "+row.responsePolicy+" policy · reasoning "+(row.reasoningEffort ?? "default") : "")+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
           if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) card.append(make("p","Provider quota figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used: "+(row.providerUsedTokens??"unknown"),"muted"));
-          if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens (rough estimate)","muted"));
+          if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens ("+(row.estimator??"legacy characters/4")+")"+(typeof row.inputTokens==="number"&&row.inputTokens>0?" · Difference: "+(row.estimatedInputTokens-row.inputTokens)+" tokens ("+((row.estimatedInputTokens-row.inputTokens)/row.inputTokens*100).toFixed(1)+"%)":""),"muted"));
           if(row.retryAfter!==undefined) card.append(make("p","Retry-After: "+row.retryAfter,"muted"));
           card.append(make("p","Finish: "+(row.finishReason??"not reported")+" · Reasoning tokens: "+(row.reasoningTokens??"not recorded"),"muted"));
           if(!seen.has(row.operationId)){
@@ -4007,6 +4009,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     });
     $("exception-generate-anyway").addEventListener("click",()=>{
       if(pendingException&&$("exception-risk").checked) retryException(pendingException.request.requirements,true);
+    });
+    $("estimate-tokens").addEventListener("click",async()=>{
+      const button=$("estimate-tokens"), status=$("estimate-tokens-status");
+      button.disabled=true;
+      status.textContent="Inspecting the application and counting prompt tokens locally…";
+      try{
+        const result=await requestJSON("/api/estimate-tokens",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({baseURL:$("base-url").value,requirements:$("requirements").value.trim(),provider:"groq",useApplicationMemory:$("use-application-memory").checked})});
+        status.textContent="Estimated input: "+result.estimatedInputTokens.toLocaleString()+" tokens ("+result.estimator+"). "+
+          (result.systemTokens===undefined?"":"System: "+result.systemTokens+" · User/context: "+result.promptTokens+". ")+
+          "Provider formatting, future completion and reasoning are not included. No AI request made.";
+      }catch(error){status.textContent=error.message||String(error);}
+      finally{button.disabled=false;}
     });
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
