@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sourceRequirements, proposedCoverage, generationExceptions, instructionCoverageProblems, assertInstructionCoverageReviewed } from "../../dist/requirement-preservation.js";
+import { sourceRequirements, decodeEmbeddedCoverage, proposedCoverage, generationExceptions, instructionCoverageProblems, assertInstructionCoverageReviewed } from "../../dist/requirement-preservation.js";
 const navigate={id:"open",description:"Open",action:{kind:"navigate",url:"/"}};
 const action={id:"act",description:"Perform action",action:{kind:"click",target:{by:"role",role:"button",name:"Submit"}}};
 const verify={id:"verify",description:"Verify",action:{kind:"assert-text",target:{by:"role",role:"status"},expected:"Ready",provenance:"requirements"}};
@@ -122,4 +122,35 @@ test("mixed mapping references preserve valid links and require explicit acknowl
  assert.equal(generationExceptions(d).length,1);
  d.instructionCoverage.entries[0].stepIds.push("invalid");
  assert.throws(()=>assertInstructionCoverageReviewed(d),/Unresolved instruction coverage/);
+});
+
+test("embedded requirement IDs produce only links to actual generated steps",()=>{
+ const d=definition();
+ const decoded=decodeEmbeddedCoverage({...d,steps:d.steps.map((step,index)=>({...step,requirementIds:index===0?[]:index===1?["R1"]:["R1","R2"]}))},"Submit. Verify success.");
+ assert.deepEqual(decoded.candidate,d);
+ const c=proposedCoverage("Submit. Verify success.",d,decoded.proposal,false);
+ assert.deepEqual(c.entries.map(row=>row.stepIds),[["act","verify"],["verify"]]);
+ assert.ok(c.entries.every(row=>!row.confirmed&&!row.issue));
+});
+test("missing embedded coverage remains unresolved; unknown tags cannot claim coverage",()=>{
+ const d=definition();
+ for(const ids of [[],["R9"],["R1","R1"]]){
+  const result=decodeEmbeddedCoverage({...d,steps:d.steps.map((step,index)=>({...step,requirementIds:index===1?ids:[]}))},"Submit. Verify success.");
+  d.instructionCoverage=proposedCoverage("Submit. Verify success.",d,result.proposal,false);
+  assert.ok(instructionCoverageProblems(d).length>0);
+  assert.equal(d.instructionCoverage.entries.length,2);
+ }
+});
+test("embedded notes and memory prerequisites preserve existing review behavior",()=>{
+ const d=definition();
+ const result=decodeEmbeddedCoverage({...d,steps:d.steps.map((step,index)=>({...step,requirementIds:index===2?["R1"]:[],...(index===1?{memoryPrerequisite:true}:{})})),requirementNotes:[{id:"R1",availability:"functional-mismatch",issue:"Cannot identify requested feature"}]},"Verify success.");
+ d.instructionCoverage=proposedCoverage("Verify success.",d,result.proposal,true);
+ assert.deepEqual(d.instructionCoverage.prerequisiteStepIds,["act"]);
+ assert.equal(d.instructionCoverage.entries[0].availability,"functional-mismatch");
+ assert.equal(instructionCoverageProblems(d).length,1);
+});
+test("legacy mapping response remains compatible",()=>{
+ const d=definition();
+ const coverage={entries:[map("R1",["act"])]};
+ assert.deepEqual(decodeEmbeddedCoverage({...d,coverage},"Submit."),{candidate:d,proposal:coverage});
 });
