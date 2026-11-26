@@ -1,4 +1,16 @@
 import { test, expect } from "@playwright/test";
+
+// Legacy recovery tests explicitly opt in; every other case exercises JSON-only.
+let previousResponsePolicy: string | undefined;
+test.beforeEach(async ({}, info) => {
+  previousResponsePolicy = process.env.GROQ_RESPONSE_POLICY;
+  const legacy = ["failed initial generation displays both","automatic capture retains","Groq intermittent JSON-mode failure","malformed click action","single-step mode rejects multiple","invalid reconciliation availability reports"].some(prefix => info.title.startsWith(prefix));
+  process.env.GROQ_RESPONSE_POLICY = legacy ? "hybrid" : "json";
+});
+test.afterEach(() => {
+  if (previousResponsePolicy === undefined) delete process.env.GROQ_RESPONSE_POLICY;
+  else process.env.GROQ_RESPONSE_POLICY = previousResponsePolicy;
+});
 import { createReviewServer } from "../src/review-server.js";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -536,4 +548,16 @@ test("UI explains malformed AI response and allows retry without editing instruc
   await expect(instructions).toHaveValue("Add another task and verify it");
   await expect(page.locator("#incremental-proposed-steps .run-step")).toHaveCount(3);
   expect(prompts.at(-1)).toContain("Replace the selected step and all following steps");
+});
+
+test("JSON-only malformed incremental response is captured once and does not save a test",async()=>{
+  mockRawResponses=['{"steps":[INCOMPLETE',JSON.stringify({steps:[newStatus]})];
+  const res=await regenerate({});
+  expect(res.status).toBe(422);
+  expect(mockCalls).toBe(1);
+  const data=await res.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(1);
+  expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics[0].accepted).not.toBe(true);
+  expect((await (await fetch(url+"/api/tests")).json()).tests).toHaveLength(0);
 });
