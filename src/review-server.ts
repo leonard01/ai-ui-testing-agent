@@ -203,7 +203,13 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       capture.raw(call, output);
       return output;
     };
-    return {provider, observeResponse: capture.observe, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records), responseDiagnostics: capture.snapshot()})};
+    return {provider, observeResponse: capture.observe, snapshot:async (validation: "accepted" | "rejected")=>{
+      if (records.length) {
+        try { await usageStore.recordResult({operationId,validation}); }
+        catch { storageFailed=true; }
+      }
+      return {operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records), responseDiagnostics: capture.snapshot()};
+    }};
   }
   const jobs = new Map<string, RunJob>();
   const suites = new Map<string, SuiteJob>();
@@ -616,7 +622,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const now=Date.now();
           const records=all.filter(row=>!days || Date.parse(row.startedAt)>=now-days*86400000);
           const minute=all.filter(row=>Date.parse(row.startedAt)>=now-60000);
-          json(res,200,{records:records.slice(-200).reverse(),summary:summarizeUsage(records),minute:summarizeUsage(minute),totalRecords:records.length});
+          const ids=new Set(records.map(row=>row.operationId));
+          const results=(await usageStore.results()).filter(row=>ids.has(row.operationId));
+          if (query.get("export")==="1") {
+            res.writeHead(200,{"Content-Type":"application/json; charset=utf-8","Content-Disposition":"attachment; filename=ai-experiment-results.json","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"});
+            res.end(JSON.stringify({schemaVersion:1,records,results},null,2));
+          } else json(res,200,{records:records.slice(-200).reverse(),results,summary:summarizeUsage(records),minute:summarizeUsage(minute),totalRecords:records.length});
         } catch { json(res,500,{error:"AI usage history unavailable"}); }
         return;
       }
@@ -774,7 +785,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom", "/api/ai-usage/assessment"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -787,6 +798,20 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         body = await readJSON(req);
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/ai-usage/assessment") {
+        const data=body as {operationId?: unknown; assessment?: unknown}|null;
+        const id=data?.operationId;
+        const assessment=data?.assessment;
+        if (typeof id!=="string" || !RUN_ID.test(id) || (assessment!=="correct" && assessment!=="incorrect" && assessment!=="unreviewed")) {
+          json(res,400,{error:"Invalid operation assessment"}); return;
+        }
+        try {
+          if (!(await usageStore.list()).some(row=>row.operationId===id)) {json(res,404,{error:"Operation not found"});return;}
+          await usageStore.recordResult({operationId:id,assessment});
+          json(res,200,{ok:true});
+        } catch {json(res,500,{error:"Could not persist assessment"});}
         return;
       }
       if (path === "/api/drafts/save") {
@@ -1672,7 +1697,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }, tracked.provider, suppliedBrowser);
           json(res, 200, {
             ...proposal,
-            aiUsage: tracked.snapshot(),
+            aiUsage: await tracked.snapshot("accepted"),
             needsReview: true,
             message: "Incremental AI proposal ready. Nothing has been saved or approved.",
           });
@@ -1680,12 +1705,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (error instanceof GroqProviderError) {
             json(res, 502, {
               source: error.source, providerStatus: error.httpStatus,
-              aiUsage: tracked.snapshot(),
+              aiUsage: await tracked.snapshot("rejected"),
               category: error.category, error: error.message,
             });
           } else {
             json(res, 422, {
-              aiUsage: tracked.snapshot(),
+              aiUsage: await tracked.snapshot("rejected"),
               error: error instanceof Error ? error.message : "Incremental regeneration failed",
             });
           }
@@ -1719,7 +1744,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
-            aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+            aiUsage: input.provider==="groq" ? await tracked.snapshot("accepted") : undefined,
             generationAttempts: result.generationAttempts,
             memorySuggestions: suggestions,
             diagnostics: {
@@ -1762,7 +1787,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               providerParam: error.providerParam,
               error: error.message,
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           } else if (error instanceof GroqTransportError) {
             json(res, 502, {
@@ -1770,7 +1795,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               category: error.category,
               error: error.message,
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           } else if (error instanceof GeneratedDraftValidationError) {
             json(res, 422, {
@@ -1780,14 +1805,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               problems: error.problems,
               error: error.message,
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           } else {
             json(res, 422, {
               source: "generator",
               error: error instanceof Error ? error.message : "Generation failed",
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           }
         }
