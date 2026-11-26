@@ -188,8 +188,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
   const usageStore = createUsageStore(join(savedDir,"ai-usage"));
-  function trackAI(operation: UsageRecord["operation"], body: unknown) {
-    const capture = createResponseCapture(body);
+  function trackAI(operation: UsageRecord["operation"]) {
+    const capture = createResponseCapture();
     const operationId=randomUUID();
     const records: UsageRecord[]=[];
     let modelCall=0, storageFailed=false;
@@ -199,11 +199,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
       const output = groqOverride ? await groqOverride(request) : await requestGroq(request,fetch,async attempt=>{
         try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
         catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
-      }, capture.enabled ? raw=>capture.providerError(call,raw) : undefined);
+      }, raw=>capture.providerError(call,raw));
       capture.raw(call, output);
       return output;
     };
-    return {provider, observeResponse: capture.enabled ? capture.observe : undefined, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records), responseDiagnostics: capture.snapshot()})};
+    return {provider, observeResponse: capture.observe, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records), responseDiagnostics: capture.snapshot()})};
   }
   const jobs = new Map<string, RunJob>();
   const suites = new Map<string, SuiteJob>();
@@ -1638,7 +1638,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (path === "/api/regenerate-steps") {
-        const tracked=trackAI("reinterpret",body);
+        const tracked=trackAI("reinterpret");
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
           return;
@@ -1702,7 +1702,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           json(res, 400, { error: error instanceof Error ? error.message : String(error) });
           return;
         }
-        const tracked=trackAI("generate",body);
+        const tracked=trackAI("generate");
         const provider = input.provider === "groq" ? tracked.provider : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
