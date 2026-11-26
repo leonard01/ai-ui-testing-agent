@@ -1,3 +1,4 @@
+import { estimateModelTokens } from "./token-estimation.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, type Dirent } from "node:fs";
 import { mkdir, readFile, readdir, rm, unlink, writeFile, rmdir } from "node:fs/promises";
@@ -785,7 +786,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom", "/api/ai-usage/assessment"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom", "/api/ai-usage/assessment", "/api/estimate-tokens"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -1719,7 +1720,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (path === "/api/generate") {
+      if (path === "/api/generate" || path === "/api/estimate-tokens") {
+        const dryRun=path === "/api/estimate-tokens";
         let input: ReturnType<typeof requestDetails>;
         try {
           input = requestDetails(body);
@@ -1728,7 +1730,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           return;
         }
         const tracked=trackAI("generate");
-        const provider = input.provider === "groq" ? tracked.provider : fixtureProvider();
+        let estimate: ReturnType<typeof estimateModelTokens> | undefined;
+        const stop = new Error("Token estimate complete");
+        const provider: ModelProvider = dryRun ? async request=>{
+          estimate=estimateModelTokens(request);
+          throw stop;
+        } : input.provider === "groq" ? tracked.provider : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
           const memory = input.provider === "groq" && (body as Record<string, unknown>)?.useApplicationMemory !== false
@@ -1736,7 +1743,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const suggestions = getMemorySuggestions(memory, input.requirements);
           const result = await generateDraft({
             baseURL: input.baseURL, requirements: input.requirements, model,
-            retryMalformedOutput: input.provider === "groq",
+            retryMalformedOutput: !dryRun && input.provider === "groq",
             observeResponse: input.provider === "groq" ? tracked.observeResponse : undefined,
             prerequisiteHints: suggestions.map(item => item.text),
             instructionCoverage: input.provider === "groq",
@@ -1766,7 +1773,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 : "AI-generated draft. Verify each step and inferred assertion before approving.",
           });
         } catch (error) {
-          if (error instanceof InspectionAccessError) {
+          if (dryRun && error === stop && estimate) {
+            json(res,200,{...estimate,model,providerRequests:0,completionEstimate:null,reasoningEstimate:null});
+          } else if (error instanceof InspectionAccessError) {
             json(res, 502, {
               source: error.source,
               category: error.category,
