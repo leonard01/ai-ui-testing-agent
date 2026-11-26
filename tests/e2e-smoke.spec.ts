@@ -96,6 +96,15 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#context-url")).toHaveText(demoURL+"/");
     await expect(page.locator("#run-totals")).toContainText("9 passed");
     await expect(page.locator("#run-steps .run-step")).toHaveCount(9);
+    await expect(page.locator("#run-steps details[open]")).toHaveCount(0);
+    await page.locator("#run-steps details summary").first().click();
+    await expect(page.locator("#run-steps details[open]")).toHaveCount(1);
+    await page.locator('input[name="run-step-filter"][value="failed"]').check();
+    await expect(page.locator("#run-steps .run-step:visible")).toHaveCount(0);
+    await expect(page.locator("#run-step-empty")).toBeVisible();
+    await page.locator('input[name="run-step-filter"][value="all"]').check();
+    await expect(page.locator("#run-steps .run-step:visible")).toHaveCount(9);
+    await expect(page.locator("#run-metrics [data-kind=total] strong")).toHaveText("9");
     await expect(page.locator("#results-panel")).toBeVisible();
     await expect(page.locator("#execution-panel")).toBeHidden();
     await expect(page.locator("#suite-output")).toBeHidden();
@@ -109,6 +118,19 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.locator("#execution-panel")).toBeHidden();
 
     await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await expect(page.locator("#history-site")).toHaveValue("__all__");
+    await expect(page.locator("#history-metrics [data-kind=passed] strong")).toHaveText("1");
+    await page.locator('input[name="history-verdict"][value="failed"]').check();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
+    await expect(page.locator("#history-metrics [data-kind=executions] strong")).toHaveText("1");
+    await expect(page.locator("#history-metrics [data-kind=passed] strong")).toHaveText("1");
+    await expect(page.locator("#history-metrics [data-kind=failed] strong")).toHaveText("0");
+    await page.locator('input[name="history-verdict"][value="passed"]').check();
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
+    await page.locator("#history-search").fill("missing execution");
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
+    await page.locator("#history-search").fill("task lifecycle");
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(1);
     await expect(page.locator("#results-panel")).toBeHidden();
     await page.getByRole("button", {name:"Open results", exact:true}).click();
@@ -129,9 +151,9 @@ test.describe("@e2e-smoke application smoke", () => {
     // The review workspace is intentionally hidden until the tester opens it.
     await page.getByRole("button", { name: "Edit existing test or resume draft" }).click();
     await expect(page.locator("#review-workspace")).toBeVisible();
-    await expect(page.locator("#draft-select option")).toHaveCount(2);
-    await page.locator("#draft-select").selectOption({ index: 1 });
-    await page.getByRole("button", { name: "Resume draft", exact: true }).click();
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(1);
+    await expect(page.locator("#catalog-rows")).toContainText("Draft — not runnable");
+    await page.getByRole("button", { name: "Resume Smoke - unfinished draft", exact: true }).click();
     await expect(page.locator("#review-progress")).toHaveText("2 of 9 steps confirmed");
     await expect(page.getByLabel("Your test instructions")).toHaveValue(instructions);
     await expect(page.getByRole("button", { name: "Save Test" })).toBeDisabled();
@@ -310,7 +332,9 @@ test.describe("@e2e-smoke application smoke", () => {
     await proposeFixture(page,"Unfinished task");
     await page.locator("#save-draft").click();
     await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
-    const draftId = await page.locator("#draft-select").inputValue();
+    const drafts = (await (await page.request.get(url+"/api/drafts")).json()).drafts;
+    const draftId = drafts.find((item:{title:string})=>item.title==="Unfinished task")?.id;
+    expect(draftId).toMatch(/^draft-/);
     await page.reload();
     await page.locator("#nav-existing").click();
     const suite = page.locator("#edit-suite");
@@ -364,6 +388,41 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(rows).toHaveCount(3);
     await expect(suite).toHaveValue("");
     await expect(script).toHaveValue("");
+  });
+
+  test("unified catalog refresh updates both record types and preserves active filters", async ({page}) => {
+    const first = await saveApprovedFixture(page,"Refresh approved");
+    await proposeFixture(page,"Refresh draft");
+    await page.locator("#save-draft").click();
+    await expect(page.locator("#draft-save-status")).toContainText("saved and verified");
+    await page.locator("#nav-existing").click();
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(2);
+    await expect(page.locator("#working-drafts-panel, #draft-select, #edit-load")).toHaveCount(0);
+    await page.locator("#edit-suite").selectOption(demoURL);
+    await page.locator('#catalog-status input[value="draft"]').check();
+    await page.locator("#catalog-search").fill("refresh");
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(1);
+    const {definition} = await (await page.request.get(url+"/api/tests/"+first)).json();
+    const approved = await page.request.post(url+"/api/save",{data:{definition,baseURL:demoURL,testName:"Refresh external approved"}});
+    expect(approved.status()).toBe(200);
+    const draft = await page.request.post(url+"/api/drafts/save",{data:{definition,baseURL:demoURL,testName:"Refresh external draft",sourceInstructions:instructions,workingInstructions:instructions,approvedStepIds:[]}});
+    expect(draft.status()).toBe(200);
+    await page.locator("#catalog-refresh").click();
+    await expect(page.locator("#catalog-refresh-status")).toHaveText("Tests and drafts refreshed.");
+    await expect(page.locator("#edit-suite")).toHaveValue(demoURL);
+    await expect(page.locator('#catalog-status input[value="draft"]')).toBeChecked();
+    await expect(page.locator("#catalog-search")).toHaveValue("refresh");
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(2);
+    await expect(page.locator("#catalog-summary")).toHaveText("2 of 4 saved test records · 0 approved · 2 drafts");
+    await page.locator('#catalog-status input[value="approved"]').check();
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(2);
+    await expect(page.locator("#catalog-rows")).toContainText("Refresh external approved");
+    await page.route("**/api/drafts",route=>route.fulfill({status:500,contentType:"application/json",body:JSON.stringify({error:"Simulated draft listing failure"})}));
+    await page.locator("#catalog-refresh").click();
+    await expect(page.locator("#catalog-error")).toContainText("Simulated draft listing failure");
+    await expect(page.locator("#catalog-refresh-status")).toContainText("Refresh incomplete");
+    await page.locator('#catalog-status input[value="draft"]').check();
+    await expect(page.locator("#catalog-rows tr")).toHaveCount(2);
   });
 
   test("two saved scripts can execute as a website suite", async ({ page }) => {

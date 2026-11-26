@@ -91,6 +91,10 @@ test("website suite dropdown paginates 10 executions and includes singles withou
     await expect(page.locator("#history-panel")).toBeHidden();
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
     await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#history-site")).toHaveValue("__all__");
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(10);
+    await expect(page.locator("#history-page-info")).toContainText("Page 1 of 2");
+    await page.locator("#history-site").selectOption(websiteA);
     await expect(page.locator("#history-site")).toHaveValue(websiteA);
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(10);
     await expect(page.locator("#history-suite-list .history-entry").first())
@@ -145,7 +149,7 @@ test("Delete All History requires confirmation, removes reports globally but kee
     expect(stillThere.sites).toHaveLength(3);
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete All History" }).click();
-    await expect(page.locator("#history-status")).toContainText("No completed execution history");
+    await expect(page.locator("#history-status")).toContainText("0 of 0 saved executions");
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(0);
     expect((await (await fetch(app.url + "/api/history")).json()).sites).toHaveLength(0);
     expect((await fetch(app.url + "/api/runs/" + seeded.ids[0])).status).toBe(404);
