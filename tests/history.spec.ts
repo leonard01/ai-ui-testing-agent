@@ -150,6 +150,9 @@ test("run/suite reports and failure evidence survive a full review-server restar
     await expect(page.locator("#nav-diagnostics")).toBeVisible();
     await expect(page.locator("#diagnostics-panel").locator("section").last()).toHaveAttribute("id", "history-panel");
     await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#history-site")).toHaveValue("__all__");
+    await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(3);
+    await page.locator("#history-site").selectOption("http://127.0.0.1:3000");
     await expect(page.locator("#history-site")).toHaveValue("http://127.0.0.1:3000");
     await expect(page.locator("#history-suite-list .history-entry")).toHaveCount(3);
     await expect(page.locator("#history-run-list")).toHaveCount(0);
