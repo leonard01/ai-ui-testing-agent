@@ -73,6 +73,24 @@ async function regenerate(data: Record<string, unknown>) {
   });
 }
 
+test("response diagnostics opt in to successful model output without saving raw responses", async () => {
+  const off = await regenerate({});
+  expect(off.status).toBe(200);
+  expect((await off.json()).aiUsage.responseDiagnostics).toBeUndefined();
+  const failuresOnly = await regenerate({responseDiagnostics:{capture:true}});
+  expect(failuresOnly.status).toBe(200);
+  expect((await failuresOnly.json()).aiUsage.responseDiagnostics).toEqual([]);
+  const on = await regenerate({responseDiagnostics:{capture:true,includeSuccess:true}});
+  expect(on.status).toBe(200);
+  const data = await on.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(1);
+  expect(data.aiUsage.responseDiagnostics[0]).toMatchObject({call:1,mode:"json",accepted:true});
+  expect(JSON.parse(data.aiUsage.responseDiagnostics[0].raw).steps).toEqual([newStatus]);
+  const history = await (await fetch(url + "/api/ai-usage?days=0")).json();
+  expect(JSON.stringify(history)).not.toContain("responseDiagnostics");
+  expect(JSON.stringify(history)).not.toContain("new-status");
+});
+
 test("single-step proposal preserves unaffected steps and confirmed approvals", async () => {
   const response = await regenerate({});
   expect(response.status).toBe(200);
