@@ -66,14 +66,31 @@ test.describe("@e2e-smoke application smoke", () => {
     await expect(page.getByRole("button", {
       name: "Save Test",
     })).toBeDisabled();
-    await page.getByRole("button", { name: "Add All", exact: true }).click();
+    await page.getByRole("button", { name: "Approve all steps", exact: true }).click();
     await expect(page.locator("#review-progress")).toHaveText("9 of 9 steps confirmed");
     await expect(page.locator("#saved")).toBeEmpty(); // approval is not persistence
     await page.getByRole("button", { name: "Save Test" }).click();
     await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
     await page.locator("#nav-run").click();
-    return page.getByLabel("Test script", { exact: true }).inputValue();
+    return page.locator("#execution-panel").getByLabel("Test", { exact: true }).inputValue();
   }
+
+  test("workspace controls share sizing and destructive actions stay distinct", async ({ page }) => {
+    await page.goto(url);
+    await page.locator("#nav-run").click();
+    await expect(page.getByRole("heading", { name: "Run Tests", exact: true })).toHaveCount(1);
+    await expect(page.locator("#approved-tests")).toHaveAccessibleName("Test");
+    await expect(page.locator("#delete-script")).toHaveCSS("color", "rgb(156, 35, 53)");
+    await expect(page.locator("#delete-script")).toBeDisabled();
+    await page.locator("#nav-diagnostics").click();
+    await expect(page.locator("#history-search")).toBeVisible();
+    await expect(page.locator("#history-search")).toHaveCSS("min-height", "40px");
+    await expect(page.locator("#history-site")).toHaveCSS("min-height", "40px");
+    await expect(page.locator("#history-search")).toHaveCSS("width", await page.locator("#history-site").evaluate(el => getComputedStyle(el).width));
+    await expect(page.locator("#refresh-history")).toHaveAccessibleName("Refresh");
+    await expect(page.locator("#delete-all-history")).toHaveCSS("color", "rgb(156, 35, 53)");
+    await expect(page.locator("#history-suite-list .empty-state")).toContainText("No matching executions");
+  });
 
   test("fixture draft → explicit approval → saved test → execution → history", async ({ page }) => {
     const id = await saveApprovedFixture(page, "Smoke - task lifecycle");

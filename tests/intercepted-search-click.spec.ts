@@ -117,7 +117,7 @@ test("unique Google Search button blocked by autocomplete offers human-approved 
     await repair.getByRole("button", { name: "Use Enter to submit and rerun" }).click();
     await expect(page.locator("#run-status")).toContainText("Run complete", { timeout: 25000 });
     await expect(page.locator("#run-summary")).toContainText("PASSED");
-    const currentId = await page.getByLabel("Test script", { exact: true }).inputValue();
+    const currentId = await page.locator("#execution-panel").getByLabel("Test", { exact: true }).inputValue();
     expect(currentId).not.toBe(saved.id);
     const corrected = JSON.parse(await readFile(await approvedPath(site.dir, currentId), "utf8"));
     expect(corrected.steps[2].action).toEqual({

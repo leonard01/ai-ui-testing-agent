@@ -41,7 +41,7 @@
     h2 { font-size:17px; margin:0 0 6px; }
     .sub { margin:0 0 22px; font-size:13px; color:#596d83; line-height:1.55; }
     label { display:block; font-size:13px; font-weight:650; margin:14px 0 6px; }
-    input[type=url],textarea,select,input[type=text] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
+    input[type=url],textarea,select,input[type=text],input[type=search] { width:100%; padding:11px; color:#1c304b; border:1px solid #bfcbd8; border-radius:7px; font:inherit; font-size:14px; background:white; }
     textarea { min-height:137px; resize:vertical; line-height:1.5; }
     .url-source-inactive { background:#f1f4f7 !important; color:#8292a4 !important; border-color:#d7dfe8 !important; }
     .url-source-inactive:focus { background:white !important; color:#1c304b !important; }
@@ -129,7 +129,7 @@
     .edits label { display:block; font-weight:650; margin:10px 0 5px; }
     .edits input { margin:0; }
     .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-    .actions button { padding:8px 12px; font-size:12px; }
+    .actions button { padding:10px 14px; font-size:13px; }
     .status { margin-top:14px; font-size:13px; color:#52667c; }
     #saved pre { white-space:pre-wrap; overflow-wrap:anywhere; color:#1f3f5a; font-size:12px; background:#eef5f7; padding:10px; border-radius:6px; }
     .run-step { border:1px solid #d7e0ea; border-radius:8px; padding:13px 15px; margin:10px 0; background:white; }
@@ -302,6 +302,29 @@
       header { padding:16px; }
       .workspace { padding:16px; }
     }
+    /* Stage 3: shared visual hierarchy; no workflow or validation changes. */
+    :root { --ui-border:#dce3ed; --ui-radius:8px; --ui-primary:#205e86; --ui-danger:#9c2335; }
+    .workspace h2 { font-size:19px; line-height:1.35; }
+    .workspace h3 { font-size:15px; line-height:1.4; }
+    .workspace .sub { margin-bottom:18px; }
+    .workspace input[type=text], .workspace input[type=url], .workspace input[type=search], .workspace select { min-height:40px; border-radius:var(--ui-radius); padding:9px 11px; }
+    .workspace button:not(.textbtn):not(.site-memory-help-toggle), .run-script-actions a.secondary { min-height:36px; font-size:13px; line-height:1.4; }
+    .workspace button:focus-visible, .workspace a:focus-visible { outline:2px solid var(--ui-primary); outline-offset:2px; }
+    .workspace button.danger { background:white; color:var(--ui-danger); border:1px solid #b42339; }
+    .workspace button.danger:enabled:hover { background:#fff0f1; }
+    .workspace .catalog-heading { margin:0 0 12px; }
+    .workspace .catalog-heading h3 { margin:0; }
+    .workspace .catalog-table th,.workspace .history-table th { letter-spacing:.04em; color:#52667c; }
+    .workspace .catalog-table td,.workspace .history-table td { padding:10px 9px; }
+    .workspace .error,.workspace .success,.workspace .note,.workspace .ai-feedback,.workspace .ai-progress { border-radius:var(--ui-radius); padding:12px 14px; font-size:13px; line-height:1.5; border:1px solid transparent; border-left-width:4px; }
+    .workspace .error { border-color:#eab3be; border-left-color:#b42339; }
+    .workspace .success { border-color:#a5dbbc; border-left-color:#218052; }
+    .workspace .note { border-color:#efdcb8; border-left-color:#cf9f48; }
+    .workspace .ai-feedback,.workspace .ai-progress { border-color:#bfd0e0; border-left-color:var(--ui-primary); }
+    .workspace .error:empty,.workspace .success:empty,.workspace .note:empty { display:none; }
+    .workspace .empty-state { padding:14px; border:1px dashed #bfcbd8; border-radius:var(--ui-radius); background:#f8fafc; color:#52667c; }
+    .workspace .run-timeout-wrap select { min-height:0; border-radius:0; padding:9px 8px; }
+    @media(max-width:620px) { .workspace section { padding:16px; } .workspace .catalog-heading { gap:8px; } }
   </style>
 </head>
 <body>
@@ -447,7 +470,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p>These instructions could not be confidently mapped. The inspected page may not expose all functionality. No new draft is available.</p>
         <div id="exception-list"></div>
         <div class="actions" style="display:grid;gap:8px">
-          <button type="button" id="exception-edit-desc" class="secondary">Edit test description</button>
+          <button type="button" id="exception-edit-desc" class="secondary">Edit test instructions</button>
           <button type="button" id="exception-edit-reqs" class="secondary">Edit or delete problematic requirements</button>
           <button type="button" id="exception-proceed" class="secondary">Proceed without changes</button>
         </div>
@@ -469,7 +492,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <p class="muted">Browse approved tests or resume an unfinished draft. Only approved tests can run. Use New Test to create a separate test.</p>
         <div class="catalog-filters">
           <div><label for="edit-suite">Test suite</label><select id="edit-suite"><option value="">All suites</option></select></div>
-          <div><label for="edit-script">Test case</label><select id="edit-script"><option value="">All tests</option></select></div>
+          <div><label for="edit-script">Test</label><select id="edit-script"><option value="">All tests</option></select></div>
         </div>
         <fieldset id="catalog-status" class="catalog-status">
           <legend>Status</legend>
@@ -482,7 +505,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <label for="catalog-search">Search tests</label><input id="catalog-search" type="text" placeholder="Search test name or website" autocomplete="off">
         <p id="catalog-summary" class="muted" role="status"></p>
         <div class="catalog-table-wrap"><table class="catalog-table" aria-label="Saved tests and working drafts"><thead><tr><th scope="col">Test name / website</th><th scope="col">Status</th><th scope="col">Steps</th><th scope="col">Action</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
-        <p id="catalog-empty" class="muted" hidden>No matching tests. Try changing the search or filter.</p>
+        <p id="catalog-empty" class="muted empty-state" hidden>No matching tests. Try changing the search or filter.</p>
         <p id="catalog-error" class="error" role="alert"></p>
         <p id="catalog-refresh-status" class="muted" role="status"></p>
         <p id="catalog-draft-warning" class="error" role="status"></p>
@@ -571,7 +594,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <div id="traceability-list"></div>
         </section>
         <div class="actions">
-          <button type="button" id="save-as-new" class="secondary" disabled>Save as New Test</button>
+          <button type="button" id="save-as-new" class="secondary" disabled>Save as new test</button>
           <button type="button" id="back-to-selector" class="secondary">Choose another test</button>
         </div>
         <label for="save-test-name">Test name <span class="required-marker">(required to save)</span></label>
@@ -580,7 +603,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <p id="review-progress" class="muted" role="status"></p>
           <progress id="approval-progress" class="approval-progress" aria-label="Step approvals" max="1" value="0"></progress>
           <div class="actions">
-            <button type="button" id="review-add-all" class="secondary" title="Confirm all proposed steps after reviewing them">Add All</button>
+            <button type="button" id="review-add-all" class="secondary" title="Confirm all proposed steps after reviewing them">Approve all steps</button>
             <button type="button" id="save-draft" class="secondary" disabled>Save Draft</button>
             <button type="button" id="save" class="secondary" disabled>Save Test</button>
             <button type="button" id="save-and-run" disabled>Save &amp; Run</button>
@@ -596,7 +619,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       <h2 id="execution-heading">Run Tests</h2>
       <p class="sub">Select an approved, saved test and configure execution. Test Results opens automatically when execution starts.</p>
       <div id="suite-panel" class="run-tests-panel">
-        <h3 style="margin:0 0 8px">Run Tests</h3>
+        <h3 style="margin:0 0 8px">Select tests</h3>
         <p class="muted">Choose a website test suite, then run one saved script or a selection of scripts. All scripts run from their approved, saved JSON.</p>
         <div class="run-test-selectors">
           <div>
@@ -604,7 +627,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             <select id="suite-site"><option value="">Select a test suite</option></select>
           </div>
           <div>
-            <label for="approved-tests">Test script</label>
+            <label for="approved-tests">Test</label>
             <select id="approved-tests" disabled><option value="">Select a test suite first</option></select>
           </div>
         </div>
@@ -626,8 +649,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
           <p class="muted">Timeout defaults to 5 seconds per step and also applies to batch runs.</p>
           <div class="run-script-actions">
-            <button type="button" id="edit-saved" class="secondary" disabled>Edit selected saved test in review form</button>
-            <button type="button" id="delete-script" class="secondary" disabled>Delete selected test script</button>
+            <button type="button" id="edit-saved" class="secondary" disabled>Edit test</button>
+            <button type="button" id="delete-script" class="secondary danger" disabled>Delete test</button>
             <button type="button" id="assign-legacy" class="secondary" disabled>Assign older script to website URL</button>
             <a id="saved-traceability" hidden target="_blank" rel="noopener">View requirement matrix (JSON)</a>
             <a id="export-playwright" class="secondary" hidden download>Export Playwright (.spec.ts)</a>
@@ -636,7 +659,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         </div>
 
         <div class="run-tests-group">
-          <h4>Run multiple test scripts</h4>
+          <h4>Run multiple tests</h4>
           <p class="muted">Select up to 10 scripts from this website. They run sequentially in separate browser contexts. A failed script does not stop the others.</p>
           <div id="suite-test-list" role="group" aria-label="Tests to include in suite"></div>
           <p id="suite-selection-status" class="muted">0 tests selected</p>
@@ -646,7 +669,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           </div>
         </div>
         <div class="run-suite-management">
-          <button type="button" id="delete-site" class="secondary" disabled>Delete this website test suite</button>
+          <button type="button" id="delete-site" class="secondary danger" disabled>Delete this website test suite</button>
           <p class="muted">Deleting a website suite permanently removes its approved test scripts. Historical run reports are retained.</p>
         </div>
       </div>
@@ -684,7 +707,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         </div>
         <h2 style="margin-top:20px">Step-by-step execution</h2>
         <fieldset class="catalog-status"><legend>Show execution steps</legend><div class="catalog-status-options"><label><input type="radio" name="run-step-filter" value="all" checked>All steps</label><label><input type="radio" name="run-step-filter" value="failed">Failed</label></div></fieldset>
-        <p id="run-step-empty" class="muted" hidden>No failed steps.</p>
+        <p id="run-step-empty" class="muted empty-state" hidden>No failed steps.</p>
         <div id="run-steps"></div>
       </div>
       </div>
@@ -692,7 +715,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     <section id="diagnostics-panel" aria-labelledby="diagnostics-heading">
       <h2 id="diagnostics-heading">Diagnostics</h2>
       <section id="history-panel" hidden aria-labelledby="history-heading">
-        <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 id="history-heading">Execution history</h3><button type="button" id="refresh-history" class="secondary">Refresh history</button></div>
+        <div class="catalog-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 id="history-heading">Execution history</h3><button type="button" id="refresh-history" class="secondary">Refresh</button></div>
         <div id="history-metrics" class="result-metrics" aria-label="Filtered execution totals"></div>
         <label for="history-site">History filter — website test suite</label>
         <select id="history-site"><option value="__all__">All suites</option></select>
@@ -705,7 +728,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <span id="history-page-info" role="status" class="muted"></span>
           <button type="button" id="history-next" class="secondary" disabled>Next</button>
         </div>
-        <div class="history-toolbar" style="justify-content:flex-end"><button type="button" id="delete-all-history" class="secondary">Delete All History</button></div>
+        <div class="history-toolbar" style="justify-content:flex-end"><button type="button" id="delete-all-history" class="secondary danger">Delete All History</button></div>
       </section>
     </section>
       </main>
@@ -3041,7 +3064,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           list.append(card);
         }
         if (!history.entries.length) {
-          const empty = make("tr"); const cell=make("td","No matching executions.","muted"); cell.colSpan=4; empty.append(cell); list.append(empty);
+          const empty = make("tr"); const cell=make("td","No matching executions. Try changing the search or filters.","muted empty-state"); cell.colSpan=4; empty.append(cell); list.append(empty);
         }
         $("history-prev").disabled = history.page <= 1;
         $("history-next").disabled = history.page >= history.pages;
