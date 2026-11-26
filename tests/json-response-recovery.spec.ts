@@ -1,4 +1,16 @@
 import { test, expect } from "@playwright/test";
+
+// Legacy recovery tests explicitly opt in; every other case exercises JSON-only.
+let previousResponsePolicy: string | undefined;
+test.beforeEach(async ({}, info) => {
+  previousResponsePolicy = process.env.GROQ_RESPONSE_POLICY;
+  const legacy = ["initial generation falls back","incremental text fallback","unrecoverable fallback","initial generation never falls back"].some(prefix => info.title.startsWith(prefix));
+  process.env.GROQ_RESPONSE_POLICY = legacy ? "hybrid" : "json";
+});
+test.afterEach(() => {
+  if (previousResponsePolicy === undefined) delete process.env.GROQ_RESPONSE_POLICY;
+  else process.env.GROQ_RESPONSE_POLICY = previousResponsePolicy;
+});
 import { readFile } from "node:fs/promises";
 import { generateDraft, type ModelRequest } from "../src/generation.js";
 import { generateIncrementalProposal } from "../src/incremental-generation.js";
@@ -75,4 +87,22 @@ test("initial generation never falls back on quota, authentication or unrelated 
       async () => {calls++; throw failure;},browser)).rejects.toBe(failure);
     expect(calls).toBe(1);
   }
+});
+
+test("JSON-only initial generation rejects provider JSON failure without text retry", async ({browser}) => {
+  const calls: ModelRequest[] = [];
+  const failure=error();
+  await expect(generateDraft({baseURL,model:"fixture",requirements:"Verify status",retryMalformedOutput:true}, async req=>{calls.push(req);throw failure;},browser)).rejects.toBe(failure);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].responseMode ?? "json").toBe("json");
+});
+test("JSON-only incremental failure leaves definition unchanged and never retries as text", async ({browser}) => {
+  const definition=await original();
+  const snapshot=JSON.stringify(definition);
+  const calls: ModelRequest[]=[];
+  const failure=error();
+  await expect(generateIncrementalProposal({definition,baseURL,stepId:"empty",mode:"step",instructions:"Verify zero tasks",approvedStepIds:["open","empty"],model:"fixture",retryMalformedOutput:true},async req=>{calls.push(req);throw failure;},browser)).rejects.toBe(failure);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].responseMode ?? "json").toBe("json");
+  expect(JSON.stringify(definition)).toBe(snapshot);
 });
