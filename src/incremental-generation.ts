@@ -7,7 +7,8 @@ import { ensureAllowedNavigation, inspectApplication } from "./inspect.js";
 import { parseTestDefinition, testStepSchema } from "./schema.js";
 import type { TestDefinition, TestStep } from "./domain.js";
 import type { ModelProvider } from "./generation.js";
-import { GroqProviderError } from "./hosted-providers.js";
+import { isGroqJSONModeFailure } from "./hosted-providers.js";
+import { parseModelJSON } from "./model-json.js";
 
 const patchSchema = z.object({
   steps: z.array(testStepSchema).min(1).max(25),
@@ -117,12 +118,14 @@ export async function generateIncrementalProposal(
   ].join("\n\n");
   const attempts = options.retryMalformedOutput ? 2 : 1;
   let problem = "invalid JSON patch";
+  let textFallback = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let raw: string;
     try {
       raw = await provider({
         model: options.model, system,
-        prompt: attempt === 1 ? prompt :
+        ...(textFallback ? { responseMode: "text" as const } : {}),
+        prompt: attempt === 1 || textFallback ? prompt :
           prompt + "\nSCHEMA CORRECTION REQUIRED. Previous attempt failed: " + problem +
           "\nReturn a fresh, complete JSON patch. Every step must be an object with id, description, and action." +
           (original.instructionCoverage ? " Include reconciliation. Allowed availability: identified, later-state, selector-uncertain, functional-mismatch, uncertain; or omit availability." : ""),
@@ -130,20 +133,24 @@ export async function generateIncrementalProposal(
     } catch (error) {
       // Groq can intermittently reject its own JSON-mode generation before
       // returning text. Retry only that category, never network/auth/rate-limit errors.
-      if (error instanceof GroqProviderError && error.category === "json-generation" &&
-          attempt < attempts) {
+      if (!textFallback && isGroqJSONModeFailure(error) && attempt < attempts) {
+        textFallback = true;
         problem = "GroqCloud JSON-mode validation failed";
         continue;
       }
       throw error;
     }
     try {
-      const parsed = patchSchema.parse(JSON.parse(raw));
+      const parsed = patchSchema.parse(parseModelJSON(raw).value);
       if (original.instructionCoverage && parsed.reconciliation === undefined) {
         throw new Error("Reconciliation response is missing");
       }
       if (options.mode === "step" && parsed.steps.length !== 1) {
         throw new Error("Regenerate this step must return exactly one step");
+      }
+      const returnedIds = parsed.steps.map(step => step.id);
+      if (new Set(returnedIds).size !== returnedIds.length || returnedIds.some(id => prefix.some(step => step.id === id) || suffix.some(step => step.id === id))) {
+        throw new Error("Replacement step IDs must be unique and distinct from preserved steps");
       }
       // Model-assigned IDs are never trusted. New IDs also remove stale
       // traceability references for replaced steps.
