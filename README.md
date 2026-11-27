@@ -85,7 +85,7 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 ## Adaptive regression execution
 
-`npm test` automatically selects local concurrency from available CPU and memory; CI uses a fixed two-worker profile. To override locally, use `npm run test:low-spec` (one worker), `npm run test:parallel` (two), or `npm run test:performance` (four). The startup summary explains the choice, and `test-results/environment.json` records the environment alongside JUnit. Profiles do not change assertions, coverage or retries. See [execution profiles and diagnostic design](docs/adaptive-regression-and-ai-diagnostics.md) for thresholds, evidence and limitations.
+`npm test` automatically selects local concurrency from available CPU and memory; CI uses a fixed two-worker profile. To override locally, use `npm run test:low-spec` (one worker), `npm run test:parallel` (two), or `npm run test:performance` (four). The startup summary explains the choice. Each wrapper run preserves JUnit, HTML, available failure evidence and environment metadata under `regression-history/<run-id>/`. Latest copies remain at `test-results/junit.xml`, `test-results/environment.json` and `playwright-report/`. Run sequentially when using latest copies; direct Playwright commands bypass history. Profiles do not change assertions, coverage or retries. See [execution profiles and diagnostic design](docs/adaptive-regression-and-ai-diagnostics.md) for thresholds, evidence and limitations.
 
 ## Development branches and testing gates
 
