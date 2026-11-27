@@ -1231,7 +1231,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("The saved test no longer matches this run; rerun before repairing");
           }
           const role = chosen.role;
-          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" && role !== "radio" && role !== "link" ||
+          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" && role !== "radio" && role !== "link" && !(role === "clickable" && chosen.target) ||
               step.action.kind === "fill" && role !== "textbox") {
             throw new Error("The selected element cannot perform this action");
           }
