@@ -3026,13 +3026,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             radio.name = "missing-" + result.id + "-" + step.id;
             radio.value = String(index);
             const info = make("span");
-            const duplicate = evidence.candidates.filter((item) =>
-              item.role === candidate.role && item.name === candidate.name).length > 1;
+            const duplicate = !candidate.target && evidence.candidates.filter((item) =>
+              !item.target && item.role === candidate.role && item.name === candidate.name).length > 1;
             const ordinal = duplicate && Number.isInteger(candidate.nth)
               ? " — match " + (candidate.nth + 1) + " of " + candidate.matchCount
               : "";
-            info.append(make("strong", candidate.role + " named " + candidate.name + ordinal));
+            info.append(make("strong", candidate.role + (candidate.name ? " named " + candidate.name : " (unnamed)") + ordinal));
             info.append(make("small", "<" + candidate.tag + ">"));
+            if (candidate.target) info.append(make("small", describeTarget(candidate.target)));
             if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
             radio.addEventListener("change", () => {
               selected = index;
