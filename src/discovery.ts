@@ -162,10 +162,10 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
       "assert-visible": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, a[href], input, [data-testid]",
     } as const;
     // Nonsemantic controls are considered only for human-reviewed click repairs.
-    // Inline handlers are direct interaction evidence, unlike decorative icons
-    // or a CSS pointer cursor alone. Focusability alone is not sufficient.
+    // Inline handlers or a local pointer cursor combined with a description
+    // provide evidence for suggestions, never proof of interactive behaviour.
     const selector = selectorByOperation[op] + (repairOnly && op === "click"
-      ? ", span[onclick], div[onclick], i[onclick], svg[onclick]" : "");
+      ? ", span[onclick], div[onclick], i[onclick], svg[onclick], span[title], div[title], i[title], svg[title], span[aria-label], div[aria-label], i[aria-label], svg[aria-label]" : "");
     const trim = (value: string | null | undefined, limit = 130) =>
       (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
     const all = Array.from(document.querySelectorAll<HTMLElement>(selector)).slice(0, 250);
@@ -175,6 +175,14 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
       if (style.visibility === "hidden" || style.display === "none") return [];
       const input = el as HTMLInputElement;
       const explicitRole = el.getAttribute("role");
+      // A pointer cursor alone, a title alone or a focusable decorative
+      // element is insufficient. Require an identifying description and
+      // a locally introduced pointer cursor for nonsemantic suggestions.
+      const locallyPointing = style.cursor === "pointer" &&
+        (!!el.parentElement && getComputedStyle(el.parentElement).cursor !== "pointer");
+      const described = !!(el.getAttribute("title")?.trim() || el.getAttribute("aria-label")?.trim());
+      const plausibleControl = repairOnly && op === "click" &&
+        (el.hasAttribute("onclick") || (locallyPointing && described));
       const role = explicitRole || (
         el.tagName === "BUTTON" || (el.tagName === "INPUT" && ["submit", "button"].includes(input.type)) ? "button" :
         el.tagName === "A" ? "link" :
@@ -184,7 +192,7 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
         el.tagName === "INPUT" || el.tagName === "TEXTAREA" ? "textbox" :
         /^H[1-6]$/.test(el.tagName) ? "heading" :
         el.tagName === "LI" ? "listitem" :
-        repairOnly && op === "click" && el.hasAttribute("onclick") ? "clickable" : ""
+        plausibleControl ? "clickable" : ""
       );
       const labelledBy = (el.getAttribute("aria-labelledby") ?? "")
         .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
