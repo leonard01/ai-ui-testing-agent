@@ -20,6 +20,9 @@ interface DomCandidate {
   localCheckboxCount: number;
   testId: string;
   id: string;
+  href?: string;
+  attributeId?: string;
+  attributeTestId?: string;
 }
 /** Page-derived alternatives offered for explicit human selection only. */
 export interface AmbiguousCandidate {
@@ -31,6 +34,8 @@ export interface AmbiguousCandidate {
   nth?: number;
   /** Total verified matches for that role/name at the failure point. */
   matchCount?: number;
+  /** Explicit DOM-verified fallback, for human-reviewed repairs only. */
+  target?: ExplicitTarget;
 }
 export interface AmbiguousResolution {
   intent: string;
@@ -190,6 +195,9 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
         localCheckboxCount: el.parentElement?.querySelectorAll('input[type="checkbox"],[role="checkbox"]').length ?? 0,
         nearby, testId: trim(el.getAttribute("data-testid"), 100),
         id: trim(el.id, 100),
+        href: el.tagName === "A" ? el.getAttribute("href") ?? undefined : undefined,
+        attributeId: el.id || undefined,
+        attributeTestId: el.getAttribute("data-testid") ?? undefined,
       }];
     });
     return { selector, candidates };
@@ -294,25 +302,55 @@ export async function findLocatorAlternatives(
   }
   const requested = attempted.by === "role" ? attempted.name ?? "" : attempted.value;
   const terms = keywords(requested);
-  const { candidates } = await inspectCandidates(page, operation);
+  const instructionTerms = keywords(instruction ?? "");
+  const { selector, candidates } = await inspectCandidates(page, operation);
   const allowed = operation === "fill" ? new Set(["textbox"]) :
-    new Set(["button", "checkbox"]);
+    new Set(["button", "checkbox", "radio", "link"]);
   const ranked = candidates.flatMap((candidate) => {
-    if (!allowed.has(candidate.role) || !candidate.name) return [];
-    const score = terms.length ? candidateScore(candidate, terms) : 0;
-    if (score === null) return [];
+    if (!allowed.has(candidate.role)) return [];
+    // Attribute evidence is advisory, not a change to execution scoring.
+    const attributes = new Set(keywords(candidate.id + " " + candidate.testId));
+    const primary = candidateScore(candidate, terms);
+    if (primary === null && !terms.every(word => attributes.has(word))) return [];
+    const score = (primary ?? 0) + terms.filter(word => attributes.has(word)).length * 8 +
+      instructionTerms.filter(word => attributes.has(word)).length * 8;
     return [{ candidate, score }];
   }).sort((a, b) => b.score - a.score);
   const matches: AmbiguousCandidate[] = [];
-  // Only expose a small, bounded, verified candidate set to the reviewer.
   for (const { candidate } of ranked.slice(0, 24)) {
-    const role = candidate.role as "button" | "checkbox" | "textbox";
-    const locator = page.getByRole(role, { name: candidate.name, exact: true });
-    if (await locator.count() !== 1 || !await locator.isVisible()) continue;
-    if (matches.some((x) => x.role === role && x.name === candidate.name)) continue;
-    matches.push({
-      tag: candidate.tag, role, name: candidate.name, nearby: candidate.nearby,
-    });
+    const source = page.locator(selector).nth(candidate.index);
+    const role = candidate.role;
+    const proposals: Array<{target: ExplicitTarget; locator: Locator}> = [];
+    // Keep existing named-role repair behaviour for supported roles.
+    if (candidate.name && (role === "button" || role === "checkbox" || role === "textbox" || role === "radio")) {
+      proposals.push({target:{by:"role",role,name:candidate.name},
+        locator:page.getByRole(role,{name:candidate.name,exact:true})});
+    }
+    const safeAttribute = (value: string | undefined): value is string =>
+      !!value && value.length <= 500 && !/[\u0000-\u001f\u007f]/.test(value);
+    if (safeAttribute(candidate.attributeId)) {
+      proposals.push({target:{by:"id",value:candidate.attributeId},
+        locator:page.locator("css=[id="+JSON.stringify(candidate.attributeId)+"]")});
+    }
+    if (safeAttribute(candidate.attributeTestId)) {
+      proposals.push({target:{by:"testid",value:candidate.attributeTestId},
+        locator:page.getByTestId(candidate.attributeTestId)});
+    }
+    // Use only simple relative/hash paths; do not copy query strings,
+    // credentials or arbitrary external URLs into diagnostic suggestions.
+    if (role === "link" && safeAttribute(candidate.href) && /^(?:#[a-zA-Z0-9_-]+|\/[a-zA-Z0-9_./-]+)$/.test(candidate.href) && !candidate.href.startsWith("//")) {
+      const value = 'a[href='+cssAttribute(candidate.href)+']';
+      proposals.push({target:{by:"css",value},locator:page.locator("css="+value)});
+    }
+    for (const {target, locator} of proposals) {
+      if (await locator.count() !== 1 || await source.and(locator).count() !== 1 ||
+          !await locator.isVisible() || !await locator.isEnabled()) continue;
+      if (matches.some(x => x.target ? JSON.stringify(x.target) === JSON.stringify(target) :
+          target.by === "role" && x.role === target.role && x.name === target.name)) break;
+      matches.push({tag:candidate.tag,role,name:candidate.name,nearby:candidate.nearby,
+        ...(target.by === "role" && role !== "radio" ? {} : {target})});
+      break;
+    }
   }
   return {
     attempted,
