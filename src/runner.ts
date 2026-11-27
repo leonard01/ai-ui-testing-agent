@@ -257,7 +257,21 @@ export async function runTest(
               }
               await delay(Math.min(50, remaining));
             }
+          } else if (action.kind === "assert-visible") {
+            // Visibility is existential over the original locator's match set.
+            // An explicit nth is already applied by locate(); never broaden it.
+            const deadline = performance.now() + timeout;
+            await target.first().waitFor({ state: "attached", timeout });
+            checkingAssertion = true;
+            result.expected = "visible";
+            // Filter before first(): a hidden first match must not mask a
+            // later visible match. Playwright retries against the live DOM.
+            await target.filter({ visible: true }).first().waitFor({
+              state: "visible", timeout: Math.max(1, Math.ceil(deadline - performance.now())),
+            });
+            result.observed = "visible";
           } else {
+            // Text comparisons still require exactly one element.
             // Missing or ambiguous targets are execution errors.
             await target.waitFor({ state: "attached", timeout });
             if ((await target.count()) !== 1)
@@ -294,10 +308,6 @@ export async function runTest(
                 }
                 await delay(Math.min(50, timeLeft));
               }
-            } else {
-              result.expected = "visible";
-              await target.waitFor({ state: "visible", timeout });
-              result.observed = "visible";
             }
           }
         }
