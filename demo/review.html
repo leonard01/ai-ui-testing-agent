@@ -1199,7 +1199,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (target.by === "role") return target.role +
         (target.name ? ' named "' + target.name + '"' : "") +
         (Number.isInteger(target.nth) ? " (match " + (target.nth + 1) + ", by DOM order)" : "");
-      if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + ")" : "");
+      if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + (target.rolePolicy === "hint" ? ", hint" : "") + ")" : "");
       if (target.by === "label") return 'field labelled "' + target.value + '"';
       if (target.by === "placeholder") return 'field with placeholder "' + target.value + '"';
       if (target.by === "text") return 'visible text "' + target.value + '"';
@@ -1290,9 +1290,27 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             roleSelect.addEventListener("change", () => {
               if (roleSelect.value) t.role = roleSelect.value;
               else delete t.role;
+              delete t.rolePolicy; // Explicitly changing the role restores a strict constraint.
+              renderLocatorFields();
             });
             roleLabel.append(roleSelect);
             locatorFields.append(roleLabel);
+            if (clone.action.kind === "click" && t.role === "button") {
+              const policyLabel = make("label", "Role matching policy");
+              const policy = make("select");
+              for (const [value, title] of [["strict", "Strict role"], ["hint", "Role hint (allow unique exact link match)"]]) {
+                const option = make("option", title);
+                option.value = value;
+                policy.append(option);
+              }
+              policy.value = t.rolePolicy === "hint" ? "hint" : "strict";
+              policy.addEventListener("change", () => {
+                if (policy.value === "hint") t.rolePolicy = "hint";
+                else delete t.rolePolicy;
+              });
+              policyLabel.append(policy);
+              locatorFields.append(policyLabel);
+            }
           } else if (t.by === "role") {
             const roleLabel = make("label", "Element role");
             const roleSelect = make("select");
