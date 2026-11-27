@@ -1,10 +1,19 @@
 # AI UI Testing Agent
 
-**v0.2.0 release candidate · AI-assisted browser test creation, review and execution · Playwright-powered**
+**v0.2.0 early prototype · AI-assisted browser test creation, review and execution · Playwright-powered**
 
 **Describe a test in plain English, generate proposed browser steps, review or edit them, and execute the approved test.** No test automation code is needed for the primary web UI workflow.
 
-> **Release status (23 November 2026):** v0.2.0 is **ready to publish** following the maintainer's completed manual testing and green CI on `main` (3/3 independent E2E smoke tests; 119/119 browser regression tests). The package version is `0.2.0`. **No Git tag or GitHub Release has been published yet.** This is a local QA prototype, not a production-ready autonomous testing platform.
+> [!IMPORTANT]
+> **v0.2.0 is an early prototype — a preview of the intended platform, not a mature general-purpose testing solution.**
+>
+> This release demonstrates the core concept: turning plain-English test instructions into reviewable, executable browser tests, with human approval, deterministic execution and assisted failure recovery. It provides an indication of future functionality rather than dependable automation across arbitrary websites and complex user journeys.
+>
+> **Recommended for v0.2:** start with the bundled local task-list demo at `http://127.0.0.1:3000` (see [Quick start](#quick-start)). Use short, explicit task creation and visibility-check workflows first. Fixture mode demonstrates the review and execution lifecycle without an AI key; GroqCloud mode demonstrates real AI-assisted generation. [SauceDemo](https://www.saucedemo.com/) is an optional exploratory target for simple login and shopping flows, but may require manual locator or credential correction. Other websites, complex flows and negative assertions are experimental; do not rely on this prototype for production testing.
+>
+> **Upcoming v0.3:** the next release is intended to substantially improve usability and reliability across a wider range of websites, element types and test flows. Development focuses on requirement preservation, stronger AI response handling, locator grounding and alternative suggestions, assertion safety, easier blocker resolution, a clearer test creation/review/results workflow and AI usage diagnostics. These improvements are under development and subject to automated and manual acceptance; they are not features guaranteed by v0.2, nor a promise of universal website compatibility.
+>
+> Follow the [v0.3 development backlog](https://github.com/leonard01/ai-ui-testing-agent/issues) and [product roadmap](https://github.com/leonard01/ai-ui-testing-agent/issues/103).
 
 ## Current functionality — implemented on `main`
 
@@ -23,28 +32,16 @@
 | **Portable Playwright export** | Export an approved script as standalone Playwright `.spec.ts`; later execution does not require the AI provider. |
 | **Run history and developer tools** | Review historic executions by site; use CLI generation, execution and export; access Help and `.env.example` onboarding instructions. |
 
-**Start here:** [Release history](#release-history) · [Publish v0.2.0](#publishing-v020-on-github) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
+**Start here:** [Release history](#release-history) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
 
 ## Release history
 
 | Version | Scope | State |
 | --- | --- | --- |
-| **v0.2.0** | Incremental AI reinterpretation; working drafts and existing-test editing; per-website login-prerequisite memory proof of concept; Run Tests UI improvements; generation diagnostics; guarded HTTP 403 handling; search-flow correctness fixes | **Ready to publish** — manual acceptance and CI passed; tag and GitHub release pending |
+| **v0.2.0** | Incremental AI reinterpretation; working drafts and existing-test editing; per-website login-prerequisite memory proof of concept; Run Tests UI improvements; generation diagnostics; guarded HTTP 403 handling; search-flow correctness fixes | **Early prototype** — see [GitHub Releases](https://github.com/leonard01/ai-ui-testing-agent/releases) |
 | **v0.1.0** | Baseline prototype: plain-English to reviewed JSON tests, Playwright execution, repair assistance, suites, history, traceability and standalone export | Baseline functionality; check [GitHub Releases](https://github.com/leonard01/ai-ui-testing-agent/releases) for published versions |
 
 **Release approach:** Small incremental versions may carry focused fixes with their own tests and documentation. Duplicate-name rejection, multi-term search predicates and general AND/NOT assertions are planned for **v0.3**, not v0.2.0 (see [#59](https://github.com/leonard01/ai-ui-testing-agent/issues/59), [#60](https://github.com/leonard01/ai-ui-testing-agent/issues/60) and [#61](https://github.com/leonard01/ai-ui-testing-agent/issues/61)). Broader application memory and additional hosted-model integrations are also future work. See [CHANGELOG.md](CHANGELOG.md) for release notes.
-
-## Publishing v0.2.0 on GitHub
-
-**Maintainer checklist — the repository is ready; publication is a separate action:**
-
-1. Open the [latest successful `main` CI run](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/45160164806) and confirm that the release commit contains the documentation you want to publish. Manual acceptance for v0.2.0 was completed on 23 November 2026.
-2. Open [GitHub Releases → Draft a new release](https://github.com/leonard01/ai-ui-testing-agent/releases/new).
-3. Under **Choose a tag**, type `v0.2.0` and select **Create new tag on publish** targeting **`main`** (or create it from the final release commit). Do **not** reuse an earlier release/tag.
-4. Set the release title to **`v0.2.0 — AI UI Testing Agent (Prototype)`**. Use the `[0.2.0]` section in [CHANGELOG.md](CHANGELOG.md) as the release notes, including its limitations.
-5. Consider checking **Set as a pre-release** because this is a pre-1.0, local, human-reviewed prototype. Click **Publish release** when satisfied.
-
-No build artifacts, standalone installer or production deployment are required for this source-code release. Users clone the repository and follow [Quick start](#quick-start). Do not put API keys or `.env` secrets in a release. The current package version is already `0.2.0`.
 
 ## Quick start
 
@@ -60,7 +57,7 @@ npm run start:demo
 
 Open the **test builder** at **http://127.0.0.1:3100**. The sample website is at **http://127.0.0.1:3000**.
 
-Enter a **test name**, the sample URL and an instruction such as *“Add a task called Prepare interview, verify it appears, complete it, then delete it and verify the list is empty.”* Choose **Fixture** to avoid AI calls, click **Generate draft**, review/approve the steps, save the script, then select the website under **Run Tests** and execute.
+Enter a **test name**, the sample URL and a short instruction such as *“Add a task called Review report. Verify that Review report is visible in the task list.”* Choose **GroqCloud** (with your own API key configured) to generate from these instructions, or **Fixture** to explore the prewritten demonstration without AI calls. Click **Generate draft**, review/approve the steps, save the script, then select the website under **Run Tests** and execute. Start with this local demo before trying external websites.
 
 For existing clones, use `git switch main` and `git pull --ff-only`. Your local `.env` will not be overwritten.
 
