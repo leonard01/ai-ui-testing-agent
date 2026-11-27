@@ -563,3 +563,41 @@ test("ambiguous candidate ranking preserves DOM order for missing or tied contex
     expect(choices.candidates.map(c=>c.nth)).toEqual([0,1,2]);
   }
 });
+
+
+// Cross-site evidence: a control styled like a button may actually be a link.
+test("generalised action suggestions include verified links without clicking them", async ({ page }) => {
+  await page.setContent(`<main><a href="#profile">View profile</a>
+    <a href="#logout" class="button"><i>Logout</i></a>
+    <a href="#hidden" hidden>Logout</a></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Logout"},"click","Log out");
+  expect(choices.candidates).toEqual(expect.arrayContaining([
+    expect.objectContaining({role:"link",name:"Logout",target:{by:"css",value:'a[href="#logout"]'}}),
+  ]));
+  expect(await page.evaluate(()=>location.hash)).toBe("");
+});
+
+test("generalised action suggestions identify unnamed controls using verified attributes", async ({ page }) => {
+  await page.setContent(`<main><div><input placeholder="Find records">
+    <button id="submit_search"><svg aria-hidden="true"></svg></button></div>
+    <div><input placeholder="Email"><button id="subscribe"><svg aria-hidden="true"></svg></button></div>
+    <button id="hidden_search" hidden></button></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button"},"click","Submit search");
+  expect(choices.candidates[0]).toMatchObject({target:{by:"id",value:"submit_search"}});
+  expect(choices.candidates).toEqual(expect.arrayContaining([
+    expect.objectContaining({target:{by:"id",value:"subscribe"}}),
+  ]));
+  expect(choices.candidates).not.toEqual(expect.arrayContaining([
+    expect.objectContaining({target:{by:"id",value:"hidden_search"}}),
+  ]));
+});
+
+test("generalised action suggestions do not offer nonunique or hidden attribute locators", async ({ page }) => {
+  await page.setContent(`<main><button id="duplicate_search"></button><button id="duplicate_search"></button>
+    <button id="hidden_search" hidden></button></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button"},"click","Search");
+  for(const candidate of choices.candidates){
+    expect(candidate).not.toMatchObject({target:{by:"id",value:"duplicate_search"}});
+    expect(candidate).not.toMatchObject({target:{by:"id",value:"hidden_search"}});
+  }
+});
