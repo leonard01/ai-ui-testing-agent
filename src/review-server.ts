@@ -1208,12 +1208,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("A complete set of live DOM alternatives is not available");
           }
           const chosen = evidence.candidates[input.candidateIndex];
-          if (!chosen || !chosen.name.trim()) {
-            throw new Error("Choose a named element from the failed run");
+          if (!chosen || (!chosen.target && !chosen.name.trim())) {
+            throw new Error("Choose a verified element from the failed run");
           }
           const identical = evidence.candidates.filter((candidate) =>
-            candidate.name === chosen.name && candidate.role === chosen.role);
-          const isDuplicate = identical.length > 1;
+            !candidate.target && candidate.name === chosen.name && candidate.role === chosen.role);
+          const isDuplicate = !chosen.target && identical.length > 1;
           if (isDuplicate && (
               !Number.isInteger(chosen.nth) || chosen.nth! < 0 ||
               chosen.matchCount !== identical.length ||
@@ -1231,24 +1231,29 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("The saved test no longer matches this run; rerun before repairing");
           }
           const role = chosen.role;
-          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" ||
+          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" && role !== "radio" && role !== "link" ||
               step.action.kind === "fill" && role !== "textbox") {
             throw new Error("The selected element cannot perform this action");
           }
-          // A role/name locator corresponds to the user-selected, uniquely
-          // resolved visible candidate. Do not accept arbitrary selectors.
-          if (role !== "button" && role !== "checkbox" && role !== "textbox") {
-            throw new Error("Unsupported element role");
-          }
           const previousTarget = step.action.target;
-          const approvedTarget: typeof previousTarget = isDuplicate
-            ? { by: "role" as const, role, name: chosen.name, nth: chosen.nth }
-            : { by: "role" as const, role, name: chosen.name };
+          // Explicit targets come only from the server-owned failure evidence,
+          // never from the repair request. Existing role repairs remain supported.
+          let approvedTarget: typeof previousTarget;
+          if (chosen.target) {
+            approvedTarget = chosen.target;
+          } else {
+            if (role !== "button" && role !== "checkbox" && role !== "textbox") {
+              throw new Error("Unsupported element role");
+            }
+            approvedTarget = isDuplicate
+              ? { by: "role", role, name: chosen.name, nth: chosen.nth }
+              : { by: "role", role, name: chosen.name };
+          }
           // Only exact same-action locators later in the failed test are eligible.
           // Never propagate an indexed/ambiguous choice or cross navigation boundaries.
           const failedIndex = definition.steps.indexOf(step);
           const matches = [step];
-          if (!isDuplicate && !("nth" in previousTarget) && (chosen.matchCount === undefined || chosen.matchCount === 1)) {
+          if (!chosen.target && !isDuplicate && !("nth" in previousTarget) && (chosen.matchCount === undefined || chosen.matchCount === 1)) {
             for (const entry of definition.steps.slice(failedIndex + 1)) {
               if (entry.action.kind === "navigate") break;
               if (entry.action.kind === step.action.kind &&
