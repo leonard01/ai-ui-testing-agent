@@ -314,8 +314,8 @@ test("two task checkboxes reject generic Complete but resolve exact intended tas
 test("named task completion must not select the global completion checkbox", async ({ page }) => {
   await page.setContent(`<main>
     <section><input id="toggle-all" type="checkbox"><label for="toggle-all">Mark all as complete</label>
-      <ul><li><div><input id="review" type="checkbox"><label>Review report</label></div></li>
-      <li><div><input id="other" type="checkbox"><label>Prepare presentation</label></div></li></ul>
+      <ul><li><div><input id="review" type="checkbox" aria-label="Toggle Todo"><label>Review report</label></div></li>
+      <li><div><input id="other" type="checkbox" aria-label="Toggle Todo"><label>Prepare presentation</label></div></li></ul>
     </section></main>
     <script>document.querySelector("#toggle-all").onchange = e => {
       document.querySelectorAll("li input").forEach(input => input.checked = e.target.checked);
