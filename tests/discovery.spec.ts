@@ -379,3 +379,38 @@ test("generic item checkbox resolution rejects shared container and partial item
   }, "click", 500)).rejects.toThrow(/Could not resolve intent/);
   await expect(page.locator("input:checked")).toHaveCount(0);
 });
+
+
+// Role hints are opt-in; existing role constraints must remain strict.
+test("inferred button role can recover to unique exact link without destructive click", async ({ page }) => {
+  await page.setContent(`<main><ul id="tasks"><li>Review report</li></ul>
+    <footer><a href="#/completed" onclick="document.body.dataset.filtered='yes'">Completed</a>
+    <button onclick="document.querySelector('#tasks').replaceChildren()">Clear completed</button></footer>
+    </main>`);
+  const target = { by: "intent", value: "Completed", role: "button", rolePolicy: "hint" } as const;
+  const resolved = await discoverTarget(page, target, "click", 500);
+  expect(resolved.evidence.role).toBe("link");
+  await resolved.locator.click();
+  await expect(page.locator("body")).toHaveAttribute("data-filtered", "yes");
+  await expect(page.locator("#tasks li")).toHaveText("Review report");
+});
+
+test("role hint does not permit ambiguous or partial alternative actions", async ({ page }) => {
+  const target = { by: "intent", value: "Completed", role: "button", rolePolicy: "hint" } as const;
+  await page.setContent('<a href="#/one">Completed</a><a href="#/two">Completed</a><button>Clear completed</button>');
+  await expect(discoverTarget(page, target, "click", 500)).rejects.toThrow(/Ambiguous intent|Could not resolve intent/);
+  await page.setContent('<a href="#/one">Show completed</a>');
+  await expect(discoverTarget(page, target, "click", 500)).rejects.toThrow(/Could not resolve intent/);
+});
+
+test("explicit button role remains strict when only exact link exists", async ({ page }) => {
+  await page.setContent('<a href="#/completed">Completed</a><button>Clear completed</button>');
+  await expect(discoverTarget(page, { by: "intent", value: "Completed", role: "button" }, "click", 500))
+    .rejects.toThrow(/Could not resolve intent/);
+});
+
+test("role hint must not substitute a checkbox for a requested button", async ({ page }) => {
+  await page.setContent('<input type="checkbox" aria-label="Completed">');
+  const target = { by: "intent", value: "Completed", role: "button", rolePolicy: "hint" } as const;
+  await expect(discoverTarget(page, target, "click", 500)).rejects.toThrow(/Could not resolve intent/);
+});
