@@ -1,7 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
+import { join } from "node:path";
+
+const runDirectory = process.env.REGRESSION_RUN_DIR;
 
 export default defineConfig({
   testDir: "./tests",
+  ...(runDirectory ? { outputDir: join(runDirectory, "regression-evidence") } : {}),
   testMatch: "**/*.spec.ts",
   webServer: {
     command: "npm run demo",
@@ -16,8 +20,8 @@ export default defineConfig({
   retries: 0,
   reporter: [
     ["list"],
-    ["html", { open: "never" }],
-    ["junit", { outputFile: "test-results/junit.xml" }],
+    ["html", { open: "never", ...(runDirectory ? { outputFolder: join(runDirectory, "playwright-report") } : {}) }],
+    ["junit", { outputFile: runDirectory ? join(runDirectory, "junit.xml") : "test-results/junit.xml" }],
   ],
   use: {
     trace: "retain-on-failure",
