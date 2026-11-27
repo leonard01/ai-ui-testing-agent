@@ -600,8 +600,7 @@ export async function discoverTarget(
       const name = exactName(target.value);
       const exact = candidates.filter(c => exactName(c.name) === name);
       if (exact.length === 1 && exact[0].role === "link") {
-        const link = page.getByRole("link", { name: new RegExp("^" +
-          target.value.trim().split(/\s+/).map(word => word.replace(/[.*+?^${}()|[\]\\]/g, "\\    const considered = candidates.filter((c) => !target.role || c.role === target.role);")).join("\\s+") + "$", "i") });
+        const link = page.getByRole("link", { name: exact[0].name, exact: true });
         if (await link.count() === 1 && await link.isVisible() && await link.isEnabled()) {
           return { locator: link, evidence: {
             intent: target.value, method: "live-dom", tag: exact[0].tag,
