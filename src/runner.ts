@@ -334,7 +334,7 @@ export async function runTest(
             // resolves to exactly one element. Never override app action failures.
             if (await currentLocator.count() !== 1) {
               const alternatives = await findLocatorAlternatives(
-                page, step.action.target, step.action.kind,
+                page, step.action.target, step.action.kind, step.description,
               );
               if (alternatives.candidates.length) result.locatorAlternatives = alternatives;
             } else if (step.action.kind === "click" &&
