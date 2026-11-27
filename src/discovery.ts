@@ -588,7 +588,31 @@ export async function discoverTarget(
     const { selector, candidates } = await inspectCandidates(page, operation);
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
     const ranked = considered.flatMap((candidate) => {
-      const score = candidateScore(candidate, request);
+      // A named checkbox may borrow context from its own row, but a global
+      // control must not inherit the names of items it operates on collectively.
+      if ((operation === "click" || operation === "check") && candidate.role === "checkbox" &&
+          /\b(?:all|every)\b/i.test(candidate.name) &&
+          !/\b(?:all|every)\b/i.test(target.value)) return [];
+      // An exact visible action with a different role is evidence of a role
+      // mismatch, not permission to execute a partially matching action.
+      // Keep explicit roles authoritative and fail closed instead.
+      if (operation === "click" && target.role && request.length &&
+          candidates.some(other => other.role !== target.role &&
+            keywords(other.name).length === request.length &&
+            request.every(word => keywords(other.name).includes(word))) &&
+          !(keywords(candidate.name).length === request.length &&
+            request.every(word => keywords(candidate.name).includes(word)))) return [];
+      // For unlabeled item checkboxes, "complete" describes the operation,
+      // not necessarily a word rendered next to the checkbox. Require the
+      // named item in the immediate grouping rather than a page-wide guess.
+      let score = candidateScore(candidate, request);
+      if (score === null && (operation === "click" || operation === "check") &&
+          candidate.role === "checkbox" && !candidate.name &&
+          request[0] === "complete" && request.length > 1) {
+        const itemWords = request.slice(1);
+        const nearbyWords = tokens(candidate.nearby);
+        if (itemWords.every(word => nearbyWords.includes(word))) score = itemWords.length * 4;
+      }
       return score === null ? [] : [{ candidate, score }];
     }).sort((a, b) => b.score - a.score);
     if (ranked.length) {
