@@ -5,6 +5,8 @@ export interface IntentTarget {
   by: "intent";
   value: string;
   role?: "button" | "textbox" | "checkbox" | "radio" | "combobox" | "heading" | "status" | "listitem";
+  /** Only explicitly opted-in inferred roles may recover across compatible controls. */
+  rolePolicy?: "hint" | "strict";
 }
 export type TargetOperation = "click" | "fill" | "select-option" | "check" | "press" | "assert-text" | "assert-visible";
 
@@ -95,6 +97,8 @@ export interface DiscoveryEvidence {
   nearby: string;
   locator: string;
   candidatesInspected: number;
+  requestedRole?: string;
+  roleRecovery?: "exact-compatible-role";
 }
 
 const COMMON = new Set([
@@ -588,6 +592,27 @@ export async function discoverTarget(
       }
     }
     const { selector, candidates } = await inspectCandidates(page, operation);
+    // Only an opted-in button hint may recover to a link, and only with an
+    // exact accessible name and no competing exact action. Never relax
+    // checkbox, input, or explicit role constraints.
+    if (operation === "click" && target.role === "button" && target.rolePolicy === "hint") {
+      const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+      const name = exactName(target.value);
+      const exact = candidates.filter(c => exactName(c.name) === name);
+      if (exact.length === 1 && exact[0].role === "link") {
+        const link = page.getByRole("link", { name: new RegExp("^" +
+          target.value.trim().split(/\s+/).map(word => word.replace(/[.*+?^${}()|[\]\\]/g, "\\    const considered = candidates.filter((c) => !target.role || c.role === target.role);")).join("\\s+") + "$", "i") });
+        if (await link.count() === 1 && await link.isVisible() && await link.isEnabled()) {
+          return { locator: link, evidence: {
+            intent: target.value, method: "live-dom", tag: exact[0].tag,
+            role: "link", name: exact[0].name, nearby: exact[0].nearby,
+            locator: "exact accessible link name " + JSON.stringify(exact[0].name),
+            candidatesInspected: candidates.length, requestedRole: "button",
+            roleRecovery: "exact-compatible-role",
+          }};
+        }
+      }
+    }
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
     const ranked = considered.flatMap((candidate) => {
       // A named checkbox may borrow context from its own row, but a global
