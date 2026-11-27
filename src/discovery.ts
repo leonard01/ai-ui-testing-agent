@@ -480,12 +480,16 @@ async function productTitles(page: Page, product: string): Promise<string[]> {
     // Titles may be <div>, <span> or headings, not necessarily semantic headings.
     // Reject ancestor text that merely contains an entire product list.
     for (const node of Array.from(document.querySelectorAll<HTMLElement>("body *")).slice(0, 12000)) {
-      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,button,[role="button"],[contenteditable="true"]')) continue;
+      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,[contenteditable="true"]')) continue;
       if (!node.getClientRects().length || getComputedStyle(node).visibility !== "visible") continue;
       const value = clean(node.innerText || "");
       if (value.length < 3 || value.length > 120 || value.split(" ").length > 10) continue;
       const lowered = value.toLocaleLowerCase();
       if (lowered !== query && !lowered.endsWith(" " + query)) continue;
+      // An interactive title can identify an item, but do not mistake
+      // an action caption such as "Remove Example Backpack" for its title.
+      // For interactive content require the exact visible item name.
+      if (node.closest('button,[role="button"],a[href],[role="link"]') && lowered !== query) continue;
       // Prefer the exact, leaf-most visible name rather than wrappers.
       if (Array.from(node.children).some((child) =>
         clean((child as HTMLElement).innerText || "").toLocaleLowerCase() === lowered &&
