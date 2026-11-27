@@ -530,3 +530,36 @@ test("ambiguous candidate context excludes shared page and hidden content", asyn
     expect(candidate.nearby.length).toBeLessThanOrEqual(180);
   }
 });
+
+
+test("ambiguous candidate ranking prioritises instruction context without changing locator indexes", async ({ page }) => {
+  await page.setContent(`<main><article><h2>Annual budget</h2><div><button>Edit</button></div></article>
+    <article><h2>Quarterly report</h2><div><button>Edit</button></div></article>
+    <article><h2>Quarterly forecast</h2><div><button>Edit</button></div></article></main>`);
+  const target={by:"role" as const,role:"button" as const,name:"Edit"};
+  // Reflect the optional fourth argument planned for diagnostic ranking.
+  const rank = findLocatorAlternatives as (page: Parameters<typeof findLocatorAlternatives>[0],
+    target: Parameters<typeof findLocatorAlternatives>[1],
+    operation: "click", instruction?: string) => ReturnType<typeof findLocatorAlternatives>;
+  const choices=await rank(page,target,"click","Edit the Quarterly report");
+  expect(choices.total).toBe(3);
+  expect(choices.candidates.map(c=>c.nth)).toEqual([1,0,2]);
+  expect(choices.candidates[0].nearby).toContain("Quarterly report");
+  expect(choices.candidates.every(c=>c.matchCount===3)).toBe(true);
+  await expect(page.getByRole("button",{name:"Edit",exact:true})).toHaveCount(3);
+});
+
+test("ambiguous candidate ranking preserves DOM order for missing or tied contextual evidence", async ({ page }) => {
+  await page.setContent(`<main><article><h2>Quarterly report</h2><button>Edit</button></article>
+    <article><h2>Quarterly report</h2><button>Edit</button></article>
+    <article><h2>Annual budget</h2><button>Edit</button></article></main>`);
+  const target={by:"role" as const,role:"button" as const,name:"Edit"};
+  const rank = findLocatorAlternatives as (page: Parameters<typeof findLocatorAlternatives>[0],
+    target: Parameters<typeof findLocatorAlternatives>[1],
+    operation: "click", instruction?: string) => ReturnType<typeof findLocatorAlternatives>;
+  for(const instruction of [undefined,"Edit","Edit Missing document","Edit Quarterly report"]){
+    const choices=await rank(page,target,"click",instruction);
+    expect(choices.total).toBe(3);
+    expect(choices.candidates.map(c=>c.nth)).toEqual([0,1,2]);
+  }
+});
