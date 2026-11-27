@@ -6,6 +6,11 @@
  * `body` locator. Sites with unrecognised markup must expose a supported
  * result region/card or fail visibly rather than produce a false pass.
  */
+// New structural candidates require positive result-region evidence. A table
+// or repeated card layout elsewhere on the page is not a search result.
+const RESULT_REGION = ':is([aria-label*="results" i], [id*="results" i], [class*="search-results" i], [class*="results-list" i])';
+const GENERIC_RECORD = 'div:has(> :is(h2,h3,h4,[role="heading"])):has(a[href],button,[role="button"])';
+
 export const SEARCH_RESULT_ITEM_SELECTOR = [
   '[data-testid="search-result"]',
   '[data-testid^="search-result-"]',
@@ -29,6 +34,13 @@ export const SEARCH_RESULT_ITEM_SELECTOR = [
   '#b_results > li.b_algo',
   '#search .MjjYud:has(h3)',
   '#rso .MjjYud:has(h3)',
+  // Data rows, never header-only rows.
+  RESULT_REGION + ' tr:not(thead *):has(> td)',
+  RESULT_REGION + ' [role="row"]:has(> :is([role="cell"],[role="gridcell"]))',
+  // Repeated sibling records with their own heading and action. Do not use
+  // the enclosing results region or a lone arbitrary div as evidence.
+  RESULT_REGION + ' ' + GENERIC_RECORD + ':has(+ ' + GENERIC_RECORD + ')',
+  RESULT_REGION + ' ' + GENERIC_RECORD + ' + ' + GENERIC_RECORD + ',',
 ].join(", ");
 
 export function isExplicitSearchResultIntent(requirements: string): boolean {
