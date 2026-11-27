@@ -23,6 +23,7 @@ interface DomCandidate {
   href?: string;
   attributeId?: string;
   attributeTestId?: string;
+  repairContext?: string;
 }
 /** Page-derived alternatives offered for explicit human selection only. */
 export interface AmbiguousCandidate {
@@ -147,10 +148,10 @@ function candidateScore(candidate: DomCandidate, words: string[]): number | null
  * Collect only elements relevant to the action, on the LIVE page at execution time.
  * Avoids DOM dumps, page-wide AI guesses, and values of sensitive input fields.
  */
-async function inspectCandidates(page: Page, operation: TargetOperation): Promise<{
+async function inspectCandidates(page: Page, operation: TargetOperation, repairOnly = false): Promise<{
   selector: string; candidates: DomCandidate[];
 }> {
-  return page.evaluate((op) => {
+  return page.evaluate(({op, repairOnly}) => {
     const selectorByOperation = {
       click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], input[type=radio], [role=button], [role=link], [role=checkbox], [role=radio]",
       fill: "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]), textarea, [contenteditable=true], [role=textbox]",
@@ -160,7 +161,11 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
       "assert-text": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, [data-testid]",
       "assert-visible": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, a[href], input, [data-testid]",
     } as const;
-    const selector = selectorByOperation[op];
+    // Nonsemantic controls are considered only for human-reviewed click repairs.
+    // Inline handlers are direct interaction evidence, unlike decorative icons
+    // or a CSS pointer cursor alone. Focusability alone is not sufficient.
+    const selector = selectorByOperation[op] + (repairOnly && op === "click"
+      ? ", span[onclick], div[onclick], i[onclick], svg[onclick]" : "");
     const trim = (value: string | null | undefined, limit = 130) =>
       (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
     const all = Array.from(document.querySelectorAll<HTMLElement>(selector)).slice(0, 250);
@@ -178,7 +183,8 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
         el.tagName === "SELECT" ? "combobox" :
         el.tagName === "INPUT" || el.tagName === "TEXTAREA" ? "textbox" :
         /^H[1-6]$/.test(el.tagName) ? "heading" :
-        el.tagName === "LI" ? "listitem" : ""
+        el.tagName === "LI" ? "listitem" :
+        repairOnly && op === "click" && el.hasAttribute("onclick") ? "clickable" : ""
       );
       const labelledBy = (el.getAttribute("aria-labelledby") ?? "")
         .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
@@ -190,6 +196,14 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
       // Prefer immediate grouping over the whole form/page; imperfect forms often
       // have a sibling span/label next to an unlabeled input.
       const nearby = trim((el.parentElement as HTMLElement | null)?.innerText, 180);
+      let repairContext: string | undefined;
+      if (repairOnly && op === "click" && role === "clickable") {
+        if (el.closest('[aria-disabled="true"],[aria-hidden="true"],[disabled]')) return [];
+        // Prefer a semantic record boundary. Do not climb across rows or
+        // collect text from the whole page merely to obtain a keyword match.
+        const record = el.closest('tr,[role="row"],li,[role="listitem"],article,[role="group"]');
+        repairContext = trim((record as HTMLElement | null)?.innerText ?? nearby, 180);
+      }
       return [{
         index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
         localCheckboxCount: el.parentElement?.querySelectorAll('input[type="checkbox"],[role="checkbox"]').length ?? 0,
@@ -198,10 +212,11 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
         href: el.tagName === "A" ? el.getAttribute("href") ?? undefined : undefined,
         attributeId: el.id || undefined,
         attributeTestId: el.getAttribute("data-testid") ?? undefined,
+        repairContext,
       }];
     });
     return { selector, candidates };
-  }, operation);
+  }, {op: operation, repairOnly});
 }
 
 /**
@@ -303,9 +318,9 @@ export async function findLocatorAlternatives(
   const requested = attempted.by === "role" ? attempted.name ?? "" : attempted.value;
   const terms = keywords(requested);
   const instructionTerms = keywords(instruction ?? "");
-  const { selector, candidates } = await inspectCandidates(page, operation);
+  const { selector, candidates } = await inspectCandidates(page, operation, true);
   const allowed = operation === "fill" ? new Set(["textbox"]) :
-    new Set(["button", "checkbox", "radio", "link"]);
+    new Set(["button", "checkbox", "radio", "link", "clickable"]);
   const ranked = candidates.flatMap((candidate) => {
     if (!allowed.has(candidate.role)) return [];
     // Attribute evidence is advisory, not a change to execution scoring.
@@ -313,7 +328,8 @@ export async function findLocatorAlternatives(
     const primary = candidateScore(candidate, terms);
     if (primary === null && !terms.every(word => attributes.has(word))) return [];
     const score = (primary ?? 0) + terms.filter(word => attributes.has(word)).length * 8 +
-      instructionTerms.filter(word => attributes.has(word)).length * 8;
+      instructionTerms.filter(word => attributes.has(word)).length * 8 +
+      (candidate.repairContext ? instructionTerms.filter(word => keywords(candidate.repairContext!).includes(word)).length * 4 : 0);
     return [{ candidate, score }];
   }).sort((a, b) => b.score - a.score);
   const matches: AmbiguousCandidate[] = [];
@@ -347,7 +363,7 @@ export async function findLocatorAlternatives(
           !await locator.isVisible() || !await locator.isEnabled()) continue;
       if (matches.some(x => x.target ? JSON.stringify(x.target) === JSON.stringify(target) :
           target.by === "role" && x.role === target.role && x.name === target.name)) break;
-      matches.push({tag:candidate.tag,role,name:candidate.name,nearby:candidate.nearby,
+      matches.push({tag:candidate.tag,role,name:candidate.name,nearby:candidate.repairContext ?? candidate.nearby,
         ...(target.by === "role" && role !== "radio" ? {} : {target})});
       break;
     }
