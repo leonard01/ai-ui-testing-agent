@@ -15,6 +15,7 @@ interface DomCandidate {
   name: string;
   text: string;
   nearby: string;
+  localCheckboxCount: number;
   testId: string;
   id: string;
 }
@@ -182,6 +183,7 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
       const nearby = trim((el.parentElement as HTMLElement | null)?.innerText, 180);
       return [{
         index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
+        localCheckboxCount: el.parentElement?.querySelectorAll('input[type="checkbox"],[role="checkbox"]').length ?? 0,
         nearby, testId: trim(el.getAttribute("data-testid"), 100),
         id: trim(el.id, 100),
       }];
@@ -602,16 +604,18 @@ export async function discoverTarget(
             request.every(word => keywords(other.name).includes(word))) &&
           !(keywords(candidate.name).length === request.length &&
             request.every(word => keywords(candidate.name).includes(word)))) return [];
-      // For unlabeled item checkboxes, "complete" describes the operation,
-      // not necessarily a word rendered next to the checkbox. Require the
-      // named item in the immediate grouping rather than a page-wide guess.
+      // A generic item toggle may have an accessible name without the
+      // item's title. Require an exact local item phrase and a single
+      // checkbox in that immediate group; never borrow page-wide text.
       let score = candidateScore(candidate, request);
       if (score === null && (operation === "click" || operation === "check") &&
-          candidate.role === "checkbox" && !candidate.name &&
-          request[0] === "complete" && request.length > 1) {
+          candidate.role === "checkbox" &&
+          (!candidate.name || /^(?:toggle|complete|mark)(?: (?:todo|task|item))?$/i.test(candidate.name)) &&
+          request[0] === "complete" && request.length > 1 &&
+          candidate.localCheckboxCount === 1) {
         const itemWords = request.slice(1);
-        const nearbyWords = tokens(candidate.nearby);
-        if (itemWords.every(word => nearbyWords.includes(word))) score = itemWords.length * 4;
+        const nearbyWords = keywords(candidate.nearby);
+        if (nearbyWords.join(" ") === itemWords.join(" ")) score = itemWords.length * 4;
       }
       return score === null ? [] : [{ candidate, score }];
     }).sort((a, b) => b.score - a.score);
