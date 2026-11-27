@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { runTest } from "../src/runner.js";
-import { discoverTarget, findAssertionAlternatives } from "../src/discovery.js";
+import { discoverTarget, findAssertionAlternatives, findLocatorAlternatives } from "../src/discovery.js";
 import type { TestDefinition } from "../src/domain.js";
 
 test.use({ trace: "off" });
@@ -494,5 +494,39 @@ test("ambiguous role click rejects missing or duplicate item context", async ({ 
     }
   } finally {
     await new Promise<void>((resolve,reject)=>fixture.close(err=>err?reject(err):resolve()));
+  }
+});
+
+
+test("ambiguous candidate context distinguishes repeated controls across cards and rows", async ({ page }) => {
+  for (const html of [
+    `<main><article><h2>Quarterly report</h2><div><button>Edit</button></div></article>
+      <article><h2>Annual budget</h2><div><button>Edit</button></div></article></main>`,
+    `<main><table><tbody><tr><td>Quarterly report</td><td><div><button>Edit</button></div></td></tr>
+      <tr><td>Annual budget</td><td><div><button>Edit</button></div></td></tr></tbody></table></main>`,
+    `<main><div><div><a href="#">Quarterly report</a></div><div><div><button>Edit</button></div></div></div>
+      <div><div><a href="#">Annual budget</a></div><div><div><button>Edit</button></div></div></div></main>`,
+  ]) {
+    await page.setContent(html);
+    const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click");
+    expect(choices.total).toBe(2);
+    expect(choices.candidates.map(c=>c.nth)).toEqual([0,1]);
+    expect(choices.candidates[0].nearby).toContain("Quarterly report");
+    expect(choices.candidates[0].nearby).not.toContain("Annual budget");
+    expect(choices.candidates[1].nearby).toContain("Annual budget");
+    expect(choices.candidates[1].nearby).not.toContain("Quarterly report");
+  }
+});
+
+test("ambiguous candidate context excludes shared page and hidden content", async ({ page }) => {
+  await page.setContent(`<main><h1>Shared dashboard heading</h1>
+    <section><article><span hidden>Hidden diagnostic sentinel</span><div><button>Edit</button></div></article>
+    <article><div><button>Edit</button></div></article></section></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click");
+  expect(choices.total).toBe(2);
+  for(const candidate of choices.candidates){
+    expect(candidate.nearby).not.toContain("Shared dashboard heading");
+    expect(candidate.nearby).not.toContain("Hidden diagnostic sentinel");
+    expect(candidate.nearby.length).toBeLessThanOrEqual(180);
   }
 });
