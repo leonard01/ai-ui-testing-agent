@@ -41,3 +41,14 @@ These are proposed manual instructions, not verified site capabilities or measur
 
 ## Current evidence
 LIVE-004–007: user reported all four generation failures, no execution. Cause unknown; preserve raw response/error and usage evidence. XS06–09 correspond to those workflows; do not relabel unverified failures as benchmark results without recording settings and evidence. No new heuristics until investigated.
+
+
+## Release priority update — 27 November 2026
+After the current contextual recovery, candidate context and ranking work, freeze new resolver heuristics and prioritise site independence as a v0.3 release-validation objective. The existing 25 scenarios remain useful as a familiar-site regression baseline but are not sufficient evidence of generalisation.
+
+- Target at least ten distinct application implementations overall, including at least six previously unused applications; do not count multiple routes on one application as independent sites. Cover different frameworks, semantic and non-semantic markup, repeated cards/rows, forms, navigation, dynamic state, and multi-step workflows.
+- Verify authorised demo access and actual capabilities before freezing a versioned scenario manifest. Select comparable scenario families on different implementations, plus unfamiliar workflows. Keep a holdout subset unused during resolver development; if a holdout is used to tune a fix, replace it for subsequent independent assessment.
+- Separate cold-start (no prior application memory) from warm-start (verified application memory available); never pool these results. Repeat a fixed subset with fresh model calls to observe variability, subject to provider budget. Report actual sample sizes, not extrapolated reliability guarantees.
+- Report generation success, requirement fidelity, independent unassisted execution correctness, false positives/wrong actions, safe rejection, assisted success, human correction effort, token use and latency by application and scenario family. Do not count unavailable environments as execution passes or silently discard failed attempts.
+- Treat cross-site deterioration and false positives as release-review blockers; classify and reproduce defects before fixing. Prefer general DOM relationships and evidence over site-specific hardcoding. Record exceptions and agree final acceptance thresholds after reviewing initial evidence, not by retroactively redefining successes.
+- This is a manual live validation expansion for v0.3, not implementation of the v0.4 stochastic evaluation framework (#139) or optional exploration (#148).
