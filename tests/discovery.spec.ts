@@ -414,3 +414,30 @@ test("role hint must not substitute a checkbox for a requested button", async ({
   const target = { by: "intent", value: "Completed", role: "button", rolePolicy: "hint" } as const;
   await expect(discoverTarget(page, target, "click", 500)).rejects.toThrow(/Could not resolve intent/);
 });
+
+
+// Product identity may be rendered inside an interactive details control.
+test("shopping intent resolves interactive product title within its own card", async ({ page }) => {
+  await page.setContent(`<main>
+    <article><button aria-label="View details for Example Backpack"><span>Example Backpack</span></button>
+      <button id="backpack" onclick="this.textContent='Remove'">Add to cart</button></article>
+    <article><div role="button" tabindex="0" aria-label="View details for Example Lamp"><span>Example Lamp</span></div>
+      <button id="lamp" onclick="this.textContent='Remove'">Add to cart</button></article>
+  </main>`);
+  for (const [name,id] of [["Example Backpack","backpack"],["Example Lamp","lamp"]]) {
+    const result=await discoverTarget(page,{by:"intent",role:"button",value:"Add "+name+" to cart"},"click",500);
+    await result.locator.click();
+    await expect(page.locator("#"+id)).toHaveText("Remove");
+    if(id==="backpack") await expect(page.locator("#lamp")).toHaveText("Add to cart");
+  }
+});
+
+test("shopping intent rejects interactive titles when the named card has no cart action", async ({ page }) => {
+  await page.setContent(`<main><section>
+    <article><button aria-label="View details for Example Backpack"><span>Example Backpack</span></button></article>
+    <article><div>Example Lamp</div><button id="lamp" onclick="this.textContent='Remove'">Add to cart</button></article>
+  </section></main>`);
+  await expect(discoverTarget(page,{by:"intent",role:"button",value:"Add Example Backpack to cart"},"click",500))
+    .rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("#lamp")).toHaveText("Add to cart");
+});
