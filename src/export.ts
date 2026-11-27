@@ -331,8 +331,8 @@ function exportAction(action: TestAction, base: URL): string[] {
       ", { timeout: STEP_TIMEOUT });");
   } else if (action.kind === "assert-visible") {
     lines.push("// Assertion provenance: " + action.provenance);
-    lines.push("await expect(target).toHaveCount(1, { timeout: STEP_TIMEOUT });");
-    lines.push("await expect(target).toBeVisible({ timeout: STEP_TIMEOUT });");
+    lines.push("// At least one matching element must be visible; keep any explicit index.");
+    lines.push("await expect(target.filter({ visible: true }).first()).toBeVisible({ timeout: STEP_TIMEOUT });");
   }
   return lines;
 }
