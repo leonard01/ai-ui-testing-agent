@@ -221,17 +221,49 @@ export async function findLocatorAlternatives(
     if (count > 1) {
       const options: AmbiguousCandidate[] = [];
       if (count <= 12) {
+        // Collect context for the exact Playwright match set in one DOM
+        // snapshot. Never cross into a container holding a competing match.
+        const contexts = await exact.evaluateAll(elements => elements.map(element => {
+          const clip = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, 180);
+          const visibleText = (root: Element): string => {
+            const parts: string[] = [];
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            let visited = 0;
+            let length = 0;
+            while (walker.nextNode() && visited++ < 250 && length < 600) {
+              const node = walker.currentNode;
+              const parent = node.parentElement;
+              if (!parent || parent.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,[contenteditable]:not([contenteditable="false"])')) continue;
+              const style = getComputedStyle(parent);
+              if (style.visibility !== "visible" || !parent.getClientRects().length) continue;
+              const text = (node.textContent ?? "").trim();
+              if (text) {
+                parts.push(text);
+                length += text.length;
+              }
+            }
+            return clip(parts.join(" "));
+          };
+          let nearby = visibleText(element);
+          let ancestor = element.parentElement;
+          for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+            if (ancestor.matches('html,body,main,[role="main"],[role="list"],[role="feed"],table,tbody,thead,tfoot,ul,ol,nav,[role="navigation"]') ||
+                elements.some(other => other !== element && ancestor!.contains(other))) break;
+            const text = visibleText(ancestor);
+            if (text) nearby = text;
+            // Semantic item boundaries are strong evidence of local grouping.
+            if (ancestor.matches('article,li,tr,[role="row"],[role="listitem"],[role="group"]')) break;
+          }
+          return {tag: element.tagName.toLowerCase(), nearby};
+        }));
+        // If the match set changed during collection, avoid positional advice.
+        if (contexts.length !== count || await exact.count() !== count) {
+          return { attempted, candidates: [], total: await exact.count() };
+        }
         for (let nth = 0; nth < count; nth++) {
           const item = exact.nth(nth);
           if (!await item.isVisible()) continue;
-          const context = await item.evaluate((element) => {
-            const clip = (text: string | null | undefined) =>
-              (text ?? "").replace(/\s+/g, " ").trim().slice(0, 180);
-            return {
-              tag: element.tagName.toLowerCase(),
-              nearby: clip(element.parentElement?.textContent),
-            };
-          });
+          const context = contexts[nth];
           options.push({
             tag: context.tag, role: attempted.role, name: attempted.name,
             nearby: context.nearby, nth, matchCount: count,
