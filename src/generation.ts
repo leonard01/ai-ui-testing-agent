@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { parseModelJSON } from "./model-json.js";
+import { normaliseMixedLocators } from "./locator-normalisation.js";
 import type { ResponseDiagnosticObserver } from "./response-diagnostics.js";
 import { groqResponsePolicy, isGroqJSONModeFailure } from "./hosted-providers.js";
 import { decodeEmbeddedCoverage, proposedCoverage, sourceRequirements } from "./requirement-preservation.js";
@@ -152,8 +153,9 @@ export async function generateDraft(
     let parsed: unknown;
     try {
       const recovered = parseModelJSON(output);
-      parsed = recovered.value;
-      options.observeResponse?.(attempt, {repairs: recovered.repairs, parsed});
+      const normalised = normaliseMixedLocators(recovered.value);
+      parsed = normalised.value;
+      options.observeResponse?.(attempt, {repairs: [...recovered.repairs, ...normalised.repairs], parsed});
     } catch {
       problems = ["test: model output was not valid JSON"];
       options.observeResponse?.(attempt, {validation: problems.join("; ")});
