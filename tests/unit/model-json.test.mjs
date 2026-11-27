@@ -23,7 +23,10 @@ test("rejects duplicate keys, incomplete values, multiple objects and commentary
 });
 test("Groq response mode controls wire format and is recorded without extra HTTP retries", async () => {
   const old = process.env.GROQ_API_KEY;
+  const oldPolicy = process.env.GROQ_RESPONSE_POLICY;
   process.env.GROQ_API_KEY = "fixture-key";
+  // Exercise both requested wire formats under the explicitly enabled hybrid policy.
+  process.env.GROQ_RESPONSE_POLICY = "hybrid";
   try {
     const requests = [], records = [];
     const req = { model: "fixture", system: "return JSON", prompt: "test" };
@@ -46,5 +49,6 @@ test("Groq response mode controls wire format and is recorded without extra HTTP
     assert.doesNotMatch(JSON.stringify(records), /fixture-key|return JSON/);
   } finally {
     if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old;
+    if (oldPolicy === undefined) delete process.env.GROQ_RESPONSE_POLICY; else process.env.GROQ_RESPONSE_POLICY = oldPolicy;
   }
 });
