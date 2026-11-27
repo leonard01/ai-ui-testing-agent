@@ -134,3 +134,54 @@ for (const nth of [0, 1]) {
     }
   });
 }
+
+
+for (const kind of ["link", "unnamed"] as const) {
+  test("verified " + kind + " action suggestion can be selected and rerun through UI", async ({ browser, page }) => {
+    const dir = await mkdtemp(join(tmpdir(), "verified-repair-"));
+    const html = kind === "link"
+      ? '<main><a href="#profile">View profile</a><a href="#logout" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a><p id="status" role="status">Pending</p></main>'
+      : '<main><button id="submit_search" onclick="document.getElementById(\'status\').textContent=\'Done\'"></button><button id="subscribe" onclick="document.getElementById(\'status\').textContent=\'Wrong\'"></button><p id="status" role="status">Pending</p></main>';
+    const targetServer = createServer((_req,res)=>{res.writeHead(200,{"Content-Type":"text/html"});res.end(html);});
+    let review: Server | undefined;
+    try {
+      const websiteURL=await listen(targetServer);
+      review=await createReviewServer(dir,browser);
+      const reviewURL=await listen(review);
+      const definition={
+        schemaVersion:1,id:"verified-action",title:"Verified action repair",version:1,
+        steps:[
+          {id:"open",description:"Open demo",action:{kind:"navigate",url:"/"}},
+          {id:"click",description:kind==="link"?"Log out":"Submit search",action:{kind:"click",target:kind==="link"?{by:"role",role:"button",name:"Logout"}:{by:"role",role:"button"}}},
+          {id:"verify",description:"Verify outcome",action:{kind:"assert-text",target:{by:"role",role:"status"},expected:"Done",provenance:"requirements"}},
+        ],
+      };
+      const savedResponse=await page.request.post(reviewURL+"/api/save",{data:{testName:"Verified repair",definition,baseURL:websiteURL}});
+      expect(savedResponse.status()).toBe(200);
+      const saved=await savedResponse.json();
+      await page.goto(reviewURL);
+      await selectSavedScript(page,saved.id);
+      await page.getByRole("button",{name:"Run selected test"}).click();
+      await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+      await expect(page.locator("#run-summary")).toContainText("FAILED");
+      const repair=page.locator(".locator-repair");
+      await expect(repair).toBeVisible();
+      const option=repair.locator(".locator-option").filter({hasText:kind==="link"?"Logout":"submit_search"});
+      await expect(option).toHaveCount(1);
+      await option.locator("input").check();
+      const save=repair.getByRole("button",{name:"Save corrected locator and rerun from start"});
+      await expect(save).toBeEnabled();
+      await save.click();
+      await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+      await expect(page.locator("#run-summary")).toContainText("PASSED");
+      const revisedId=await page.locator("#execution-panel").getByLabel("Test",{exact:true}).inputValue();
+      const corrected=JSON.parse(await readFile(await approvedPath(dir,revisedId),"utf8"));
+      expect(corrected.steps[1].action.target).toEqual(kind==="link"?{by:"css",value:'a[href="#logout"]'}:{by:"id",value:"submit_search"});
+      expect(corrected.steps[2].action).toEqual(definition.steps[2].action);
+    } finally {
+      if(review) await close(review);
+      await close(targetServer);
+      await rm(dir,{recursive:true,force:true});
+    }
+  });
+}
