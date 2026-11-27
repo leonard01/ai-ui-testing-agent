@@ -292,18 +292,16 @@ function exportAction(action: TestAction, base: URL): string[] {
     ];
   }
   if (action.kind === "assert-text" && action.scope === "search-results") {
-    const escaped = action.expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const escaped = action.expected.replace(/\s+/g, " ").trim().replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
     return [
       "// Assertion provenance: " + action.provenance,
       "// Only identifiable search-result cards count; never the query box or whole page.",
       "const resultCards = page.locator(" + literal(SEARCH_RESULT_ITEM_SELECTOR) + ");",
       "const resultPattern = new RegExp(" + literal(escaped) + ", 'i');",
       "await expect.poll(async () => {",
-      "  const matching = resultCards.filter({ hasText: resultPattern });",
-      "  for (let i = 0; i < await matching.count(); i++) {",
-      "    if (await matching.nth(i).isVisible()) return true;",
-      "  }",
-      "  return false;",
+      "  const visibleRecords = await resultCards.filter({ visible: true }).evaluateAll(nodes =>",
+      "    nodes.map(node => (node as HTMLElement).innerText ?? ''));",
+      "  return visibleRecords.some(value => resultPattern.test(value.replace(/\\s+/g, ' ').trim()));",
       "}, { timeout: STEP_TIMEOUT }).toBe(true);",
     ];
   }
