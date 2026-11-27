@@ -15,7 +15,7 @@ import { coverageWarnings } from "./requirement-preservation.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
-import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget, recoverAmbiguousCartClick, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -202,6 +202,20 @@ export async function runTest(
             target = locator;
           } else {
             target = locate(page, action.target);
+            // A generic role locator can lose item context retained in the
+            // step description. Narrow only ambiguous clicks; never override
+            // an explicit positional choice or change the stored definition.
+            if (action.kind === "click" && action.target.by === "role" &&
+                action.target.role === "button" && action.target.name &&
+                action.target.nth === undefined) {
+              const recovered = await recoverAmbiguousCartClick(
+                page, target, action.target.name, step.description,
+              );
+              if (recovered) {
+                target = recovered.locator;
+                result.resolution = recovered.evidence;
+              }
+            }
             // Backward compatibility for reviewed scripts whose AI draft
             // confused visible placeholder text with a real HTML label.
             // Never guess among several matches or change a saved locator.
