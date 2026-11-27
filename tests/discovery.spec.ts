@@ -351,3 +351,31 @@ test("wrong filter role must not trigger Clear completed", async ({ page }) => {
   }
   await expect(page.locator("#tasks li")).toHaveText("Review report");
 });
+
+
+test("generic item checkbox resolution rejects duplicate and missing item names", async ({ page }) => {
+  await page.setContent(`<main><ul>
+    <li><input type="checkbox" aria-label="Toggle Todo"><label>Review report</label></li>
+    <li><input type="checkbox" aria-label="Toggle Todo"><label>Review report</label></li>
+    <li><input type="checkbox" aria-label="Toggle Todo"><label>Prepare presentation</label></li>
+    </ul></main>`);
+  await expect(discoverTarget(page, {
+    by: "intent", value: "Complete Review report", role: "checkbox",
+  }, "click", 500)).rejects.toThrow(/Ambiguous intent/);
+  await expect(discoverTarget(page, {
+    by: "intent", value: "Complete Missing report", role: "checkbox",
+  }, "click", 500)).rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("input:checked")).toHaveCount(0);
+});
+
+test("generic item checkbox resolution rejects shared container and partial item title", async ({ page }) => {
+  await page.setContent(`<main>
+    <div><input type="checkbox" aria-label="Toggle Todo">
+      <input type="checkbox" aria-label="Toggle Todo"><label>Review report</label></div>
+    <div><input type="checkbox" aria-label="Toggle Todo"><label>Review report tomorrow</label></div>
+    </main>`);
+  await expect(discoverTarget(page, {
+    by: "intent", value: "Complete Review report", role: "checkbox",
+  }, "click", 500)).rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("input:checked")).toHaveCount(0);
+});
