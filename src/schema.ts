@@ -30,7 +30,7 @@ const target = z.discriminatedUnion("by", [
   z.object({ by: z.literal("id"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("xpath"), value: z.string().trim().min(1).max(1000) }).strict(),
-  z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional() }).strict(),
+  z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional(), rolePolicy: z.enum(["strict", "hint"]).optional() }).strict(),
 ]);
 // Count assertions require an explicit multi-match locator. Intent discovery
 // intentionally resolves exactly one element, so it cannot express counts.
