@@ -563,6 +563,31 @@ async function resolveCartAction(
     JSON.stringify(names[0]) + "; no action was taken" };
 }
 
+/**
+ * Recover only a proven contextual cart click from an ambiguous exact role
+ * locator. Never fall through to generic intent scoring or relax the locator.
+ */
+export async function recoverAmbiguousCartClick(
+  page: Page, original: Locator, name: string, description: string,
+): Promise<{ locator: Locator; evidence: DiscoveryEvidence } | undefined> {
+  if (!/^add to (?:cart|basket)$/i.test(name) || await original.count() < 2) return;
+  const phrase = cartProductPhrase(description);
+  if (!phrase?.explicitCart) return;
+  const titles = await productTitles(page, phrase.product);
+  if (titles.length !== 1 ||
+      titles[0].toLocaleLowerCase() !== phrase.product.toLocaleLowerCase()) return;
+  const outcome = await resolveCartAction(page, {by:"intent",role:"button",value:description});
+  if (!outcome.resolved) return;
+  // Keep the original role AND exact accessible name as hard constraints.
+  const locator = original.and(outcome.resolved.locator);
+  if (await locator.count() !== 1 || !await locator.isVisible() || !await locator.isEnabled()) return;
+  return {
+    locator,
+    evidence: {...outcome.resolved.evidence,
+      locator: "ambiguous exact role recovery: " + outcome.resolved.evidence.locator},
+  };
+}
+
 function cssAttribute(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 }
