@@ -10,3 +10,4 @@ run-results/
 .DS_Store
 *.log
 generated/
+regression-history/
