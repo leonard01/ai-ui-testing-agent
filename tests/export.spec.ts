@@ -303,3 +303,42 @@ for (const visible of [true,false]) {
     }
   });
 }
+
+
+for(const scenario of [
+  {label:"scoped table data",html:'<section aria-label="Search results"><table><tbody><tr><td>Running shoes</td></tr></tbody></table></section>',passes:true},
+  {label:"repeated generic records",html:'<section aria-label="Search results"><div><div><h3>Boots</h3><a href="/1">Details</a></div><div><h3>Running shoes</h3><a href="/2">Details</a></div></div></section>',passes:true},
+  {label:"hidden matching text",html:'<section aria-label="Search results"><article data-testid="search-result">Boots<span hidden>shoes</span></article></section>',passes:false},
+  {label:"query outside records",html:'<section aria-label="Search results"><h2>Results for shoes</h2><table><thead><tr><th>Shoes</th></tr></thead><tbody><tr><td>Boots</td></tr></tbody></table></section>',passes:false},
+] as const){
+  test("portable scoped result assertion: "+scenario.label,async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main>'+scenario.html+'</main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try{
+      const definition:TestDefinition={schemaVersion:1,id:"portable-results",title:"Scoped results",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify returned result contains shoes",action:{
+          kind:"assert-text",target:{by:"text",value:"shoes"},expected:"shoes",match:"contains",scope:"search-results",provenance:"requirements",
+        }},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      if(scenario.passes){
+        const result=await executePortable(source,info.outputPath("portable-results"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try{await executePortable(source,info.outputPath("portable-results"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toMatch(/1 failed/);
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
