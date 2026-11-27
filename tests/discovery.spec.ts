@@ -441,3 +441,58 @@ test("shopping intent rejects interactive titles when the named card has no cart
     .rejects.toThrow(/Could not resolve intent/);
   await expect(page.locator("#lamp")).toHaveText("Add to cart");
 });
+
+
+// Reproduce a valid model draft whose role locator drops the item context.
+test("ambiguous role click recovers the named item without selecting a neighbouring button", async ({ browser }, info) => {
+  const html = `<!doctype html><main>
+    <article><a href="#" role="button"><span>Example Lamp</span></a><button onclick="document.getElementById('selection').textContent='Lamp'">Add to cart</button></article>
+    <article><a href="#" role="button"><span>Example Backpack</span></a><button onclick="document.getElementById('selection').textContent='Backpack'">Add to cart</button></article>
+    <p role="status" id="selection">None</p></main>`;
+  const fixture = createServer((_req,res) => {res.writeHead(200,{"Content-Type":"text/html"});res.end(html);});
+  await new Promise<void>(resolve => fixture.listen(0,"127.0.0.1",resolve));
+  const url = "http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+  try {
+    const definition: TestDefinition = {
+      schemaVersion:1,id:"contextual-role",title:"Contextual role recovery",version:1,
+      steps:[
+        {id:"open",description:"Open products",action:{kind:"navigate",url:"/"}},
+        {id:"add",description:"Add Example Backpack to cart",action:{kind:"click",target:{by:"role",role:"button",name:"Add to cart"}}},
+        {id:"verify",description:"Verify the selected item",action:{kind:"assert-text",target:{by:"role",role:"status"},expected:"Backpack",provenance:"requirements"}},
+      ],
+    };
+    const report=await runTest(definition,{baseURL:url,outputDir:info.outputPath("contextual-role"),timeoutMs:1500},browser);
+    expect(report.status,JSON.stringify(report.steps,null,2)).toBe("passed");
+    expect(report.steps.find(s=>s.id==="add")?.resolution?.intent).toBe("Add Example Backpack to cart");
+  } finally {
+    await new Promise<void>((resolve,reject)=>fixture.close(err=>err?reject(err):resolve()));
+  }
+});
+
+test("ambiguous role click rejects missing or duplicate item context", async ({ browser }, info) => {
+  const html = `<!doctype html><main>
+    <article><h2>Example Backpack</h2><button>Add to cart</button></article>
+    <article><h2>Example Backpack</h2><button>Add to cart</button></article>
+    <article><h2>Example Lamp</h2><button>Add to cart</button></article></main>`;
+  const fixture=createServer((_req,res)=>{res.writeHead(200,{"Content-Type":"text/html"});res.end(html);});
+  await new Promise<void>(resolve=>fixture.listen(0,"127.0.0.1",resolve));
+  const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+  try {
+    for(const [index,description] of ["Add to cart","Add Missing Widget to cart","Add Example Backpack to cart"].entries()){
+      const definition: TestDefinition={
+        schemaVersion:1,id:"ambiguous-role",title:"Unresolved context",version:1,
+        steps:[
+          {id:"open",description:"Open products",action:{kind:"navigate",url:"/"}},
+          {id:"add",description,action:{kind:"click",target:{by:"role",role:"button",name:"Add to cart"}}},
+          {id:"verify",description:"Verify products",action:{kind:"assert-visible",target:{by:"text",value:"Example Lamp"},provenance:"requirements"}},
+        ],
+      };
+      const report=await runTest(definition,{baseURL:url,outputDir:info.outputPath("ambiguous-"+index),timeoutMs:1000},browser);
+      expect(report.status).toBe("execution-error");
+      expect(report.steps.find(s=>s.id==="add")?.resolution).toBeUndefined();
+      expect(report.steps.find(s=>s.id==="verify")?.status).toBe("skipped");
+    }
+  } finally {
+    await new Promise<void>((resolve,reject)=>fixture.close(err=>err?reject(err):resolve()));
+  }
+});
