@@ -661,3 +661,44 @@ test("contextual action suggestions do not infer interactivity from isolated att
   const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit");
   expect(choices.candidates).toEqual([]);
 });
+
+
+test("generalised container relationships rank differently labelled links using their local record", async ({ page }) => {
+  await page.setContent(`<main><h1>Shared dashboard</h1>
+    <div><div><h2>Quarterly report</h2><div><a href="/records/1">View details</a></div></div>
+    <div><h2>Annual budget</h2><div><a href="/records/2">View details</a></div></div>
+    <div><h2>Quarterly forecast</h2><div><a href="/records/3">View details</a></div></div></div>
+    </main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"View details"},"click","View details for Annual budget");
+  expect(choices.total).toBe(3);
+  expect(choices.candidates[0].target).toEqual({by:"css",value:'a[href="/records/2"]'});
+  expect(choices.candidates[0].nearby).toContain("Annual budget");
+  expect(choices.candidates[0].nearby).not.toContain("Quarterly report");
+  expect(choices.candidates.every(c=>!c.nearby.includes("Shared dashboard"))).toBe(true);
+});
+
+test("generalised container relationships rank nested unnamed controls by visible record context", async ({ page }) => {
+  await page.setContent(`<main><div>
+    <div><span>Quarterly report</span><div><button id="remove-1"></button></div></div>
+    <div><span>Annual budget</span><div><button id="remove-2"></button></div></div>
+    <div><span>Quarterly forecast</span><div><button id="remove-3"></button></div></div>
+    </div></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Remove"},"click","Remove Annual budget");
+  expect(choices.candidates.map(c=>c.target)).toEqual([
+    {by:"id",value:"remove-2"},{by:"id",value:"remove-1"},{by:"id",value:"remove-3"},
+  ]);
+  expect(choices.candidates[0].nearby).toContain("Annual budget");
+  expect(choices.candidates[0].nearby).not.toContain("Quarterly report");
+});
+
+test("generalised container relationships never rank hidden or shared context as a unique record match", async ({ page }) => {
+  await page.setContent(`<main><h1>Annual budget</h1><div>
+    <div><span>Quarterly report</span><span hidden>Annual budget</span><div><a href="/records/1">Edit</a></div></div>
+    <div><span>Quarterly forecast</span><div><a href="/records/2">Edit</a></div></div>
+    </div></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit Annual budget");
+  expect(choices.candidates.map(c=>c.target)).toEqual([
+    {by:"css",value:'a[href="/records/1"]'},{by:"css",value:'a[href="/records/2"]'},
+  ]);
+  expect(choices.candidates.every(c=>!c.nearby.includes("Annual budget"))).toBe(true);
+});
