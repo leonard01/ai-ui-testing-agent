@@ -206,6 +206,7 @@ export async function findLocatorAlternatives(
   page: Page,
   attempted: ExplicitTarget,
   operation: "click" | "fill",
+  instruction?: string,
 ): Promise<MissingLocatorChoices> {
   // A strict-mode violation can come from multiple *identically named*
   // role matches (Google's two "Google Search" submit buttons, for example).
@@ -272,6 +273,22 @@ export async function findLocatorAlternatives(
       }
       // An incomplete set cannot be used for positional repair, but it is
       // still reported so the reviewer can manually edit the original step.
+      // Advisory only: promote a single full contextual match. Partial
+      // matches and ties are deliberately not ranked; keep original nth.
+      if (instruction && options.length === count) {
+        const actionWords = new Set(keywords(attempted.name));
+        const contextWords = keywords(instruction).filter(word => !actionWords.has(word));
+        if (contextWords.length) {
+          const matching = options.filter(candidate => {
+            const nearby = new Set(keywords(candidate.nearby));
+            return contextWords.every(word => nearby.has(word));
+          });
+          if (matching.length === 1) {
+            const best = matching[0];
+            return { attempted, candidates: [best, ...options.filter(candidate => candidate !== best)], total: count };
+          }
+        }
+      }
       return { attempted, candidates: options, total: count };
     }
   }
