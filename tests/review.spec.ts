@@ -237,7 +237,8 @@ async function generateFixture(page: import("@playwright/test").Page) {
   );
   await page.getByLabel("Generate with").selectOption("fixture");
   await clickGenerateDraft(page);
-  await expect(page.locator("#generation-status")).toContainText("Draft ready");
+  // Fixture generation includes browser inspection, which can exceed 5s under parallel load.
+  await expect(page.locator("#generation-status")).toContainText("Draft ready", { timeout: 15000 });
   await expect(page.locator(".step")).toHaveCount(9);
   await page.locator("#save-test-name").fill(fixtureName());
 }
