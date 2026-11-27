@@ -39,6 +39,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Honour explicit full-regression request on development commits
+        env:
+          TEST_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          message="$(git show -s --format=%B "$TEST_COMMIT")"
+          if [[ "$message" == *"[full-regression]"* ]]; then
+            echo "FULL_REGRESSION=true" >> "$GITHUB_ENV"
+            echo "Full deterministic regression explicitly requested."
+          fi
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
