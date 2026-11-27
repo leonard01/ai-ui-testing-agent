@@ -270,3 +270,36 @@ test("portable export uses toContainText only when comparison mode is contains",
   const exact = generatePlaywrightSpec(definition, { baseURL, timeoutMs: 1500 });
   expect(exact).toContain('await expect(target).toHaveText("tasks, 0 completed"');
 });
+
+
+for (const visible of [true,false]) {
+  test("portable existential visibility "+(visible?"passes on a later visible match":"rejects all hidden matches"),async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main><p hidden>Record found</p><p id="later" hidden>Record found</p>'+
+        (visible?'<script>setTimeout(()=>document.getElementById("later").hidden=false,250)</script>':'')+'</main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"portable-visible",title:"Visibility",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify record is visible",action:{kind:"assert-visible",target:{by:"text",value:"Record found"},provenance:"requirements"}},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      if(visible){
+        const result=await executePortable(source,info.outputPath("portable-visible"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try {await executePortable(source,info.outputPath("portable-hidden"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toMatch(/1 failed/);
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
