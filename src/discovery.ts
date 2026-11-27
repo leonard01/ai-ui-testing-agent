@@ -205,12 +205,53 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
       // have a sibling span/label next to an unlabeled input.
       const nearby = trim((el.parentElement as HTMLElement | null)?.innerText, 180);
       let repairContext: string | undefined;
-      if (repairOnly && op === "click" && role === "clickable") {
+      if (repairOnly && op === "click") {
         if (el.closest('[aria-disabled="true"],[aria-hidden="true"],[disabled]')) return [];
-        // Prefer a semantic record boundary. Do not climb across rows or
-        // collect text from the whole page merely to obtain a keyword match.
-        const record = el.closest('tr,[role="row"],li,[role="listitem"],article,[role="group"]');
-        repairContext = trim((record as HTMLElement | null)?.innerText ?? nearby, 180);
+        // Only visible rendered text, never input values or hidden descendants.
+        const visibleText = (root: Element): string => {
+          const parts: string[] = [];
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          let visited = 0, length = 0;
+          while (walker.nextNode() && visited++ < 250 && length < 600) {
+            const node = walker.currentNode;
+            const parent = node.parentElement;
+            if (!parent || parent.closest('script,style,noscript,template,svg,[hidden],[inert],[aria-hidden="true"],input,textarea,select,[contenteditable]:not([contenteditable="false"])')) continue;
+            if (getComputedStyle(parent).visibility !== "visible" || !parent.getClientRects().length) continue;
+            const text = (node.textContent ?? "").trim();
+            if (text) { parts.push(text); length += text.length; }
+          }
+          return trim(parts.join(" "),180);
+        };
+        // Stop before shared page regions or a container with competing
+        // same-action controls. Generic nested divs need no special classes.
+        // Treat native and nonsemantic controls alike, but ignore descendants
+        // of the current control and decorative matches.
+        const competing = (other: Element) => {
+          if (other === el || el.contains(other) || other.contains(el) ||
+              other.closest('[hidden],[inert],[aria-hidden="true"]') ||
+              !other.getClientRects().length || getComputedStyle(other).visibility !== "visible") return false;
+          const tag = other.tagName.toLowerCase();
+          const otherRole = other.getAttribute("role");
+          const native = ["button","a","input"].includes(tag) ||
+            ["button","link","checkbox","radio"].includes(otherRole ?? "");
+          const descriptive = !!(other.getAttribute("title")?.trim() || other.getAttribute("aria-label")?.trim());
+          const pointer = getComputedStyle(other).cursor === "pointer" &&
+            !!other.parentElement && getComputedStyle(other.parentElement).cursor !== "pointer";
+          if (!native && !other.hasAttribute("onclick") && !(descriptive && pointer)) return false;
+          // Any competing control is a conservative boundary unless the
+          // ancestor itself is a semantic record (handled below).
+          return true;
+        };
+        repairContext = visibleText(el);
+        let ancestor = el.parentElement;
+        for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+          if (ancestor.matches('html,body,main,[role="main"],table,tbody,thead,tfoot,ul,ol,nav,[role="navigation"],[role="list"],[role="feed"]')) break;
+          const record = ancestor.matches('tr,[role="row"],li,[role="listitem"],article,[role="group"]');
+          if (!record && Array.from(ancestor.querySelectorAll(selector)).some(competing)) break;
+          const context = visibleText(ancestor);
+          if (context) repairContext = context;
+          if (record) break;
+        }
       }
       return [{
         index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
