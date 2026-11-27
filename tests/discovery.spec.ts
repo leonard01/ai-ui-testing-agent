@@ -601,3 +601,33 @@ test("generalised action suggestions do not offer nonunique or hidden attribute 
     expect(candidate).not.toMatchObject({target:{by:"id",value:"hidden_search"}});
   }
 });
+
+
+test("icon action suggestions discover nonsemantic controls with explicit interaction evidence", async ({ page }) => {
+  await page.setContent(`<main><table><tbody>
+    <tr><td>Quarterly report</td><td><span id="edit-quarterly" title="Edit" onclick="this.dataset.clicked='true'"><svg width="20" height="20"></svg></span></td></tr>
+    <tr><td>Annual budget</td><td><span id="edit-annual" title="Edit" tabindex="0" onclick="this.dataset.clicked='true'"><svg width="20" height="20"></svg></span></td></tr>
+    </tbody></table>
+    <span id="edit-decoration" title="Edit"><svg width="20" height="20"></svg></span>
+    <span id="edit-hidden" title="Edit" onclick="this.dataset.clicked='true'" hidden>Icon</span>
+    </main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit Annual budget");
+  expect(choices.candidates[0]).toMatchObject({target:{by:"id",value:"edit-annual"}});
+  expect(choices.candidates[0].nearby).toContain("Annual budget");
+  expect(choices.candidates[0].nearby).not.toContain("Quarterly report");
+  expect(choices.candidates.map(c=>c.target)).toEqual([
+    {by:"id",value:"edit-annual"},{by:"id",value:"edit-quarterly"},
+  ]);
+  expect(await page.locator("[data-clicked]").count()).toBe(0);
+});
+
+test("icon action suggestions reject decorative, disabled and nonunique controls", async ({ page }) => {
+  await page.setContent(`<main>
+    <span id="edit-decorative" title="Edit">Icon</span>
+    <span id="edit-disabled" title="Edit" aria-disabled="true" onclick="void 0">Icon</span>
+    <span id="edit-duplicate" title="Edit" onclick="void 0">Icon</span>
+    <span id="edit-duplicate" title="Edit" onclick="void 0">Icon</span>
+    </main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit report");
+  expect(choices.candidates).toEqual([]);
+});
