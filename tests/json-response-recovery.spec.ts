@@ -106,3 +106,42 @@ test("JSON-only incremental failure leaves definition unchanged and never retrie
   expect(calls[0].responseMode ?? "json").toBe("json");
   expect(JSON.stringify(definition)).toBe(snapshot);
 });
+
+
+// Captured mixed role/intent shape, with synthetic data and no live provider.
+const mixedTarget = (name: string, intent: string) => ({by:"role",role:"button",name,intent});
+function mixedDefinition(targets: unknown[]) {
+  return {schemaVersion:1,id:"mixed-locator",title:"Mixed locator",version:1,steps:[
+    {id:"open",description:"Open",action:{kind:"navigate",url:baseURL}},
+    ...targets.map((target,i)=>({id:"click-"+i,description:"Interact",action:{kind:"click",target}})),
+    {id:"verify",description:"Verify",action:{kind:"assert-visible",target:{by:"text",value:"Example"},provenance:"requirements"}},
+  ]};
+}
+test("mixed locator recovery preserves contextual intent across captured cart workflows", async ({browser}) => {
+  for (const targets of [
+    [mixedTarget("Add to cart","Add Sauce Labs Backpack to the cart"),mixedTarget("Add to cart","Add Sauce Labs Bike Light to the cart"),mixedTarget("Open the cart","Open the cart")],
+    [mixedTarget("Add to cart","Add Sauce Labs Backpack to the cart"),mixedTarget("Add to cart","Add Sauce Labs Bike Light to the cart"),mixedTarget("Cart","Open the cart"),mixedTarget("Remove","Remove Sauce Labs Backpack from the cart")],
+    [mixedTarget("Edit","Edit Quarterly report"),mixedTarget("Delete","Delete Draft report")],
+  ]) {
+    const source=mixedDefinition(targets);
+    let calls=0;
+    const events: any[]=[];
+    const draft=await generateDraft({baseURL,model:"fixture",requirements:"Perform specified interactions",observeResponse:(_attempt,event)=>events.push(event)},async()=>{calls++;return JSON.stringify(source);},browser);
+    expect(calls).toBe(1);
+    expect(draft.needsReview).toBe(true);
+    expect(draft.definition.steps.slice(1,-1).map(step=>step.action)).toEqual(targets.map(t=>({kind:"click",target:{by:"intent",role:"button",value:t.intent}})));
+    expect(events.some(e=>e.repairs?.some((repair:string)=>repair.includes("mixed")))).toBe(true);
+  }
+});
+test("mixed locator recovery rejects conflicting and unsupported fields", async ({browser}) => {
+  for (const target of [
+    mixedTarget("Delete","Open settings"),
+    {...mixedTarget("Edit","Edit Quarterly report"),nth:1},
+    {...mixedTarget("Edit","Edit Quarterly report"),value:"Other"},
+    {...mixedTarget("Edit","Edit Quarterly report"),intent:""},
+    {...mixedTarget("Edit","Edit Quarterly report"),role:"checkbox"},
+    {...mixedTarget("Edit","Edit Quarterly report"),rolePolicy:"hint"},
+  ]) {
+    await expect(generateDraft({baseURL,model:"fixture",requirements:"Perform specified interactions"},async()=>JSON.stringify(mixedDefinition([target])),browser)).rejects.toThrow(/invalid test definition/);
+  }
+});
