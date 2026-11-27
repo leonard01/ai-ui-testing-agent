@@ -308,3 +308,46 @@ test("two task checkboxes reject generic Complete but resolve exact intended tas
     await tab.close();
   }
 });
+
+
+// Reproduce the live TodoMVC failures without an AI call or external website.
+test("named task completion must not select the global completion checkbox", async ({ page }) => {
+  await page.setContent(`<main>
+    <section><input id="toggle-all" type="checkbox"><label for="toggle-all">Mark all as complete</label>
+      <ul><li><div><input id="review" type="checkbox"><label>Review report</label></div></li>
+      <li><div><input id="other" type="checkbox"><label>Prepare presentation</label></div></li></ul>
+    </section></main>
+    <script>document.querySelector("#toggle-all").onchange = e => {
+      document.querySelectorAll("li input").forEach(input => input.checked = e.target.checked);
+    }</script>`);
+  const resolved = await discoverTarget(page, {
+    by: "intent", value: "Complete Review report", role: "checkbox",
+  }, "click", 500);
+  await resolved.locator.click();
+  await expect(page.locator("#toggle-all")).not.toBeChecked();
+  await expect(page.locator("#review")).toBeChecked();
+  await expect(page.locator("#other")).not.toBeChecked();
+});
+
+test("wrong filter role must not trigger Clear completed", async ({ page }) => {
+  await page.setContent(`<main><ul id="tasks"><li>Review report</li></ul>
+    <footer><a href="#/completed">Completed</a><button>Clear completed</button></footer>
+    </main><script>document.querySelector("button").onclick = () => {
+      document.querySelector("#tasks").replaceChildren();
+    }</script>`);
+  // A mismatched role must fail closed, or resolve the exact filter safely.
+  // Any successful resolution must actually navigate, not delete tasks.
+  let resolved;
+  try {
+    resolved = await discoverTarget(page, {
+      by: "intent", value: "Completed", role: "button",
+    }, "click", 500);
+  } catch (error) {
+    expect(String(error)).toMatch(/Could not resolve intent|Ambiguous intent/);
+  }
+  if (resolved) {
+    await resolved.locator.click();
+    expect(new URL(page.url()).hash).toBe("#/completed");
+  }
+  await expect(page.locator("#tasks li")).toHaveText("Review report");
+});
