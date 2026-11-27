@@ -164,24 +164,22 @@ export async function runTest(
           result.textMatch = "contains";
           const expected = normalize(action.expected);
           const cards = page.locator(SEARCH_RESULT_ITEM_SELECTOR);
-          const escaped = expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-          const matches = cards.filter({ hasText: new RegExp(escaped, "i") });
           const deadline = performance.now() + timeout;
-          let found = false;
           while (true) {
             const count = await cards.count();
-            const matchedCount = await matches.count();
-            for (let i = 0; i < Math.min(matchedCount, 30); i++) {
-              const candidate = matches.nth(i);
-              if (!await candidate.isVisible()) continue;
-              result.observed = normalize(await candidate.innerText()).slice(0, 500);
-              found = true;
+            // hasText searches hidden descendants too. Match only rendered
+            // text from a visible record, then keep that same text as evidence.
+            const visibleRecords = await cards.filter({ visible: true }).evaluateAll(nodes =>
+              nodes.map(node => (node as HTMLElement).innerText ?? ""));
+            const matched = visibleRecords.map(normalize).find(value =>
+              value.toLowerCase().includes(expected.toLowerCase()));
+            if (matched !== undefined) {
+              result.observed = matched.slice(0, 500);
               break;
             }
-            if (found) break;
             result.observed = count === 0
               ? "No identifiable search-result cards on the page"
-              : count + " result card(s) found, but none contains " + JSON.stringify(expected);
+              : count + " result card(s) found, but none contains " + JSON.stringify(expected) + " in visible record text";
             const remaining = deadline - performance.now();
             if (remaining <= 0) {
               throw new Error("Search-result assertion failed: " + result.observed +
