@@ -12,6 +12,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
+    inputs:
+      live_groq:
+        description: 'Run one live Groq generation against the local demo (uses quota)'
+        type: boolean
+        default: false
+      token_benchmark:
+        description: 'Run a four-case live token benchmark (uses quota)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,7 +35,7 @@ jobs:
     env:
       FULL_REGRESSION: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/feature/'))) || (github.event_name == 'pull_request' && !github.event.pull_request.draft && (github.base_ref == 'main' || startsWith(github.base_ref, 'feature/'))) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -48,6 +57,9 @@ jobs:
       - name: Run development sanity suite
         if: env.FULL_REGRESSION != 'true'
         run: npm run test:sanity
+      - name: Run development feature regression
+        if: env.FULL_REGRESSION != 'true'
+        run: npm test -- tests/discovery.spec.ts tests/duplicate-repair.spec.ts
       - name: Run independent Playwright E2E smoke gate
         if: env.FULL_REGRESSION == 'true'
         run: npm run test:smoke
@@ -63,5 +75,74 @@ jobs:
             test-results/
             playwright-report/
             run-results/
+            regression-history/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  live-groq:
+    # Never expose the provider secret to PR code or automatic push jobs.
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.live_groq || inputs.token_benchmark) &&
+      github.repository == 'leonard01/ai-ui-testing-agent' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/ui-redesign' ||
+       github.ref == 'refs/heads/feat/json-response-recovery')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Install Chromium for live generation
+        if: inputs.live_groq
+        run: npx playwright install --with-deps chromium
+      - name: Live generation smoke (one synthetic scenario, no execution)
+        if: inputs.live_groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: openai/gpt-oss-20b
+          GROQ_RESPONSE_POLICY: json
+          GROQ_REASONING_EFFORT: low
+          GROQ_MAX_COMPLETION_TOKENS: '2500'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GROQ_API_KEY:-}" ]]; then
+            echo "::error::Configure the GROQ_API_KEY repository secret first."
+            exit 1
+          fi
+          mkdir -p generated/ci-live
+          printf '%s\n' 'Add a task called Review report.' 'Verify that Review report is visible in the task list.' > generated/ci-live/requirements.md
+          env -u GROQ_API_KEY node dist/demo/server.js > /tmp/ci-demo.log 2>&1 &
+          demo_pid=$!
+          trap 'kill "$demo_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/health >/dev/null
+          node dist/generate-cli.js generate --provider groq --base-url http://127.0.0.1:3000 --requirements generated/ci-live/requirements.md --output generated/ci-live/draft.json
+          echo "Schema-validated draft generated; functional correctness requires independent review."
+      - name: Live token benchmark (four matrix cases)
+        if: inputs.token_benchmark && success()
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: openai/gpt-oss-20b
+          GROQ_MAX_COMPLETION_TOKENS: '2500'
+        run: npm run test:tokens -- --total-tests=4 --live
+      - name: Upload live evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: groq-live-evidence
+          path: |
+            generated/ci-live/
+            test-results/token-benchmarks/
           if-no-files-found: ignore
           retention-days: 7
