@@ -631,3 +631,33 @@ test("icon action suggestions reject decorative, disabled and nonunique controls
   const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit report");
   expect(choices.candidates).toEqual([]);
 });
+
+
+test("contextual action suggestions discover framework-style icon controls without inline handlers", async ({ page }) => {
+  await page.setContent(`<main><div role="row"><span>Quarterly report</span>
+    <span id="edit-1" title="Edit" style="cursor:pointer"><svg width="20" height="20"></svg></span></div>
+    <div role="row"><span>Annual budget</span>
+    <span id="edit-2" title="Edit" style="cursor:pointer"><svg width="20" height="20"></svg></span></div>
+    <span id="decorative" title="Edit"><svg width="20" height="20"></svg></span>
+    <span id="pointer-only" style="cursor:pointer"><svg width="20" height="20"></svg></span>
+    </main>`);
+  await page.evaluate(()=> {
+    for (const el of document.querySelectorAll('[id^="edit-"]')) {
+      el.addEventListener("click",()=>el.setAttribute("data-clicked","yes"));
+    }
+  });
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit Annual budget");
+  expect(choices.candidates.map(c=>c.target)).toEqual([{by:"id",value:"edit-2"},{by:"id",value:"edit-1"}]);
+  expect(choices.candidates[0].nearby).toContain("Annual budget");
+  expect(choices.candidates[0].nearby).not.toContain("Quarterly report");
+  expect(await page.locator("[data-clicked]").count()).toBe(0);
+});
+
+test("contextual action suggestions do not infer interactivity from isolated attributes or inherited cursors", async ({ page }) => {
+  await page.setContent(`<main style="cursor:pointer"><span id="edit-caption" title="Edit">Edit</span>
+    <span id="edit-focus" tabindex="0">Edit</span>
+    <span id="edit-disabled" title="Edit" style="cursor:pointer" aria-disabled="true">Edit</span>
+    <span id="edit-hidden" title="Edit" style="cursor:pointer" hidden>Edit</span></main>`);
+  const choices=await findLocatorAlternatives(page,{by:"role",role:"button",name:"Edit"},"click","Edit");
+  expect(choices.candidates).toEqual([]);
+});
