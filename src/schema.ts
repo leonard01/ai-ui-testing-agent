@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const text = z.string().trim().min(1).max(2000);
+// A scope identifies one semantic container by exact descendant text.
+const roleScope = z.object({role:z.enum(["listitem","article","row","group"]),text}).strict();
 const explicitTargets = [
   z
     .object({
@@ -16,6 +18,8 @@ const explicitTargets = [
         "listitem",
       ]),
       name: text.optional(),
+      hasText: text.optional(), // exact descendant text, not substring matching
+      within: roleScope.optional(),
       // Explicit zero-based position among elements with this accessible
       // role/name. Only human-confirmed repairs should introduce this field.
       nth: z.number().int().min(0).max(249).optional(),
