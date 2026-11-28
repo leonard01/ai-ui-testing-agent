@@ -307,6 +307,9 @@ for (const visible of [true,false]) {
 
 
 for(const scenario of [
+  {label:"approved result selector excludes matching unrelated record",html:'<article id="chosen" data-testid="search-result">Boots</article><article data-testid="search-result">Running shoes</article>',selector:"#chosen",passes:false},
+  {label:"approved result selector accepts custom record markup",html:'<section><div id="chosen">Running shoes</div></section>',selector:"#chosen",passes:true},
+  {label:"missing approved selector cannot match other results",html:'<article data-testid="search-result">Running shoes</article>',selector:"#missing",passes:false},
   {label:"exact rejects extra result text",html:'<article data-testid="search-result">Running shoes</article>',match:"exact",passes:false},
   {label:"contains rejects wrong case",html:'<article data-testid="search-result">Running SHOES</article>',match:"contains",passes:false},
   {label:"exact accepts exact result text",html:'<article data-testid="search-result">shoes</article>',match:"exact",passes:true},
@@ -326,7 +329,7 @@ for(const scenario of [
       const definition:TestDefinition={schemaVersion:1,id:"portable-results",title:"Scoped results",version:1,steps:[
         {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
         {id:"verify",description:"Verify returned result contains shoes",action:{
-          kind:"assert-text",target:{by:"text",value:"shoes"},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
+          kind:"assert-text",target:"selector" in scenario ? {by:"css",value:scenario.selector} : {by:"text",value:"shoes"},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
         }},
       ]};
       const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-results")},browser);
