@@ -576,3 +576,27 @@ test("JSON-only incremental recovery stops after two malformed responses without
   expect(data.aiUsage.responseDiagnostics.every((attempt:{accepted?:boolean})=>attempt.accepted!==true)).toBe(true);
   expect((await (await fetch(url+"/api/tests")).json()).tests).toHaveLength(0);
 });
+
+
+test("live reinterpretation is temporarily disabled at UI and API boundary", async ({browser}) => {
+  const liveDir = await mkdtemp(join(tmpdir(), "incremental-disabled-"));
+  const live = await createReviewServer(liveDir, browser);
+  try {
+    await new Promise<void>(resolve => live.listen(0, "127.0.0.1", resolve));
+    const address = "http://127.0.0.1:" + (live.address() as AddressInfo).port;
+    const html = await (await fetch(address)).text();
+    expect(html).toContain("const incrementalReinterpretationEnabled = false;");
+    expect(html).toContain("reinterpret.disabled = !incrementalReinterpretationEnabled");
+    const response = await fetch(address + "/api/regenerate-steps", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({definition: await original(), baseURL, stepId:"empty",
+        mode:"from", instructions:"Verify count contains zero", approvedStepIds:[], provider:"groq"}),
+    });
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("temporarily disabled");
+  } finally {
+    live.closeAllConnections();
+    await new Promise<void>(resolve => live.close(() => resolve()));
+    await rm(liveDir, {recursive:true,force:true});
+  }
+});
