@@ -40,11 +40,11 @@ function testDefinition() {
         kind: "navigate", url: "/",
       } },
       { id: "fill", description: "Enter Buy groceries", action: {
-        kind: "fill", target: { by: "label", value: "What needs to be done?" },
+        kind: "fill", target: { by: "placeholder", value: "What needs to be done?" },
         value: "Buy groceries",
       } },
       { id: "enter", description: "Submit by pressing Enter", action: {
-        kind: "press", target: { by: "label", value: "What needs to be done?" },
+        kind: "press", target: { by: "placeholder", value: "What needs to be done?" },
         key: "Enter",
       } },
       { id: "visible", description: "Buy groceries appears in the list", action: {
@@ -104,19 +104,29 @@ test("a bare / navigates to the configured nested hash app, never the 404 origin
     expect(report.status, JSON.stringify(report, null, 2)).toBe("passed");
     expect(report.steps.every((step) => step.status === "passed")).toBe(true);
     expect(report.steps.find((step) => step.id === "url")?.observed).toBe(url);
-    // Legacy AI scripts called a placeholder a "label"; resolve it from
-    // the live DOM only when its exact placeholder is uniquely visible.
+    // Explicit placeholder locators execute without runtime substitution.
     for (const id of ["fill", "enter"]) {
-      const resolution = report.steps.find((step) => step.id === id)?.resolution;
-      expect(resolution?.locator).toContain("exact placeholder fallback");
+      expect(report.steps.find((step) => step.id === id)?.resolution).toBeUndefined();
     }
 
-    // The read-only preflight and Playwright exporter must resolve / alike.
-    const preflight = await preflightSelectors(testDefinition(), url, browser);
+    // Preflight still proposes a correction for old, incorrect label locators.
+    const legacy = testDefinition();
+    for (const step of legacy.steps) {
+      if (step.action.kind === "fill" || step.action.kind === "press") {
+        step.action.target = { by: "label", value: "What needs to be done?" };
+      }
+    }
+    const preflight = await preflightSelectors(legacy, url, browser);
     expect(preflight.inspectedURL).toBe(url);
     expect(preflight.findings.some((finding) =>
       finding.suggestedTarget?.by === "placeholder" &&
       finding.suggestedTarget.value === "What needs to be done?")).toBe(true);
+    const rejected = await runTest(legacy, {
+      baseURL: url, outputDir: info.outputPath("legacy-invalid-label"), timeoutMs: 500,
+    }, browser);
+    expect(rejected.steps.find(step => step.id === "open")?.status).toBe("passed");
+    expect(rejected.steps.find(step => step.id === "fill")?.status).toBe("execution-error");
+    expect(rejected.steps.find(step => step.id === "enter")?.status).toBe("skipped");
     const standalone = generatePlaywrightSpec(testDefinition(), {
       baseURL: url, timeoutMs: 1500,
     });
@@ -195,7 +205,7 @@ test("fresh AI scripts explicitly use placeholder for both fill and press Enter"
   }
 });
 
-test("ambiguous placeholder fallback fails safely instead of pressing on an arbitrary input", async ({ browser }, info) => {
+test("ambiguous explicit placeholder fails safely instead of pressing on an arbitrary input", async ({ browser }, info) => {
   const { server, url } = await site(true);
   try {
     const report = await runTest(testDefinition(), {
