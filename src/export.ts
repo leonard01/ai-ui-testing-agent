@@ -117,8 +117,8 @@ async function intentLocator(
           const nearby = clean(el.parentElement?.innerText, 180);
           return [{
             index, tag: el.tagName.toLowerCase(), role, name, text, nearby,
-            testId: clean(el.getAttribute("data-testid"), 100),
-            id: clean(el.id, 100),
+            testId: el.getAttribute("data-testid") ?? "",
+            id: el.id,
           }];
         });
       return { selector, candidates };
