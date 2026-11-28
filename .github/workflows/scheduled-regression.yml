@@ -3,12 +3,12 @@ name: Scheduled full regression
 on:
   schedule:
     # Twice daily, twelve hours apart, away from the busy start of the hour.
-    - cron: '17 0,12 * * *'
+    - cron: '17 0 * * *'
+    - cron: '17 12 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
   group: scheduled-full-regression
@@ -20,25 +20,31 @@ jobs:
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
     steps:
-      - name: Select default branch and open internal integration PRs
+      - name: Select active development branch and daily main baseline
         id: targets
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          DEFAULT_SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          ACTIVE_BRANCH: feat/json-response-recovery
+          INTEGRATION_BRANCH: feature/ui-redesign
         shell: bash
         run: |
           set -euo pipefail
-          # No forks, provider secrets or unreviewed external code. Pin every
-          # checkout to the exact commit selected at the start of the run.
-          matrix="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" |
-            jq -sc --arg repo "$REPO" --arg sha "$DEFAULT_SHA" '
-              {include: ([{key:"main", label:"Default branch", sha:$sha}] +
-                [ .[][] | select(.head.repo.full_name == $repo and (.draft | not) and
-                    (.base.ref == "main" or (.base.ref | startswith("feature/")))) |
-                  {key:("pr-" + (.number|tostring)), label:("PR #" + (.number|tostring) + " — " + .head.ref), sha:.head.sha}
-                ])}
-            ')"
+          # Test the current working branch twice daily, regardless of PR status.
+          # After it is merged/deleted, fall back to the integration branch.
+          active="$ACTIVE_BRANCH"
+          if ! sha="$(gh api "repos/$REPO/commits/$active" --jq .sha)"; then
+            active="$INTEGRATION_BRANCH"
+            sha="$(gh api "repos/$REPO/commits/$active" --jq .sha)"
+          fi
+          matrix="$(jq -cn --arg branch "$active" --arg sha "$sha" '{include:[{key:"development",label:$branch,sha:$sha}]}')"
+          # Main runs once daily at 00:17 UTC, or on manual dispatch.
+          if [[ "$EVENT" == workflow_dispatch || "$SCHEDULE" == '17 0 * * *' ]]; then
+            main_sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"
+            matrix="$(jq -c --arg sha "$main_sha" '.include += [{key:"main",label:"main",sha:$sha}]' <<< "$matrix")"
+          fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "Scheduled targets:" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.include[] | "- " + .label + " (" + .sha + ")"' <<< "$matrix" >> "$GITHUB_STEP_SUMMARY"
