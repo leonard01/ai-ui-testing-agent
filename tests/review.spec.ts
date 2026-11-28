@@ -2362,3 +2362,36 @@ test("positional requirement warnings refresh after index correction @sanity", a
   await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
   await expect(page.locator("#save")).toBeDisabled();
 });
+
+
+test("requirement mapping review starts concise and exposes linked step navigation @sanity", async ({page}) => {
+  const definition={schemaVersion:1,id:"mapping-review",title:"Mapping review",version:1,steps:[
+    {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+    {id:"choose",description:"Click Save",action:{kind:"click",target:{by:"role",role:"button",name:"Save"}}},
+    {id:"verify",description:"Verify Ready",action:{kind:"assert-visible",target:{by:"text",value:"Ready"},provenance:"requirements"}}
+  ],instructionCoverage:{proceedAccepted:false,entries:[
+    {id:"R1",text:"Click Save.",stepIds:["choose"],issue:"Review whether this step satisfies the instruction.",availability:"functional-mismatch",interpretation:"Save control"}
+  ]}};
+  await page.goto(url);
+  await page.route("**/api/generate",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+    definition,needsReview:true,provider:"groq",generationAttempts:1,memorySuggestions:[],
+    diagnostics:{provider:"groq",model:"mock",attempts:1,snapshot:{url:"http://127.0.0.1:3000/",title:"Controls",headings:[],controls:[],statusText:[],sampleText:[]},warnings:[]},
+    message:"AI-generated draft"
+  })}));
+  await page.getByLabel("Your test instructions").fill("Click Save.");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await clickGenerateDraft(page);
+  const panel=page.locator("#instruction-coverage-blockers");
+  const row=panel.locator('[data-requirement-id="R1"]');
+  await expect(row).toContainText("Click Save.");
+  await expect(row).toContainText("Review whether this step satisfies the instruction.");
+  await expect(row.locator(".coverage-options")).not.toBeVisible();
+  await row.getByRole("button",{name:"Review step 2",exact:true}).click();
+  await expect(page.locator("#step-list .step").nth(1).getByRole("button",{name:"Apply changes"})).toBeVisible();
+  await row.getByText("Review mapping for R1",{exact:true}).click();
+  await expect(row.locator(".coverage-options")).toBeVisible();
+  await expect(row.locator('.coverage-options input[value="choose"]')).toBeChecked();
+  await expect(row.locator('.coverage-options input[value="open"]')).not.toBeChecked();
+  await row.getByRole("button",{name:"Confirm mapping for R1"}).click();
+  await expect(panel).toBeHidden();
+});
