@@ -342,3 +342,45 @@ for(const scenario of [
     }
   });
 }
+
+
+for(const scenario of [
+  {label:"hidden target",html:'<p id="message" hidden>Payment successful</p>',match:"exact",passes:false},
+  {label:"hidden descendant",html:'<p id="message">Payment pending<span hidden>Payment successful</span></p>',match:"contains",passes:false},
+  {label:"visible target with hidden diagnostic",html:'<p id="message">Payment successful<span hidden>Internal diagnostic</span></p>',match:"exact",passes:true},
+] as const){
+  test("portable visible text assertion: "+scenario.label,async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main>'+scenario.html+'</main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try{
+      const definition:TestDefinition={schemaVersion:1,id:"portable-visible-text",title:"Visible text",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify visible payment successful text",action:{
+          kind:"assert-text",target:{by:"id",value:"message"},expected:"Payment successful",match:scenario.match,provenance:"requirements",
+        }},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      expect(source).toContain("useInnerText: true");
+      expect(source).toContain("await expect(target).toBeVisible(");
+      if(scenario.passes){
+        const result=await executePortable(source,info.outputPath("portable-visible-text"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try{await executePortable(source,info.outputPath("portable-visible-text"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        const output=(failure?.stdout??"")+(failure?.stderr??"");
+        expect(output).toMatch(/1 failed/);
+        expect(output).toContain(scenario.label==="hidden target"?"toBeVisible":"toContainText");
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
