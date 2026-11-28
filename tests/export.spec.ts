@@ -397,13 +397,15 @@ for(const scenario of [
 
 
 for (const scenario of [
+  {label:"case mismatch must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">LOGOUT</button>`,policy:"strict",passes:false},
+  {label:"aria-hidden control must not execute",html:`<button aria-hidden="true" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:false},
   {label:"exact button with legacy hint",html:`<button onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"hint",passes:true},
   {label:"legacy hint rejects unique exact link",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a>',policy:"hint",passes:false},
   {label:"strict role",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a>',policy:"strict",passes:false},
   {label:"duplicate exact links",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a><a href="#other">Logout</a>',policy:"hint",passes:false},
   {label:"partial button decoy",html:'<a href="#done">Logout</a><button onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout settings</button>',policy:"strict",passes:false},
 ] as const) {
-  test("portable strict role: "+scenario.label,async({},info)=>{
+  test("portable strict role: "+scenario.label,async({browser},info)=>{
     const fixture=createServer((_req,res)=>{
       res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
       res.end('<!doctype html><main>'+scenario.html+'<p id="status">Ready</p></main>');
@@ -416,6 +418,8 @@ for (const scenario of [
         {id:"click",description:"Click Logout",action:{kind:"click",target:{by:"intent",role:"button",value:"Logout",rolePolicy:scenario.policy}}},
         {id:"verify",description:"Verify Done",action:{kind:"assert-text",target:{by:"id",value:"status"},expected:"Done",provenance:"requirements"}},
       ]};
+      const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-role")},browser);
+      expect.soft(report.status,JSON.stringify(report.steps)).toBe(scenario.passes?"passed":"execution-error");
       const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
       if(scenario.passes){
         const result=await executePortable(source,info.outputPath("portable-role"),url);
