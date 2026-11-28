@@ -747,6 +747,47 @@ export async function recoverAmbiguousCartClick(
   };
 }
 
+/** Resolve a named destructive action only within a uniquely identified record.
+ * Hover is non-destructive; no forced click or positional guessing is allowed.
+ */
+async function resolveNamedDeletion(page: Page, target: IntentTarget): Promise<{
+  claimed: boolean; resolved?: {locator: Locator; evidence: DiscoveryEvidence}; detail?: string;
+}> {
+  if (target.role && target.role !== "button") return {claimed:false};
+  const match = /^(?:delete|remove)\s+(.+)$/i.exec(target.value.trim());
+  if (!match) return {claimed:false};
+  const item = match[1].replace(/^(?:the\s+)?(?:task|todo|item|record)\s+(?:called\s+|named\s+)?/i,"").replace(/^["']|["']$/g,"").trim();
+  if (!item || /^(?:all|every|completed|selected)\b/i.test(item) || /\bfrom (?:the )?(?:cart|basket)\b/i.test(item)) return {claimed:false};
+  const names = page.getByText(item,{exact:true}).filter({visible:true});
+  const nameCount = await names.count();
+  if (!nameCount) return {claimed:false};
+  const failure = (detail:string) => ({claimed:true,detail});
+  if (nameCount !== 1) return failure("Named deletion requires a unique visible item: " + item);
+  const row = names.locator("xpath=ancestor-or-self::*[self::li or self::tr or self::article or @role='listitem' or @role='row'][1]");
+  if (await row.count() !== 1) return {claimed:false};
+  const controls = row.locator("button, [role=button], input[type=button]");
+  const matching = controls.filter({hasNot:page.locator("button")});
+  const indices = await matching.evaluateAll((nodes, itemName) => nodes.flatMap((el,index) => {
+    const norm = (s:string) => s.trim().replace(/\s+/g," ").toLowerCase();
+    const name = norm(el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || (el instanceof HTMLInputElement ? el.value : ""));
+    const named = norm(itemName);
+    const isDelete = /^(?:delete|remove|destroy)$/.test(name) || name === "delete "+named || name === "remove "+named;
+    const unnamedDelete = !name && Array.from(el.classList).some(token => /^(?:delete|remove|destroy)$/.test(token));
+    return (isDelete || unnamedDelete) && !el.closest('[hidden],[inert],[aria-hidden="true"],[disabled],[aria-disabled="true"]') ? [index] : [];
+  },item);
+  if (indices.length !== 1) return failure("No unique deletion control within named item " + item);
+  const locator = matching.nth(indices[0]);
+  if (!await locator.isVisible()) {
+    try { await row.hover({timeout:500}); } catch { return failure("Could not reveal deletion control for " + item); }
+  }
+  if (await names.count() !== 1 || await locator.count() !== 1 || !await locator.isVisible() || !await locator.isEnabled()) return failure("Deletion control is not uniquely actionable for " + item);
+  return {claimed:true,resolved:{locator,evidence:{
+    intent:target.value,method:"live-dom",tag:await locator.evaluate(el=>el.tagName.toLowerCase()),
+    role:"button",name:await locator.evaluate(el=>el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || ""),
+    nearby:item,locator:"unique named record → verified local deletion control",candidatesInspected:await controls.count(),
+  }}};
+}
+
 function cssAttribute(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 }
@@ -770,6 +811,14 @@ export async function discoverTarget(
   let detail = "No matching visible elements";
   while (true) {
     if (operation === "click") {
+      const deletion = await resolveNamedDeletion(page, target);
+      if (deletion.claimed) {
+        if (deletion.resolved) return deletion.resolved;
+        detail = deletion.detail ?? "Named deletion could not be verified";
+        if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
+        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
+        continue;
+      }
       const scoped = await resolveCartAction(page, target);
       if (scoped.claimed) {
         if (scoped.resolved) return scoped.resolved;
