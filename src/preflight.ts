@@ -200,7 +200,7 @@ export async function preflightSelectors(
             { matches: 1 });
         }
       }
-      if (["click", "fill", "select-option", "check", "uncheck", "press"].includes(action.kind))
+      if (["click", "hover", "fill", "select-option", "check", "uncheck", "press"].includes(action.kind))
         stateMayHaveChanged = true;
     }
     return {
