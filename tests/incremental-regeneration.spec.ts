@@ -20,6 +20,10 @@ import type { AddressInfo } from "node:net";
 
 test.use({ trace: "off" });
 const baseURL = "http://127.0.0.1:3000/";
+const envelope={id:"continuation-envelope",description:"Synthetic initial navigation",action:{kind:"navigate",url:baseURL}};
+function continuationResponse(steps:unknown[],coverage?:unknown) {
+  return JSON.stringify({schemaVersion:1,id:"continuation",title:"Continuation",version:1,steps:[envelope,...steps],...(coverage!==undefined?{coverage}:{})});
+}
 const newStatus = {
   id: "new-status", description: "Verify initial count includes zero",
   action: {
@@ -46,21 +50,21 @@ let url: string;
 let mockSteps: unknown[] = [];
 let mockCalls = 0;
 let mockRawResponses: string[] = [];
-let mockReconciliation: unknown;
+let mockCoverage: unknown;
 let prompts: string[] = [];
 
 test.beforeEach(async ({ browser }) => {
   dir = await mkdtemp(join(tmpdir(), "incremental-regeneration-"));
   mockCalls = 0;
   mockRawResponses = [];
-  mockReconciliation = undefined;
+  mockCoverage = undefined;
   prompts = [];
   mockSteps = [newStatus];
   const mock = async ({ prompt }: { prompt: string }) => {
     mockCalls++;
     prompts.push(prompt);
     if (mockRawResponses.length) return mockRawResponses.shift()!;
-    return JSON.stringify({ steps: mockSteps, reconciliation: mockReconciliation });
+    return continuationResponse(mockSteps,mockCoverage);
   };
   server = await createReviewServer(dir, browser, mock);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -94,7 +98,7 @@ test("response diagnostics automatically include successful output without savin
   const data = await on.json();
   expect(data.aiUsage.responseDiagnostics).toHaveLength(1);
   expect(data.aiUsage.responseDiagnostics[0]).toMatchObject({call:1,mode:"json",accepted:true});
-  expect(JSON.parse(data.aiUsage.responseDiagnostics[0].raw).steps).toEqual([newStatus]);
+  expect(JSON.parse(data.aiUsage.responseDiagnostics[0].raw).steps).toEqual([envelope,newStatus]);
   const history = await (await fetch(url + "/api/ai-usage?days=0")).json();
   expect(JSON.stringify(history)).not.toContain("responseDiagnostics");
   expect(JSON.stringify(history)).not.toContain("new-status");
@@ -124,7 +128,7 @@ test("failed initial generation displays both actual malformed responses without
 });
 
 test("automatic capture retains failed first response and successful retry", async () => {
-  mockRawResponses = ['{"steps":[INCOMPLETE', JSON.stringify({steps:[newStatus]})];
+  mockRawResponses = ['{"steps":[INCOMPLETE', continuationResponse([newStatus])];
   const res=await regenerate({});
   expect(res.status).toBe(200);
   const data=await res.json();
@@ -132,7 +136,7 @@ test("automatic capture retains failed first response and successful retry", asy
   expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
   expect(data.aiUsage.responseDiagnostics[0].accepted).not.toBe(true);
   expect(data.aiUsage.responseDiagnostics[1].accepted).toBe(true);
-  expect(JSON.parse(data.aiUsage.responseDiagnostics[1].raw).steps).toEqual([newStatus]);
+  expect(JSON.parse(data.aiUsage.responseDiagnostics[1].raw).steps).toEqual([envelope,newStatus]);
 });
 
 test("single-step proposal preserves unaffected steps and confirmed approvals", async () => {
@@ -150,7 +154,7 @@ test("single-step proposal preserves unaffected steps and confirmed approvals", 
   expect(data.definition.steps.slice(2)).toEqual(fixture.steps.slice(2));
   expect(data.preservedApprovedStepIds).toEqual(["open", "enter"]);
   expect(prompts[0]).toContain("PRESERVED PRECEDING STEPS");
-  expect(prompts[0]).toContain("Replace exactly ONE step");
+  expect(prompts[0]).toContain("replacedStepCount");
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
 
@@ -175,53 +179,43 @@ test("suffix proposal preserves prefix and strips requirement links to removed I
   expect(data.definition.steps.slice(2).every((step:{id:string}) => step.id.startsWith("regen-"))).toBe(true);
 });
 
-test("AI replacement automatically reconciles affected instruction links", async () => {
-  const definition = await original();
-  definition.instructionCoverage = {
-    source: "Verify task count is zero.",
-    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
-      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
-    prerequisiteStepIds: [],
-  };
-  mockReconciliation = {
-    changes: [{id:"R1",operation:"keep"}], additions: [],
-    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"identified"}]},
-  };
-  const res = await regenerate({definition, instructions:"Verify the count includes zero"});
-  expect(res.status).toBe(200);
-  const data = await res.json();
-  expect(data.definition.instructionCoverage.entries).toHaveLength(1);
-  expect(data.definition.instructionCoverage.entries[0].stepIds).toEqual([data.replacement[0].id]);
-  expect(data.definition.instructionCoverage.entries[0].issue).toBe("");
-  expect(data.definition.workingInstructions).toBe("Verify task count is zero.");
+test("continuation preserves original requirement and remaps new instruction independently", async () => {
+  const definition=await original();
+  definition.instructionCoverage={source:"Verify task count is zero.",entries:[{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",stepIds:["empty"],issue:"",availability:"identified",confirmed:true}],prerequisiteStepIds:[]};
+  mockCoverage={entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"identified"}]};
+  const instructions="Verify the count includes zero";
+  const res=await regenerate({definition,instructions});
+  const data=await res.json();
+  expect(res.status,JSON.stringify(data)).toBe(200);
+  expect(data.definition.instructionCoverage.entries).toHaveLength(2);
+  expect(data.definition.instructionCoverage.entries[0]).toMatchObject({id:"R1",text:"Verify task count is zero.",stepIds:[],confirmed:false,availability:"uncertain"});
+  expect(data.definition.instructionCoverage.entries[0].issue).toContain("empty");
+  expect(data.definition.instructionCoverage.entries[1]).toMatchObject({id:"R2",text:instructions,stepIds:[data.replacement[0].id],confirmed:false,issue:""});
+  expect(data.definition.workingInstructions).toBe("Verify task count is zero.\n"+instructions);
   expect(data.definition.sourceInstructions).toBe("Verify task count is zero.");
 });
 
-test("adding another task automatically maps new requirements and preserves unrelated requirements @sanity", async () => {
-  const definition = await original();
-  // End at the original task visibility assertion, before completion/deletion.
-  definition.steps = definition.steps.slice(0, definition.steps.findIndex((step:{id:string})=>step.id==="visible")+1);
-  const last = definition.steps.at(-1);
-  definition.instructionCoverage = {
-    source:"Verify initial count.\nVerify original task.",
-    entries:[
-      {id:"R1",text:"Verify initial count.",interpretation:"Initial count",stepIds:["empty"],issue:"",confirmed:true},
-      {id:"R2",text:"Verify original task.",interpretation:"Original task",stepIds:[last.id],issue:"",confirmed:false}
-    ],prerequisiteStepIds:[]
-  };
-  const originalCheck = {...last,id:"original-check",action:{...last.action,provenance:"requirements"}};
-  mockSteps = [originalCheck,...remainder];
-  mockReconciliation = {changes:[],additions:["Add Buy groceries.","Verify Buy groceries."],
-    coverage:{entries:[
-      {id:"R2",interpretation:"Original task",stepIds:["original-check"]},
-      {id:"R3",interpretation:"Add task",stepIds:["new-fill","new-add"]},
-      {id:"R4",interpretation:"Verify task",stepIds:["new-check"]}
-    ]}};
-  const res = await regenerate({definition,stepId:last.id,mode:"from",instructions:"Add Buy groceries and verify it."});
+test("adding another task maps new instructions and preserves unrelated requirements @sanity", async () => {
+  const definition=await original();
+  definition.steps=definition.steps.slice(0,definition.steps.findIndex((step:{id:string})=>step.id==="visible")+1);
+  const last=definition.steps.at(-1);
+  definition.instructionCoverage={source:"Verify initial count.\nVerify original task.",entries:[
+    {id:"R1",text:"Verify initial count.",interpretation:"Initial count",stepIds:["empty"],issue:"",confirmed:true},
+    {id:"R2",text:"Verify original task.",interpretation:"Original task",stepIds:[last.id],issue:"",confirmed:false}
+  ],prerequisiteStepIds:[]};
+  mockSteps=[{...last,id:"original-check",action:{...last.action,provenance:"requirements"}},...remainder];
+  mockCoverage={entries:[
+    {id:"R1",interpretation:"Add task",stepIds:["new-fill","new-add"],availability:"identified"},
+    {id:"R2",interpretation:"Verify task",stepIds:["new-check"],availability:"identified"},
+  ]};
+  const res=await regenerate({definition,stepId:last.id,mode:"from",instructions:"Add Buy groceries. Verify Buy groceries."});
   const data=await res.json();
-  expect(res.status, JSON.stringify(data)).toBe(200);
-  expect(data.definition.instructionCoverage.entries.map((row:{issue:string})=>row.issue)).toEqual(["","","",""]);
+  expect(res.status,JSON.stringify(data)).toBe(200);
   expect(data.definition.instructionCoverage.entries[0]).toEqual(definition.instructionCoverage.entries[0]);
+  expect(data.definition.instructionCoverage.entries[1].stepIds).toEqual([]);
+  expect(data.definition.instructionCoverage.entries[1].issue).toContain(last.id);
+  expect(data.definition.instructionCoverage.entries.slice(2).map((row:{issue:string})=>row.issue)).toEqual(["",""]);
+  expect(data.definition.instructionCoverage.entries[2].stepIds).toEqual(data.replacement.slice(1,3).map((s:{id:string})=>s.id));
   expect(data.definition.workingInstructions).toContain("Verify Buy groceries.");
 });
 
@@ -333,7 +327,7 @@ test("Groq intermittent JSON-mode failure is retried once without changing saved
       throw new GroqProviderError(400, "json-generation", "json_validate_failed",
         "invalid_request_error", undefined, "Retry structured generation.");
     }
-    return JSON.stringify({ steps: [newStatus] });
+    return continuationResponse([newStatus]);
   };
   const proposal = await generateIncrementalProposal({
     definition: await original(),
@@ -386,7 +380,7 @@ test("malformed click action is rejected with actionable explanation, no changes
   const data = await res.json();
   expect(data.error).toContain("could not produce valid replacement test steps");
   expect(data.error).toContain("Your existing steps were not changed");
-  expect(data.error).toContain("step 1");
+  expect(data.error).toContain("steps[1].action");
   expect(mockCalls).toBe(2);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
@@ -477,45 +471,28 @@ test("single-step mode rejects multiple replacements without saving a test", asy
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
 
-test("invalid reconciliation availability reports its actual field and allowed values", async () => {
-  const definition = await original();
-  definition.instructionCoverage = {
-    source: "Verify task count is zero.",
-    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
-      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
-    prerequisiteStepIds: [],
-  };
-  mockReconciliation = {
-    changes: [], additions: [],
-    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"available"}]},
-  };
-  const res = await regenerate({definition});
-  const data = await res.json();
-  expect(res.status).toBe(422);
-  expect(data.error).toContain("reconciliation.coverage.entries.0.availability");
-  expect(data.error).toContain("allowed: identified, later-state, selector-uncertain, functional-mismatch, uncertain");
-  expect(mockCalls).toBe(2);
-  expect(prompts[1]).toContain("Allowed availability: identified");
-  expect(prompts[0]).toContain("CURRENT REQUIREMENTS");
+test("invalid new mapping availability does not discard valid executable continuation", async () => {
+  const definition=await original();
+  definition.instructionCoverage={source:"Verify task count is zero.",entries:[{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],prerequisiteStepIds:[]};
+  mockCoverage={entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"available"}]};
+  const res=await regenerate({definition});
+  const data=await res.json();
+  expect(res.status,JSON.stringify(data)).toBe(200);
+  expect(mockCalls).toBe(1);
+  expect(data.definition.instructionCoverage.entries[0].issue).toContain("Previous mapping");
+  expect(data.definition.instructionCoverage.entries[1]).toMatchObject({stepIds:[],confirmed:false,availability:"uncertain"});
+  expect(data.definition.instructionCoverage.entries[1].issue).toContain("unsupported mapping structure");
+  expect(data.definition.instructionCoverage.proceedAccepted).toBe(false);
 });
 
-test("reconciliation availability may be omitted without relaxing enum validation", async () => {
-  const definition = await original();
-  definition.instructionCoverage = {
-    source: "Verify task count is zero.",
-    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
-      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
-    prerequisiteStepIds: [],
-  };
-  mockReconciliation = {
-    changes: [], additions: [],
-    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id]}]},
-  };
-  const res = await regenerate({definition});
-  const data = await res.json();
-  expect(res.status, JSON.stringify(data)).toBe(200);
-  expect(data.definition.instructionCoverage.entries[0].availability).toBe("uncertain");
-  expect(data.definition.instructionCoverage.entries[0].stepIds).toEqual([data.replacement[0].id]);
+test("mapping availability may be omitted and new links stay unconfirmed", async () => {
+  const definition=await original();
+  definition.instructionCoverage={source:"Verify task count is zero.",entries:[{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],prerequisiteStepIds:[]};
+  mockCoverage={entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id]}]};
+  const res=await regenerate({definition});
+  const data=await res.json();
+  expect(res.status,JSON.stringify(data)).toBe(200);
+  expect(data.definition.instructionCoverage.entries[1]).toMatchObject({availability:"uncertain",stepIds:[data.replacement[0].id],confirmed:false});
 });
 
 test("UI explains malformed AI response and allows retry without editing instructions @sanity", async ({page}) => {
@@ -547,11 +524,11 @@ test("UI explains malformed AI response and allows retry without editing instruc
   await expect(status).toContainText("Proposal ready");
   await expect(instructions).toHaveValue("Add another task and verify it");
   await expect(page.locator("#incremental-proposed-steps .run-step")).toHaveCount(3);
-  expect(prompts.at(-1)).toContain("Replace the selected step and all following steps");
+  expect(prompts.at(-1)).toContain("replacedStepCount");
 });
 
 test("JSON-only malformed incremental response is recovered once and does not save a test",async()=>{
-  mockRawResponses=['{"steps":[INCOMPLETE',JSON.stringify({steps:[newStatus]})];
+  mockRawResponses=['{"steps":[INCOMPLETE',continuationResponse([newStatus])];
   const res=await regenerate({});
   expect(res.status).toBe(200);
   expect(mockCalls).toBe(2);
