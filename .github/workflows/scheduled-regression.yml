@@ -1,0 +1,83 @@
+name: Scheduled full regression
+
+on:
+  schedule:
+    # Twice daily, twelve hours apart, away from the busy start of the hour.
+    - cron: '17 0,12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: scheduled-full-regression
+  cancel-in-progress: false
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - name: Select default branch and open internal integration PRs
+        id: targets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No forks, provider secrets or unreviewed external code. Pin every
+          # checkout to the exact commit selected at the start of the run.
+          matrix="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" |
+            jq -sc --arg repo "$REPO" --arg sha "$DEFAULT_SHA" '
+              {include: ([{key:"main", label:"Default branch", sha:$sha}] +
+                [ .[][] | select(.head.repo.full_name == $repo and (.draft | not) and
+                    (.base.ref == "main" or (.base.ref | startswith("feature/")))) |
+                  {key:("pr-" + (.number|tostring)), label:("PR #" + (.number|tostring) + " — " + .head.ref), sha:.head.sha}
+                ])}
+            ')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Scheduled targets:" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.include[] | "- " + .label + " (" + .sha + ")"' <<< "$matrix" >> "$GITHUB_STEP_SUMMARY"
+  regression:
+    needs: targets
+    name: Full regression — ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FULL_REGRESSION: 'true'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:unit
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:smoke
+      - run: npm test
+      - name: Upload browser reports and evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: scheduled-results-${{ matrix.key }}
+          path: |
+            test-results/
+            playwright-report/
+            run-results/
+            regression-history/
+          if-no-files-found: ignore
+          retention-days: 7
