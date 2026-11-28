@@ -2,7 +2,9 @@
 
 **v0.2.0 early prototype · AI-assisted browser test creation, review and execution · Playwright-powered**
 
-**Describe a test in plain English, generate proposed browser steps, review or edit them, and execute the approved test.** No test automation code is needed for the primary web UI workflow.
+**Describe a test in plain English, review the proposed steps and execute the approved test.** No test automation code is needed for the primary web UI workflow.
+
+**Product vision:** an adaptive, AI-native testing platform that builds verified, reusable knowledge of the application under test — not simply a language-model wrapper around a browser runner.
 
 > [!IMPORTANT]
 > **v0.2.0 is an early prototype — a preview of the intended platform, not a mature general-purpose testing solution.**
@@ -10,10 +12,58 @@
 > This release demonstrates the core concept: turning plain-English test instructions into reviewable, executable browser tests, with human approval, deterministic execution and assisted failure recovery. It provides an indication of future functionality rather than dependable automation across arbitrary websites and complex user journeys.
 >
 > **Recommended for v0.2:** start with the bundled local task-list demo at `http://127.0.0.1:3000` (see [Quick start](#quick-start)). Use short, explicit task creation and visibility-check workflows first. Fixture mode demonstrates the review and execution lifecycle without an AI key; GroqCloud mode demonstrates real AI-assisted generation. [SauceDemo](https://www.saucedemo.com/) is an optional exploratory target for simple login and shopping flows, but may require manual locator or credential correction. Other websites, complex flows and negative assertions are experimental; do not rely on this prototype for production testing.
->
-> **Upcoming v0.3:** the next release is intended to substantially improve usability and reliability across a wider range of websites, element types and test flows. Development focuses on requirement preservation, stronger AI response handling, locator grounding and alternative suggestions, assertion safety, easier blocker resolution, a clearer test creation/review/results workflow and AI usage diagnostics. These improvements are under development and subject to automated and manual acceptance; they are not features guaranteed by v0.2, nor a promise of universal website compatibility.
->
-> Follow the [v0.3 development backlog](https://github.com/leonard01/ai-ui-testing-agent/issues) and [product roadmap](https://github.com/leonard01/ai-ui-testing-agent/issues/103).
+
+## What's next — from test generation to application intelligence
+
+> [!NOTE]
+> **The central direction of this project is persistent, verified application memory.** The current v0.2 prototype demonstrates the test lifecycle; the upcoming releases aim to make the agent learn how an application works, reuse that knowledge and become progressively more effective. The capabilities below are planned or under development, not claims about the current release.
+
+### v0.3 — Reliable execution and intuitive failure recovery (in development)
+
+- More robust locator execution across supported element and action types, while preserving explicit test intent and assertion safety.
+- Meaningful, actionable diagnostics for every failure. Where a safe, verified correction exists, the target experience is **two clicks: apply the correction, then retry**. When no safe correction exists, explain why and offer a direct editing or investigation path.
+- Stronger AI response handling, requirement preservation, incremental step reinterpretation, clearer test creation/review/results workflow and AI usage diagnostics.
+- Deterministic regression coverage and representative live-model acceptance before release. A genuine application defect must remain a failed test; the agent must never weaken an assertion merely to obtain a pass.
+
+### v0.4.0 — Core application memory (next major architectural priority)
+
+The aim is to stop rediscovering the same application on every test. A human-approved, successfully verified correction should become reusable knowledge for future tests when memory is enabled.
+
+```mermaid
+flowchart TD
+    A[Describe and generate a test] --> B[Review and execute approved steps]
+    B --> C{Recoverable locator failure?}
+    C -->|Yes| D[Show evidence-backed correction]
+    D --> E[Apply correction and retry]
+    E --> F{Correction verified?}
+    F -->|Yes| G[Retain scoped verified knowledge]
+    F -->|No| D
+    G --> H[Retrieve relevant knowledge for future tests]
+    H --> A
+    C -->|No| I[Report the actual result]
+```
+
+**Planned foundations:** persistent provider-independent memory of verified locators and human-approved repairs; application and environment isolation; evidence and provenance; freshness and revalidation; inspection, disabling and deletion. Explicit instructions override remembered knowledge. Secrets and unconfirmed expectations do not belong in memory. Provider abstraction and OpenRouter bring-your-own-key support remain part of the planned v0.4.0 scope.
+
+### Beyond core memory — v0.4.x and later
+
+| Knowledge layer | Intended capability |
+| --- | --- |
+| Element and structural memory | Identify controls reliably, including their relationship to repeated rows, cards and containers. |
+| Semantic memory | Recognise equivalent user intents, such as "remove task" and "delete task", when supported by relevant evidence. |
+| Functional and navigation memory | Learn verified prerequisites, interactions and application-specific navigation. |
+| Workflow memory | Reuse approved, parameterised sequences across new tests. |
+| Requirements intelligence | Retain human-confirmed expectations, connect them to tests and identify coverage gaps (planned v0.5). |
+
+### How success will be measured
+
+The key hypothesis is that an agent with verified application knowledge will outperform the same agent approaching an unfamiliar site. This is **not yet a measured result**. Planned paired cold/warm evaluations will compare first-attempt correctness, valid corrective suggestions, two-click recovery, recurrence of previously corrected failures, incorrect memory reuse and AI token usage. Stale knowledge, ambiguous targets and explicit overrides must be tested as seriously as successful reuse.
+
+The long-term architecture separates AI interpretation, persistent application knowledge and deterministic execution. Approved tests and manual editing should remain usable without a live AI connection. Memory must be reviewable and independent of any particular model or provider.
+
+**The objective is not to make the initial AI interpretation perfect. It is to make the system learn reliably, avoid repeating preventable mistakes, and preserve the integrity of the tests.**
+
+Follow the [product roadmap](https://github.com/leonard01/ai-ui-testing-agent/issues/103), [core memory work (#104)](https://github.com/leonard01/ai-ui-testing-agent/issues/104), [v0.3 locator and recovery release gate (#136)](https://github.com/leonard01/ai-ui-testing-agent/issues/136) and [development backlog](https://github.com/leonard01/ai-ui-testing-agent/issues).
 
 ## Current functionality — implemented on `main`
 
@@ -32,7 +82,7 @@
 | **Portable Playwright export** | Export an approved script as standalone Playwright `.spec.ts`; later execution does not require the AI provider. |
 | **Run history and developer tools** | Review historic executions by site; use CLI generation, execution and export; access Help and `.env.example` onboarding instructions. |
 
-**Start here:** [Release history](#release-history) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
+**Start here:** [Upcoming releases and application memory](#whats-next--from-test-generation-to-application-intelligence) · [Release history](#release-history) · [Quick start](#quick-start) · [GroqCloud API setup](#groqcloud-api-setup) · [Demo video](#watch-the-demo-73-seconds) · [More feature details](#feature-details) · [Known limitations](#limitations-and-known-gaps) · [Documentation](#documentation)
 
 ## Release history
 
@@ -248,7 +298,7 @@ This prototype is meant to **demonstrate an end-to-end QA workflow**, not replac
 - **Execution history is operational, not an immutable audit log.** Replacing a saved test may remove the superseded test and some related evidence. Removing an approved website suite does **not** automatically erase its history; **Delete All History** is a separate, global action.
 - **Single browser execution at a time.** Suite runs are serial and use isolated contexts, intentionally reducing pressure on less powerful machines. The UI is a local development tool, not a hosted multi-user service.
 
-**v0.2 release status:** Manual functional acceptance and the latest deterministic CI have passed. The package version is `0.2.0`; the `v0.2.0` Git tag and GitHub release are **not yet published**. Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps. General AND/NOT assertions and independent multi-term result checks belong to v0.3.
+**v0.2 release status:** Manual functional acceptance and the latest deterministic CI have passed. The package version is `0.2.0`; [v0.2.0 is published as a GitHub pre-release](https://github.com/leonard01/ai-ui-testing-agent/releases/tag/v0.2.0). Incremental regeneration sees the initial page snapshot, not the live page state after preceding steps. General AND/NOT assertions and independent multi-term result checks belong to v0.3.
 
 ## Documentation
 
@@ -280,4 +330,4 @@ This prototype is meant to **demonstrate an end-to-end QA workflow**, not replac
 
 Feedback, defect reports and reproducible examples are welcome through [GitHub Issues](https://github.com/leonard01/ai-ui-testing-agent/issues).
 
-**Guiding principles:** explicit approvals; test expectations from requirements rather than observed bugs; reproducible browser runs; clear failure evidence; optional AI assistance; and portable, reviewable test definitions.
+**Guiding principles:** explicit approvals; test expectations from requirements rather than observed bugs; reproducible browser runs; clear actionable failure evidence; optional AI assistance; verified, scoped and provider-independent application knowledge; and portable, reviewable test definitions.
