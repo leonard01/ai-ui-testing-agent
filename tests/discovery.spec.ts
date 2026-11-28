@@ -769,3 +769,32 @@ test("captured element picker distinguishes duplicate controls using verified st
   expect(matches.find(entry=>entry.target.by==="id" && entry.target.value==="annual-edit")?.nearby).toContain("Annual report");
   expect(searchCapturedElements(entries,"Annual report").some(entry=>entry.target.by==="id" && entry.target.value==="annual-edit")).toBe(true);
 });
+
+
+test("runner captures dynamic failure-time elements only through opt-in evidence callback", async ({browser},info) => {
+  const definition: TestDefinition = {
+    schemaVersion:1,id:"dynamic-picker",title:"Dynamic failure evidence",version:1,
+    steps:[
+      {id:"open",description:"Open users",action:{kind:"navigate",url:"/"}},
+      {id:"show",description:"Open form",action:{kind:"click",target:{by:"id",value:"btn_7"}}},
+      {id:"wrong",description:"Enter username",action:{kind:"select-option",target:{by:"id",value:"fld_73"},value:"Bob"}},
+      {id:"verify",description:"Verify user",action:{kind:"assert-visible",target:{by:"text",value:"Bob"},provenance:"requirements"}}
+    ]
+  };
+  const captured: Array<{stepId:string;entries:import("../src/discovery.js").ElementSearchEntry[]}>=[];
+  const options={
+    baseURL,outputDir:info.outputPath("picker-capture"),timeoutMs:1200,
+    onElementSearchIndex:(stepId:string,entries:import("../src/discovery.js").ElementSearchEntry[])=>captured.push({stepId,entries})
+  };
+  const report=await runTest(definition,options,browser);
+  expect(report.status).toBe("execution-error");
+  expect(captured).toHaveLength(1);
+  expect(captured[0].stepId).toBe("wrong");
+  expect(captured[0].entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({target:{by:"id",value:"fld_73"},actions:expect.arrayContaining(["fill"])})
+  ]));
+  expect(report.steps.find(step=>step.id==="wrong")).toMatchObject({elementSearchAvailable:true});
+  expect(JSON.stringify(report)).not.toContain('"actions":["assert-visible"');
+  const without=await runTest(definition,{baseURL,outputDir:info.outputPath("picker-disabled"),timeoutMs:1200},browser);
+  expect(without.steps.find(step=>step.id==="wrong")).not.toHaveProperty("elementSearchAvailable");
+});
