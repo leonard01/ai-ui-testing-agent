@@ -30,7 +30,10 @@ export interface RunOptions {
 type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 function locate(page: Page, target: Target): Locator {
   if (target.by === "role") {
-    const matches = page.getByRole(target.role, { name: target.name, exact: true });
+    const scope = "within" in target ? target.within : undefined;
+    const container = scope ? page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}) : page;
+    let matches = container.getByRole(target.role, { name: target.name, exact: true });
+    if ("hasText" in target && target.hasText) matches = matches.filter({has:page.getByText(target.hasText,{exact:true})});
     return "nth" in target && target.nth !== undefined ? matches.nth(target.nth) : matches;
   }
   if (target.by === "label")
@@ -210,6 +213,12 @@ export async function runTest(
             result.resolution = evidence;
             target = locator;
           } else {
+            if (action.target.by === "role" && "within" in action.target && action.target.within) {
+              const scope = action.target.within;
+              const container = page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})});
+              // A strict wait refuses duplicate containers, even if just one contains the requested control.
+              await container.waitFor({state:"attached",timeout});
+            }
             target = locate(page, action.target);
 
           }
