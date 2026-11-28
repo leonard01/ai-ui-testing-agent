@@ -830,39 +830,13 @@ export async function discoverTarget(
     const { selector, candidates } = await inspectCandidates(page, operation);
     // Legacy role hints are retained in saved definitions but cannot relax a declared role.
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
-    const ranked = considered.flatMap((candidate) => {
-      // A named checkbox may borrow context from its own row, but a global
-      // control must not inherit the names of items it operates on collectively.
-      if ((operation === "click" || operation === "check") && candidate.role === "checkbox" &&
-          /\b(?:all|every)\b/i.test(candidate.name) &&
-          !/\b(?:all|every)\b/i.test(target.value)) return [];
-      // An exact visible action with a different role is evidence of a role
-      // mismatch, not permission to execute a partially matching action.
-      // Keep explicit roles authoritative and fail closed instead.
-      if (operation === "click" && target.role && request.length &&
-          candidates.some(other => other.role !== target.role &&
-            keywords(other.name).length === request.length &&
-            request.every(word => keywords(other.name).includes(word))) &&
-          !(keywords(candidate.name).length === request.length &&
-            request.every(word => keywords(candidate.name).includes(word)))) return [];
-      // A generic item toggle may have an accessible name without the
-      // item's title. Require an exact local item phrase and a single
-      // checkbox in that immediate group; never borrow page-wide text.
-      let score = candidateScore(candidate, request);
-      if (score === null && (operation === "click" || operation === "check") &&
-          candidate.role === "checkbox" &&
-          (!candidate.name || /^(?:toggle|complete|mark)(?: (?:todo|task|item))?$/i.test(candidate.name)) &&
-          request[0] === "complete" && request.length > 1 &&
-          candidate.localCheckboxCount === 1) {
-        const itemWords = request.slice(1);
-        const nearbyWords = keywords(candidate.nearby);
-        if (nearbyWords.join(" ") === itemWords.join(" ")) score = itemWords.length * 4;
-      }
-      return score === null ? [] : [{ candidate, score }];
-    }).sort((a, b) => b.score - a.score);
-    if (ranked.length) {
-      const bestScore = ranked[0].score;
-      const top = ranked.filter((entry) => entry.score === bestScore);
+    // Execution accepts exact normalized names, never relevance scores or borrowed context.
+    // Keep candidateScore for read-only repair suggestions.
+    const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+    const top = considered.filter(candidate =>
+      exactName(candidate.name) === exactName(target.value)
+    ).map(candidate => ({candidate}));
+    if (top.length) {
       if (top.length !== 1) {
         const options: AmbiguousCandidate[] = [];
         for (const { candidate } of top.slice(0, 20)) {
