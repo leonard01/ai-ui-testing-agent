@@ -15,7 +15,7 @@ import { coverageWarnings } from "./requirement-preservation.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
 import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
-import { AmbiguousIntentError, discoverTarget, recoverAmbiguousCartClick, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget, recoverAmbiguousCartClick, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, captureElementSearchIndex, type ElementSearchEntry, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -24,6 +24,7 @@ export interface RunOptions {
   headed?: boolean;
   timeoutMs?: number;
   onAssertionSearchIndex?: (stepId: string, entries: AssertionSearchEntry[]) => void;
+  onElementSearchIndex?: (stepId: string, entries: ElementSearchEntry[]) => void;
 }
 type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 function locate(page: Page, target: Target): Locator {
@@ -412,6 +413,15 @@ export async function runTest(
             result.assertionSearchAvailable = true;
           } catch {
             // Failed assertion and its screenshot remain available.
+          }
+        }
+        if (page && options.onElementSearchIndex && !page.isClosed()) {
+          try {
+            const entries = await captureElementSearchIndex(page);
+            options.onElementSearchIndex(step.id, entries);
+            result.elementSearchAvailable = entries.length > 0;
+          } catch {
+            // Optional evidence must not replace the original execution verdict.
           }
         }
         result.error = message(error);
