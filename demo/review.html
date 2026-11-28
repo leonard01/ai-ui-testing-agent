@@ -381,7 +381,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <li>Save the approved JSON test; select it under Run Tests to execute with Playwright and review results and failure evidence.</li>
       </ol>
       <h3>Editing and incremental regeneration</h3>
-      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI replaces the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
+      <p>You can edit individual steps manually. Reinterpret with AI is temporarily unavailable while execution fidelity is being improved. Use Edit fields to correct steps manually. A working draft can be saved before all steps are approved.</p>
       <h3>Important limitations</h3>
       <ul>
         <li><strong>AI is non-deterministic.</strong> The same instructions may produce different actions or occasionally invalid output. Review steps and execution results rather than assuming they are correct.</li>
@@ -1194,6 +1194,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft-save-status").textContent = error.message || String(error);
       } finally { saving = false; updateApproval(); }
     });
+    const incrementalReinterpretationEnabled = false; // Server enables only for injected test provider.
     function describeTarget(target) {
       if (!target) return "unknown element";
       if (target.by === "role") return target.role +
@@ -1850,6 +1851,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (index > 0) {
           const reinterpret = make("button", "Reinterpret with AI", "textbtn");
           reinterpret.type = "button";
+          // Temporary v0.3 gate: retain the legacy implementation for isolated mock tests only.
+          reinterpret.disabled = !incrementalReinterpretationEnabled;
+          if (reinterpret.disabled) reinterpret.title = "Temporarily unavailable while execution fidelity is being improved. Use Edit fields instead.";
           reinterpret.addEventListener("click", () => {
             incrementalRevision++;
             incrementalSelectedId = step.id;
