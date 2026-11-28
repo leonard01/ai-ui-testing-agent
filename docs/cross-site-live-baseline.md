@@ -74,3 +74,10 @@ After the current contextual recovery, candidate context and ranking work, freez
 ### Sprint 3 full regression sign-off
 
 CI [46114169042](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46114169042) at `ad172f8`: 235 unit, 12 independent smoke and 280 browser tests passed (527 test executions, not necessarily unique tests). The earlier full runs exposed a positional test selector and an exact accessible-name mismatch; semantic test selectors and explicit accessible labels resolved these. Deterministic Sprint 3 sign-off is complete; the limitations above and independent live acceptance remain outstanding.
+
+
+## Release-wide exploratory regression — mandatory from v0.3
+
+The fixed XS01–25 benchmark above is retained for longitudinal comparison; do not run all 25 on every release at the expense of cross-site breadth. The [manual release regression suite](manual-release-regression.md) is the broader release gate. Run its mandatory fidelity checks and site matrix, rotate independent holdouts, and record the exact manifest and outcomes for every release. A deterministic green CI or a passing execution report cannot substitute for a verified draft-to-execution causal link.
+
+The approved draft must describe the executable operation and locator contract accurately. No hidden functional interaction, action substitution, selector relaxation or assertion weakening is acceptable. Discovery may propose changes for review, not silently execute them. Any discrepancy between approved draft and actual execution, wrong-record action, or false pass blocks release. The existing contextual deletion resolver requires review against this rule; its passing fixture tests do not close the defect. 
