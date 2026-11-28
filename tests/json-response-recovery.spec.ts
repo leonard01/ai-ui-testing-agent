@@ -96,14 +96,14 @@ test("JSON-only initial generation rejects provider JSON failure without text re
   expect(calls).toHaveLength(1);
   expect(calls[0].responseMode ?? "json").toBe("json");
 });
-test("JSON-only incremental failure leaves definition unchanged and never retries as text", async ({browser}) => {
+test("JSON-only incremental failure retries once in JSON and leaves definition unchanged", async ({browser}) => {
   const definition=await original();
   const snapshot=JSON.stringify(definition);
   const calls: ModelRequest[]=[];
   const failure=error();
   await expect(generateIncrementalProposal({definition,baseURL,stepId:"empty",mode:"step",instructions:"Verify zero tasks",approvedStepIds:["open","empty"],model:"fixture",retryMalformedOutput:true},async req=>{calls.push(req);throw failure;},browser)).rejects.toBe(failure);
-  expect(calls).toHaveLength(1);
-  expect(calls[0].responseMode ?? "json").toBe("json");
+  expect(calls).toHaveLength(2);
+  expect(calls.every(call => (call.responseMode ?? "json") === "json")).toBe(true);
   expect(JSON.stringify(definition)).toBe(snapshot);
 });
 
@@ -144,4 +144,20 @@ test("mixed locator recovery rejects conflicting and unsupported fields", async 
   ]) {
     await expect(generateDraft({baseURL,model:"fixture",requirements:"Perform specified interactions"},async()=>JSON.stringify(mixedDefinition([target])),browser)).rejects.toThrow(/invalid test definition/);
   }
+});
+
+
+test("JSON-only incremental retry repairs captured mixed locator shape and preserves prefix @sanity", async ({browser}) => {
+  const definition = await original();
+  const calls: ModelRequest[] = [];
+  const proposal = await generateIncrementalProposal({definition,baseURL,stepId:"empty",mode:"step",instructions:"Delete Draft report",approvedStepIds:["open"],model:"fixture",retryMalformedOutput:true},async req=>{
+    calls.push(req);
+    if(calls.length===1) return '{"steps":[';
+    return JSON.stringify({steps:[{id:"delete-report",description:"Delete Draft report",action:{kind:"click",target:{by:"role",role:"button",name:"Delete",intent:"Delete Draft report"}}}]});
+  },browser);
+  expect(calls).toHaveLength(2);
+  expect(calls.every(call=>(call.responseMode ?? "json")==="json")).toBe(true);
+  expect(proposal.definition.steps[0]).toEqual(definition.steps[0]);
+  expect(proposal.definition.steps.slice(2)).toEqual(definition.steps.slice(2));
+  expect(proposal.replacement[0].action).toEqual({kind:"click",target:{by:"intent",role:"button",value:"Delete Draft report"}});
 });
