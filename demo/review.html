@@ -1239,6 +1239,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       labeledInput(edits, "Description", clone.description, (v) => { clone.description = v; });
       const actionLabel = make("label", "Action type");
       const actionSelect = make("select");
+      actionSelect.setAttribute("aria-label", "Action type");
       const kinds = ["navigate","click","fill","check","uncheck","select-option","press","assert-visible","assert-text","assert-count","assert-url"];
       for (const kind of kinds) {
         if (index === 0 && kind !== "navigate") continue;
@@ -1267,6 +1268,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       } else {
         const strategyLabel = make("label", "Locator strategy");
         const strategySelect = make("select");
+        strategySelect.setAttribute("aria-label", "Locator strategy");
         for (const [value, title] of [
           ["role", "Accessible role and name"],
           ["label", "Form label"],
