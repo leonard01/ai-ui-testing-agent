@@ -94,7 +94,7 @@ test("portable export selects the correct product-scoped Add to cart button", as
       version: 1, steps: [
         { id: "open", description: "Open", action: { kind: "navigate", url: "/" } },
         { id: "add", description: "Add Sauce Labs Backpack to cart", action: {
-          kind: "click", target: { by: "intent", value: "Add Sauce Labs Backpack", role: "button" },
+          kind: "click", target: { by: "role", role: "button", name: "Add to cart", within: {role:"article",text:"Sauce Labs Backpack"} },
         } },
         { id: "verify", description: "Verify Backpack", action: {
           kind: "assert-text", target: { by: "role", role: "status", name: "Cart" },
@@ -103,8 +103,8 @@ test("portable export selects the correct product-scoped Add to cart button", as
       ],
     };
     const source = generatePlaywrightSpec(definition, { baseURL: url, timeoutMs: 1500 });
-    expect(source).toContain("async function resolveCartAction(");
-    expect(source).toContain("async function productTitles(");
+    expect(source).not.toContain("async function resolveCartAction(");
+    expect(source).toContain('container.getByRole("button", { name: "Add to cart", exact: true })');
     const result = await executePortable(source, info.outputPath("portable-cart"), url);
     expect(result.stdout + result.stderr).toMatch(/1 passed/);
   } finally {
