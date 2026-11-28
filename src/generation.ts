@@ -9,7 +9,7 @@ import { ZodError } from "zod";
 import type { Browser } from "playwright";
 import type { TestDefinition } from "./domain.js";
 import { parseTestDefinition } from "./schema.js";
-import { isExplicitSearchResultIntent, shouldScopeSearchResultAssertion } from "./search-results.js";
+import { SEARCH_RESULT_ITEM_SELECTOR, isExplicitSearchResultIntent, shouldScopeSearchResultAssertion } from "./search-results.js";
 import { restoreMissingSearchFill } from "./search-workflow.js";
 import {
   ensureAllowedNavigation,
@@ -223,8 +223,11 @@ export async function generateDraft(
             shouldScopeSearchResultAssertion(
               options.requirements ?? "", step.action, searchedValues,
             )) {
+          if (!step.action.scope) step.action.match = "contains";
           step.action.scope = "search-results";
-          step.action.match = "contains";
+          if (step.action.target.by === "intent" || step.action.target.by === "text") {
+            step.action.target = {by:"css",value:SEARCH_RESULT_ITEM_SELECTOR};
+          }
         } else if (step.action.kind === "assert-visible" &&
             step.action.target.by === "text" &&
             shouldScopeSearchResultAssertion(
@@ -232,7 +235,7 @@ export async function generateDraft(
             )) {
           const target = step.action.target;
           step.action = {
-            kind: "assert-text", target, expected: target.value,
+            kind: "assert-text", target: {by:"css",value:SEARCH_RESULT_ITEM_SELECTOR}, expected: target.value,
             match: "contains", scope: "search-results",
             provenance: step.action.provenance,
           };
