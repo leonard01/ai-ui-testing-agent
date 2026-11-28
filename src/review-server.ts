@@ -1466,11 +1466,22 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const previousTarget = step.action.target;
           const previousExpected = step.action.kind === "assert-text" ? step.action.expected : undefined;
           if (mode !== "target") {
-            if (step.action.kind !== "assert-text" || failed.status !== "assertion-failed" ||
+            if (step.action.kind !== "assert-text" || step.action.scope === "search-results" ||
                 input.confirmed !== true || typeof input.expected !== "string" ||
                 input.expected.length > 10_000 ||
                 (input.match !== "exact" && input.match !== "contains")) {
               throw new Error("Explicitly confirm a valid expected text and comparison for this failed text assertion");
+            }
+            if (failed.status === "execution-error") {
+              const normalize = (value: string) => value.replace(/\s+/g, " ").trim();
+              const phrase = normalize(step.action.expected);
+              const rendered = normalize(selected.text ?? "");
+              if (mode !== "both" || sameTarget || input.expected !== step.action.expected ||
+                  (step.action.match ?? "exact") !== "exact" || input.match !== "contains" ||
+                  failed.expected !== step.action.expected || failed.textMatch !== "exact" ||
+                  !phrase || rendered === phrase || !rendered.includes(phrase)) {
+                throw new Error("Locator-failure comparison repair requires a verified partial text match, unchanged expectation and explicit confirmation");
+              }
             }
             if (input.expected === step.action.expected &&
                 input.match === (step.action.match ?? "exact")) {
