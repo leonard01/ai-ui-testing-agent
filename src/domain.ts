@@ -38,6 +38,8 @@ export interface StepResult {
   };
   assertionAlternatives?: MissingAssertionChoices;
   assertionSearchAvailable?: boolean;
+  /** Transient failure-time element evidence is available to the current caller. */
+  elementSearchAvailable?: boolean;
 }
 export interface RunReport {
   schemaVersion: 1;
