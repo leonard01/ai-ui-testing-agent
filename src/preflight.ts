@@ -27,7 +27,10 @@ export interface PreflightReport {
 
 function locator(page: Page, target: Exclude<Target, { by: "intent" }>): Locator {
   if (target.by === "role") {
-    const matches = page.getByRole(target.role, { name: target.name, exact: true });
+    const scope = "within" in target ? target.within : undefined;
+    const container = scope ? page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}) : page;
+    let matches = container.getByRole(target.role, { name: target.name, exact: true });
+    if ("hasText" in target && target.hasText) matches = matches.filter({has:page.getByText(target.hasText,{exact:true})});
     return "nth" in target && target.nth !== undefined ? matches.nth(target.nth) : matches;
   }
   if (target.by === "label") return page.getByLabel(target.value, { exact: true });
@@ -144,6 +147,15 @@ export async function preflightSelectors(
         let found: Locator;
         let count = 0;
         try {
+          if (target.by === "role" && "within" in target && target.within) {
+            const scope = target.within;
+            const scopeCount = await page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}).count();
+            if (scopeCount !== 1) {
+              item(stateMayHaveChanged ? "deferred" : "warning", "Scoped container must match exactly one element; found " + scopeCount + " on the starting page.", {matches:scopeCount});
+              if (!action.kind.startsWith("assert-")) stateMayHaveChanged = true;
+              continue;
+            }
+          }
           found = locator(page, target);
           count = await found.count();
         } catch {
