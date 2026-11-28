@@ -1214,6 +1214,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (action.kind === "navigate") return 'Open "' + action.url + '"';
       if (action.kind === "fill") return 'Enter "' + action.value + '" into ' + describeTarget(action.target);
       if (action.kind === "click") return "Click " + describeTarget(action.target);
+      if (action.kind === "hover") return "Hover over " + describeTarget(action.target);
       if (action.kind === "check") return "Check " + describeTarget(action.target);
       if (action.kind === "uncheck") return "Uncheck " + describeTarget(action.target);
       if (action.kind === "select-option") return 'Select option value "' + action.value + '" in ' + describeTarget(action.target);
@@ -1241,7 +1242,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const actionLabel = make("label", "Action type");
       const actionSelect = make("select");
       actionSelect.setAttribute("aria-label", "Action type");
-      const kinds = ["navigate","click","fill","check","uncheck","select-option","press","assert-visible","assert-text","assert-count","assert-url"];
+      const kinds = ["navigate","click","hover","fill","check","uncheck","select-option","press","assert-visible","assert-text","assert-count","assert-url"];
       for (const kind of kinds) {
         if (index === 0 && kind !== "navigate") continue;
         const option = make("option", kind);
@@ -1279,7 +1280,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           ["id", "Stable HTML id"],
           ["css", "CSS fallback (review brittleness)"],
           ["xpath", "XPath fallback (last resort)"],
-          ...(clone.action.kind === "assert-count" ? [] :
+          ...(["assert-count","hover"].includes(clone.action.kind) ? [] :
             [["intent", "Live DOM intent (recommended for unknown elements)"]]),
         ]) {
           const option = make("option", title);
@@ -1470,6 +1471,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             delete target.rolePolicy;
           }
           delete target.nth;
+        }
+        if (kind === "hover" && target.by === "intent") {
+          // Require the reviewer to choose a concrete locator rather than treating an intent as exact text.
+          target.by = "text"; target.value = ""; delete target.role; delete target.rolePolicy;
         }
         if (target.by === "intent" && kind !== "click") delete target.rolePolicy;
         const assertion = kind.startsWith("assert-");
