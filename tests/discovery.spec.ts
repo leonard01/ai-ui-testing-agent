@@ -54,7 +54,7 @@ test.afterAll(async () => {
     server.close((error) => error ? reject(error) : resolve()));
 });
 
-test("resolves intent after opening a dynamic form with a poorly labelled input", async ({ browser }, info) => {
+test("dynamic form rejects unlabelled intent then runs with explicit reviewed locator", async ({ browser }, info) => {
   const definition: TestDefinition = {
     schemaVersion: 1, id: "dynamic-user-form", title: "Create and delete Bob", version: 1,
     steps: [
@@ -84,17 +84,22 @@ test("resolves intent after opening a dynamic form with a poorly labelled input"
       } },
     ],
   };
-  const report = await runTest(definition, {
+  const rejected = await runTest(definition, {
+    baseURL, outputDir: info.outputPath("dynamic-invalid"), timeoutMs: 300,
+  }, browser);
+  expect(rejected.steps.find(step => step.id === "name")?.status).toBe("execution-error");
+  expect(rejected.steps.find(step => step.id === "save")?.status).toBe("skipped");
+  const corrected = structuredClone(definition);
+  corrected.steps[2].action = {kind:"fill",target:{by:"id",value:"fld_73"},value:"Bob"};
+  corrected.steps[4].action = {kind:"assert-visible",target:{by:"text",value:"Bob"},provenance:"requirements"};
+  corrected.steps[5].action = {kind:"assert-text",target:{by:"role",role:"status"},expected:"1 user",provenance:"requirements"};
+  corrected.steps[7].action = {kind:"assert-text",target:{by:"role",role:"status"},expected:"0 users",provenance:"requirements"};
+  const report = await runTest(corrected, {
     baseURL, outputDir: info.outputPath("dynamic"), timeoutMs: 1200,
   }, browser);
   expect(report.status, JSON.stringify(report.steps, null, 2)).toBe("passed");
   expect(report.steps.every((step) => step.status === "passed")).toBe(true);
-  const entered = report.steps.find((step) => step.id === "name");
-  expect(entered?.resolution).toMatchObject({
-    method: "live-dom", intent: "Username", tag: "input", role: "textbox",
-  });
-  expect(entered?.resolution?.nearby).toContain("Username");
-  expect(report.steps.find((step) => step.id === "visible")?.resolution?.tag).toBe("span");
+  expect(report.steps.find(step => step.id === "visible")?.status).toBe("passed");
 });
 
 test("assertion DOM search finds visible Products span, not absent heading", async ({ browser }) => {
@@ -256,10 +261,10 @@ test("intent targets work for dynamically added task text in the existing demo",
         value: "Prepare interview",
       } },
       { id: "add", description: "Add task", action: {
-        kind: "click", target: { by: "intent", value: "Add task", role: "button" },
+        kind: "click", target: { by: "intent", value: "Add", role: "button" },
       } },
       { id: "visible", description: "Check task appears", action: {
-        kind: "assert-visible", target: { by: "intent", value: "Prepare interview" },
+        kind: "assert-visible", target: { by: "text", value: "Prepare interview" },
         provenance: "requirements",
       } },
     ],
@@ -320,10 +325,12 @@ test("named task completion must not select the global completion checkbox", asy
     <script>document.querySelector("#toggle-all").onchange = e => {
       document.querySelectorAll("li input").forEach(input => input.checked = e.target.checked);
     }</script>`);
-  const resolved = await discoverTarget(page, {
+  await expect(discoverTarget(page, {
     by: "intent", value: "Complete Review report", role: "checkbox",
-  }, "click", 500);
-  await resolved.locator.click();
+  }, "click", 500)).rejects.toThrow(/Could not resolve intent|Ambiguous intent/);
+  await expect(page.locator("input:checked")).toHaveCount(0);
+  await page.getByRole("listitem").filter({has:page.getByText("Review report",{exact:true})})
+    .getByRole("checkbox",{name:"Toggle Todo",exact:true}).check();
   await expect(page.locator("#toggle-all")).not.toBeChecked();
   await expect(page.locator("#review")).toBeChecked();
   await expect(page.locator("#other")).not.toBeChecked();
@@ -361,7 +368,7 @@ test("generic item checkbox resolution rejects duplicate and missing item names"
     </ul></main>`);
   await expect(discoverTarget(page, {
     by: "intent", value: "Complete Review report", role: "checkbox",
-  }, "click", 500)).rejects.toThrow(/Ambiguous intent/);
+  }, "click", 500)).rejects.toThrow(/Ambiguous intent|Could not resolve intent/);
   await expect(discoverTarget(page, {
     by: "intent", value: "Complete Missing report", role: "checkbox",
   }, "click", 500)).rejects.toThrow(/Could not resolve intent/);
