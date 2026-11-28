@@ -153,7 +153,7 @@ export async function generateDraft(
     let parsed: unknown;
     try {
       const recovered = parseModelJSON(output);
-      const normalised = normaliseMixedLocators(recovered.value);
+      const normalised = normaliseMixedLocators(recovered.value, instructions);
       parsed = normalised.value;
       options.observeResponse?.(attempt, {repairs: [...recovered.repairs, ...normalised.repairs], parsed});
     } catch {
