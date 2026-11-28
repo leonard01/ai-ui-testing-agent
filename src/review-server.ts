@@ -1253,13 +1253,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((entry) => entry.id === failed.id);
-          if (!step || (step.action.kind !== "click" && step.action.kind !== "fill") ||
+          if (!step || (step.action.kind !== "click" && step.action.kind !== "fill" && step.action.kind !== "press") ||
               JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted)) {
             throw new Error("The saved test no longer matches this run; rerun before repairing");
           }
           const role = chosen.role;
           if (step.action.kind === "click" && role !== "button" && role !== "checkbox" && role !== "radio" && role !== "link" && !(role === "clickable" && chosen.target) ||
-              step.action.kind === "fill" && role !== "textbox") {
+              step.action.kind === "fill" && role !== "textbox" ||
+              step.action.kind === "press" && !["textbox", "button", "checkbox", "radio", "link", "combobox"].includes(role)) {
             throw new Error("The selected element cannot perform this action");
           }
           const previousTarget = step.action.target;
@@ -1302,7 +1303,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }
           const selectedSteps = all ? matches : [step];
           for (const entry of selectedSteps) {
-            if (entry.action.kind === "click" || entry.action.kind === "fill") entry.action.target = approvedTarget;
+            if (entry.action.kind === "click" || entry.action.kind === "fill" || entry.action.kind === "press") entry.action.target = approvedTarget;
           }
           const corrected = parseTestDefinition(definition);
           const { id, replacedId } = await saveApproved(corrected, job.fileId);
