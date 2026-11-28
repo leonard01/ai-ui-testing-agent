@@ -836,10 +836,15 @@ export async function discoverTarget(
     const top = considered.filter(candidate =>
       exactName(candidate.name) === exactName(target.value)
     ).map(candidate => ({candidate}));
-    if (top.length) {
-      if (top.length !== 1) {
+    // Relevance may populate human repair choices, but never an executable match.
+    const suggestions = top.length === 0 ? considered.filter(candidate =>
+      request.length > 0 && candidateScore(candidate, request) !== null
+    ).map(candidate => ({candidate})) : [];
+    const ambiguous = top.length > 1 ? top : suggestions.length > 1 ? suggestions : [];
+    if (top.length || ambiguous.length) {
+      if (ambiguous.length) {
         const options: AmbiguousCandidate[] = [];
-        for (const { candidate } of top.slice(0, 20)) {
+        for (const { candidate } of ambiguous.slice(0, 20)) {
           const option: AmbiguousCandidate = {
             tag: candidate.tag, role: candidate.role,
             name: candidate.name, nearby: candidate.nearby,
@@ -872,7 +877,7 @@ export async function discoverTarget(
           options.push(option);
         }
         throw new AmbiguousIntentError({
-          intent: target.value, role: target.role, total: top.length,
+          intent: target.value, role: target.role, total: ambiguous.length,
           candidates: options,
         });
       }
