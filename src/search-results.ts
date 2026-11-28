@@ -40,7 +40,7 @@ export const SEARCH_RESULT_ITEM_SELECTOR = [
   // Repeated sibling records with their own heading and action. Do not use
   // the enclosing results region or a lone arbitrary div as evidence.
   RESULT_REGION + ' ' + GENERIC_RECORD + ':has(+ ' + GENERIC_RECORD + ')',
-  RESULT_REGION + ' ' + GENERIC_RECORD + ' + ' + GENERIC_RECORD + ',',
+  RESULT_REGION + ' ' + GENERIC_RECORD + ' + ' + GENERIC_RECORD,
 ].join(", ");
 
 export function isExplicitSearchResultIntent(requirements: string): boolean {
