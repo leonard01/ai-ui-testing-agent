@@ -1825,3 +1825,61 @@ test("URL input and recent website selector visually indicate only one active so
   await expect(field).not.toHaveClass(/url-source-inactive/);
   await expect(recent).toHaveClass(/url-source-inactive/);
 });
+
+
+test("failed radio selection can open direct step editor and change action without AI @sanity", async ({page}) => {
+  const site = createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+    res.end('<!doctype html><label><input id="choice" type="radio" name="choice" value="yes">Yes</label><p>Form ready</p>');
+  });
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition={schemaVersion:1,id:"radio-action-repair",title:"Radio action repair",version:1,
+      sourceInstructions:"Select Yes and verify that Yes is selected.",
+      steps:[
+        {id:"open",description:"Open form",action:{kind:"navigate",url:"/"}},
+        {id:"choose",description:"Select Yes",action:{kind:"select-option",target:{by:"id",value:"choice"},value:"yes"}},
+        {id:"verify",description:"Verify Yes selected",action:{kind:"assert-visible",target:{by:"css",value:"#choice:checked"},provenance:"requirements"}},
+      ]};
+    const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
+    expect(response.status()).toBe(200);
+    const saved=await response.json();
+    await page.goto(url);
+    await page.locator("#nav-run").click();
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const failed=page.locator("#run-steps .run-step").nth(1);
+    await expect(failed).toHaveAttribute("data-status","execution-error");
+    await expect(failed).toContainText("not a <select> element");
+    await failed.getByRole("button",{name:"Edit failing step",exact:true}).click();
+    const editor=page.locator("#step-list .step").nth(1);
+    await expect(editor.getByLabel("Action type")).toHaveValue("select-option");
+    await editor.getByLabel("Action type").selectOption("check");
+    await expect(editor.getByLabel("HTML ID attribute value")).toHaveValue("choice");
+    await expect(editor.getByLabel("Option value")).toHaveCount(0);
+    await editor.getByRole("button",{name:"Apply changes"}).click();
+    await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
+    const original=await (await page.request.get(url+"/api/tests/"+encodeURIComponent(saved.id))).json();
+    expect(original.definition.steps).toEqual(definition.steps);
+    for(const box of await page.locator("#step-list .step input[type=checkbox]").all()) await box.check();
+    await page.getByRole("button",{name:"Save Test",exact:true}).click();
+    await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+    const amendedId=await page.locator("#approved-tests").inputValue();
+    const amended=JSON.parse(await readFile(await approvedPath(outputDir,amendedId),"utf8"));
+    expect(amended.steps[1].action).toEqual({kind:"check",target:{by:"id",value:"choice"}});
+    expect(amended.steps[0]).toEqual(definition.steps[0]);
+    expect(amended.steps[2]).toEqual(definition.steps[2]);
+    expect(amended.sourceInstructions).toBe(definition.sourceInstructions);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+  } finally {
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
