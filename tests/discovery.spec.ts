@@ -999,3 +999,16 @@ test("intent resolves an exact unique action without borrowing context @sanity",
   await found.locator.click();
   await expect(page.locator("body")).toHaveAttribute("data-clicked","yes");
 });
+
+
+test("visible local deletion control is not inferred from a named intent @sanity", async ({page}) => {
+  await page.setContent('<ul><li><span>Draft report</span><button class="destroy" onclick="this.closest(\'li\').remove()">Delete</button></li><li><span>Other report</span><button>Delete</button></li></ul>');
+  await expect(discoverTarget(page,{by:"intent",role:"button",value:"Delete Draft report"},"click",300)).rejects.toThrow(/Could not resolve intent|Ambiguous intent/);
+  await expect(page.getByText("Draft report",{exact:true})).toBeVisible();
+  await expect(page.getByText("Other report",{exact:true})).toBeVisible();
+});
+test("named cart intent cannot infer a container and button @sanity", async ({page}) => {
+  await page.setContent('<article><span>Example Backpack</span><button onclick="this.textContent=\'Remove\'">Add to cart</button></article><article><span>Example Lamp</span><button>Add to cart</button></article>');
+  await expect(discoverTarget(page,{by:"intent",role:"button",value:"Add Example Backpack to cart"},"click",300)).rejects.toThrow(/Could not resolve intent|Ambiguous intent/);
+  await expect(page.getByRole("button",{name:"Add to cart",exact:true})).toHaveCount(2);
+});
