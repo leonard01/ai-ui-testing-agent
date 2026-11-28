@@ -984,3 +984,39 @@ test("named cart intent cannot infer a container and button @sanity", async ({pa
   await expect(discoverTarget(page,{by:"intent",role:"button",value:"Add Example Backpack to cart"},"click",300)).rejects.toThrow(/Could not resolve intent|Ambiguous intent/);
   await expect(page.getByRole("button",{name:"Add to cart",exact:true})).toHaveCount(2);
 });
+
+
+test("resolved intent follows the approved name after DOM reordering @sanity", async ({page}) => {
+  await page.setContent('<button onclick="document.body.dataset.clicked=\'approved\'">Approve</button><button onclick="document.body.dataset.clicked=\'cancel\'">Cancel</button>');
+  const found=await discoverTarget(page,{by:"intent",role:"button",value:"Approve"},"click",500);
+  await page.evaluate(()=>document.body.prepend(document.querySelectorAll("button")[1]));
+  await found.locator.click({timeout:1000});
+  await expect(page.locator("body")).toHaveAttribute("data-clicked","approved");
+});
+
+test("resolved intent cannot click a replacement with a reused identifier @sanity", async ({page}) => {
+  await page.setContent('<button id="action" onclick="document.body.dataset.clicked=\'approved\'">Approve</button>');
+  const found=await discoverTarget(page,{by:"intent",role:"button",value:"Approve"},"click",500);
+  await page.locator("#action").evaluate(el=>{
+    const replacement=document.createElement("button");
+    replacement.id="action";
+    replacement.textContent="Cancel";
+    replacement.onclick=()=>{document.body.dataset.clicked="cancel";};
+    el.replaceWith(replacement);
+  });
+  await expect(found.locator.click({timeout:500})).rejects.toThrow();
+  await expect(page.locator("body")).not.toHaveAttribute("data-clicked","cancel");
+});
+
+test("resolved intent refuses newly ambiguous matching controls @sanity", async ({page}) => {
+  await page.setContent('<button onclick="document.body.dataset.clicked=\'approved\'">Approve</button>');
+  const found=await discoverTarget(page,{by:"intent",role:"button",value:"Approve"},"click",500);
+  await page.evaluate(()=>{
+    const duplicate=document.createElement("button");
+    duplicate.textContent="Approve";
+    duplicate.onclick=()=>{document.body.dataset.clicked="duplicate";};
+    document.body.prepend(duplicate);
+  });
+  await expect(found.locator.click({timeout:500})).rejects.toThrow();
+  await expect(page.locator("body")).not.toHaveAttribute("data-clicked",/approved|duplicate/);
+});
