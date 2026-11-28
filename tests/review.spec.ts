@@ -1868,7 +1868,7 @@ test("failed radio selection can open direct step editor and change action witho
     expect(original.definition.steps).toEqual(definition.steps);
     for(const box of await page.locator("#step-list .step input[type=checkbox]").all()) await box.check();
     await page.getByRole("button",{name:"Save Test",exact:true}).click();
-    await expect(page.locator("#saved")).toContainText("Saved and ready to execute");
+    await expect(page.locator("#saved")).toContainText("Amended test saved; old version removed from the list. Ready to execute.");
     const amendedId=await page.locator("#approved-tests").inputValue();
     const amended=JSON.parse(await readFile(await approvedPath(outputDir,amendedId),"utf8"));
     expect(amended.steps[1].action).toEqual({kind:"check",target:{by:"id",value:"choice"}});
