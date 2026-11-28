@@ -1905,8 +1905,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function showIncrementalError(error) {
       const status = $("incremental-status");
       const technical = error.message || String(error);
-      const malformed = error.category === "json-generation" || /Malformed JSON response|json_validate_failed/i.test(technical);
-      const schema = error.category === "response-schema" || /Response schema validation:/.test(technical);
+      const malformed = error.category === "json-generation" || /Malformed JSON response|model output was not valid JSON|json_validate_failed/i.test(technical);
+      const schema = error.category === "response-schema" || /Response schema validation:|could not produce valid replacement test steps/i.test(technical);
       if (!malformed && !schema) {
         status.textContent = technical;
         return;
