@@ -42,26 +42,6 @@ function words(value: string): string[] {
 function terms(value: string): string[] {
   return [...new Set(words(value).filter((word) => !STOP_WORDS.has(word)))];
 }
-function candidateScore(candidate: Candidate, query: string[]): number | null {
-  if (!query.length) return 0;
-  const name = new Set(words(candidate.name));
-  const text = new Set(words(candidate.text));
-  const nearby = new Set(words(candidate.nearby));
-  const role = new Set(words(candidate.role));
-  let score = 0;
-  for (const word of query) {
-    if (name.has(word)) score += 15;
-    else if (text.has(word)) score += 11;
-    else if (role.has(word)) score += 10;
-    else if (nearby.has(word)) score += 4;
-    else return null;
-  }
-  const nameTerms = terms(candidate.name);
-  if (nameTerms.length === query.length &&
-      query.every((word) => nameTerms.includes(word))) score += 50;
-  return score;
-}
-
 async function intentLocator(
   page: Page,
   intent: IntentQuery,
