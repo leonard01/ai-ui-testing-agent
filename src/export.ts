@@ -1,6 +1,5 @@
 import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
-import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed } from "./credential-guard.js";
 
@@ -208,7 +207,11 @@ function exportAction(action: TestAction, base: URL): string[] {
     return [
       "// Assertion provenance: " + action.provenance,
       "// Only identifiable search-result cards count; never the query box or whole page.",
-      "const resultCards = page.locator(" + literal(SEARCH_RESULT_ITEM_SELECTOR) + ");",
+      ...(action.target.by === "role" && action.target.within ? [
+        "const container = page.getByRole(" + literal(action.target.within.role) + ").filter({ has: page.getByText(" + literal(action.target.within.text) + ", { exact: true }) });",
+        'await container.waitFor({ state: "attached", timeout: STEP_TIMEOUT });',
+      ] : []),
+      "const resultCards = " + (action.target.by === "intent" ? '(() => { throw new Error("Search-result assertions require an explicit locator"); })() as Locator' : targetExpression(action.target, "assert-text")) + ";",
       "const expectedResultText = " + literal(expected) + ";",
       "await expect.poll(async () => {",
       "  const visibleRecords = await resultCards.filter({ visible: true }).evaluateAll(nodes =>",
