@@ -2418,6 +2418,6 @@ test("visibility assertion draft states existential matching and preserves expli
   const ordinal=page.locator("#step-list .step").nth(2);
   await expect(any).toContainText('Verify at least one element matching visible text "Ready" is visible');
   await expect(ordinal).toContainText('Verify button named "Save" (match 2, by DOM order) is visible');
-  await any.getByRole("button",{name:"Edit",exact:true}).click();
+  await any.getByRole("button",{name:"Edit fields",exact:true}).click();
   await expect(any).toContainText("At least one matching element must be visible");
 });
