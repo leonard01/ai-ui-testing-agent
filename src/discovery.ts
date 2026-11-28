@@ -455,21 +455,26 @@ export async function findAssertionAlternatives(
     const result: Array<{
       tag: string; role: string; name: string; text: string; nearby: string;
     }> = [];
-    // Collect leaf-most visible elements whose own rendered content is the
-    // requested text. Ancestor wrappers with the same content are excluded.
+    // Collect exact and partial visible text matches, preferring the smallest
+    // matching element over wrappers that merely repeat descendant content.
+    // Bound the scan and locator text; never use truncated text as a locator.
+    const excluded = '[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,input,textarea,select,option,[contenteditable],[role="textbox"]';
+    const visible = (node: HTMLElement) => !node.closest(excluded) &&
+      !!node.getClientRects().length && getComputedStyle(node).visibility === "visible";
+    const contains = (value: string) => value.includes(requested);
     const nodes = document.querySelectorAll<HTMLElement>("body *");
     for (const el of Array.from(nodes).slice(0, 12_000)) {
-      if (el.closest('[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,input,textarea,[contenteditable="true"]')) continue;
-      if (!el.getClientRects().length) continue;
-      const style = getComputedStyle(el);
-      if (style.display === "none" || style.visibility !== "visible") continue;
+      if (!visible(el)) continue;
       const displayed = normalized(el.innerText || "");
-      if (displayed !== requested) continue;
-      const hasExactChild = Array.from(el.children).some((child) =>
-        normalized((child as HTMLElement).innerText || "") === requested &&
-        !!(child as HTMLElement).getClientRects().length,
+      if (!contains(displayed) || displayed.length > 180) continue;
+      // Do not suggest broad page regions for a partial match. Descendant
+      // matches take precedence even when their full text differs.
+      if (displayed !== requested && el.matches('main,section,article,nav,header,footer,aside,form,table,ul,ol,[role="main"],[role="region"],[role="navigation"],[role="list"]')) continue;
+      const hasMatchingChild = Array.from(el.children).some(child =>
+        child instanceof HTMLElement && visible(child) &&
+        contains(normalized(child.innerText || "")),
       );
-      if (hasExactChild) continue;
+      if (hasMatchingChild) continue;
       const tag = el.tagName.toLowerCase();
       const role = el.getAttribute("role") ||
         (/^h[1-6]$/.test(tag) ? "heading" :
@@ -477,12 +482,12 @@ export async function findAssertionAlternatives(
          tag === "button" ? "button" : "");
       const name = clip(el.getAttribute("aria-label") || el.innerText || "", 130);
       result.push({
-        tag, role, name, text: clip(el.innerText || "", 130),
+        tag, role, name, text: displayed,
         nearby: clip((el.parentElement as HTMLElement | null)?.innerText || "", 180),
       });
-      if (result.length > 60) break;
     }
-    return result;
+    // Exact matches take precedence, including those later in DOM order.
+    return result.sort((a,b) => Number(b.text === requested) - Number(a.text === requested)).slice(0,61);
   }, request);
 
   const proposed: AssertionCandidate[] = [];
@@ -493,14 +498,14 @@ export async function findAssertionAlternatives(
         role === "heading" || role === "status" || role === "listitem") {
       const locator = page.getByRole(role, { name: candidate.name, exact: true });
       if (candidate.name && await locator.count() === 1 && await locator.isVisible() &&
-          norm((await locator.innerText()) || "") === request) {
+          norm((await locator.innerText()) || "") === candidate.text) {
         target = { by: "role", role, name: candidate.name };
       }
     }
     if (!target) {
       const locator = page.getByText(candidate.text, { exact: true });
       if (await locator.count() === 1 && await locator.isVisible() &&
-          norm((await locator.innerText()) || "") === request) {
+          norm((await locator.innerText()) || "") === candidate.text) {
         target = { by: "text", value: candidate.text };
       }
     }
