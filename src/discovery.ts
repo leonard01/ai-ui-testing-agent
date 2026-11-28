@@ -172,7 +172,7 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
       (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
     const all = Array.from(document.querySelectorAll<HTMLElement>(selector)).slice(0, 250);
     const candidates = all.flatMap((el, index) => {
-      if (!el.getClientRects().length || el.closest("[hidden], [inert]")) return [];
+      if (!el.getClientRects().length || el.closest('[hidden], [inert], [aria-hidden="true" i]')) return [];
       const style = getComputedStyle(el);
       if (style.visibility === "hidden" || style.display === "none") return [];
       const input = el as HTMLInputElement;
@@ -814,7 +814,7 @@ export async function discoverTarget(
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
     // Execution accepts exact normalized names, never relevance scores or borrowed context.
     // Keep candidateScore for read-only repair suggestions.
-    const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+    const exactName = (value: string) => value.replace(/\s+/g, " ").trim();
     const top = considered.filter(candidate =>
       exactName(candidate.name) === exactName(target.value)
     ).map(candidate => ({candidate}));
