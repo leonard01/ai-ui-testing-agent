@@ -344,7 +344,7 @@ export async function runTest(
           } catch {
             // Keep the failed assertion even if diagnostic search fails.
           }
-        } else if (page && (step.action.kind === "click" || step.action.kind === "fill") &&
+        } else if (page && (step.action.kind === "click" || step.action.kind === "fill" || step.action.kind === "press") &&
           step.action.target.by !== "intent" && result.status === "execution-error" &&
           /Timeout.*exceeded|strict mode violation|waiting for getBy/i.test(message(error))) {
           try {
