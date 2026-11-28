@@ -34,3 +34,10 @@ AI interpretation, site knowledge and discovery may propose actions before appro
 ## Acceptance
 
 Incorrect exact names/roles/locators fail; ambiguous clicks fail without changing state; missing hover does not cause a hidden hover; explicit hover then scoped click affects only named record; wrong expectations fail; subsequent steps skipped on failure; repair remains advisory; export and runner agree on supported operations. All functional actions traceable to approved steps. Historical scripts requiring old fallbacks must be flagged for review, not silently migrated. No release until unresolved fidelity violations are addressed. See [manual release regression](manual-release-regression.md).
+
+
+## Sequencing decision — v0.3
+
+Complete and validate the execution-fidelity fixes before changing the AI generation architecture. Live incremental reinterpretation is temporarily disabled at the UI and API boundaries; injected mock-provider tests remain enabled to retain historical regression coverage. This gate must be removed before v0.3 publication, after acceptance of the replacement.
+
+Second workstream, only after fidelity acceptance: replace specialised incremental reconciliation with standard test generation in continuation-fragment mode. Use new instructions and relevant read-only preceding context (not an assumed live post-prefix state); avoid automatic navigation or repeated prerequisites. Validate fragment actions through the shared generation contract, then deterministically splice structured steps into a single test definition executing in the same browser context. Preserve unaffected steps, IDs, approvals, original requirements and mappings; explicitly flag invalidated mappings for review. Never silently remove requirements. Do not concatenate independent Playwright tests or raw source. Compare against the legacy approach using live first-attempt success, retry success, token usage, latency and verified correctness. Re-enable reinterpretation only after targeted, full deterministic and live manual validation. Both workstreams are required for v0.3; do not merge or release with the temporary gate active.
