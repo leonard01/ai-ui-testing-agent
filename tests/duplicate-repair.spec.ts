@@ -185,3 +185,59 @@ for (const kind of ["link", "unnamed"] as const) {
     }
   });
 }
+
+
+test("TodoMVC fill repair followed by explicit Enter locator repair completes the task @sanity", async ({browser,page})=>{
+  const dir=await mkdtemp(join(tmpdir(),"press-repair-"));
+  const targetServer=createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html"});
+    res.end(`<main><h1>todos</h1><input placeholder="What needs to be done?" id="todo"><ul id="tasks"></ul></main>
+      <script>document.querySelector('#todo').addEventListener('keydown',e=>{
+        if(e.key==='Enter' && e.target.value){const li=document.createElement('li');li.textContent=e.target.value;document.querySelector('#tasks').append(li);e.target.value='';}
+      });</script>`);
+  });
+  let review:Server|undefined;
+  try{
+    const websiteURL=await listen(targetServer);
+    review=await createReviewServer(dir,browser);
+    const reviewURL=await listen(review);
+    const wrong={by:"label",value:"What needs to be done?"};
+    const definition={schemaVersion:1,id:"todo-press-repair",title:"Create test1",version:1,steps:[
+      {id:"open",description:"Open todos",action:{kind:"navigate",url:"/"}},
+      {id:"fill",description:"Create task test1",action:{kind:"fill",target:wrong,value:"test1"}},
+      {id:"enter",description:"Submit task",action:{kind:"press",target:wrong,key:"Enter"}},
+      {id:"verify",description:"Verify test1 appears",action:{kind:"assert-visible",target:{by:"text",value:"test1"},provenance:"requirements"}},
+    ]};
+    const savedResponse=await page.request.post(reviewURL+"/api/save",{data:{testName:"Todo press repair",definition,baseURL:websiteURL}});
+    expect(savedResponse.status()).toBe(200);
+    const saved=await savedResponse.json();
+    await page.goto(reviewURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    const repair=page.locator(".locator-repair");
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    await expect(repair).toContainText("What needs to be done?");
+    await repair.locator(".locator-option input").check();
+    await repair.getByRole("button",{name:"Save corrected locator and rerun from start",exact:true}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+    const reportURL=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
+    const second=await (await page.request.get(reviewURL+reportURL)).json();
+    expect(second.steps.map((s:{status:string})=>s.status)).toEqual(["passed","passed","execution-error","skipped"]);
+    expect(second.steps[2].locatorAlternatives?.candidates).toHaveLength(1);
+    await expect(repair).toContainText("What needs to be done?");
+    await repair.locator(".locator-option input").check();
+    await repair.getByRole("button",{name:"Save corrected locator and rerun from start",exact:true}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    const id=await page.locator("#execution-panel").getByLabel("Test",{exact:true}).inputValue();
+    const corrected=JSON.parse(await readFile(await approvedPath(dir,id),"utf8"));
+    expect(corrected.steps[2].action.kind).toBe("press");
+    expect(corrected.steps[2].action.key).toBe("Enter");
+    expect(corrected.steps[3]).toEqual(definition.steps[3]);
+  }finally{
+    if(review)await close(review);
+    await close(targetServer);
+    await rm(dir,{recursive:true,force:true});
+  }
+});
