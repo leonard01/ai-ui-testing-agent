@@ -15,6 +15,7 @@ import { effectiveGroqMode, requestGroq, GroqProviderError, GroqTransportError }
 import { createUsageStore, summarizeUsage, type UsageRecord } from "./ai-usage.js";
 import { createResponseCapture } from "./response-diagnostics.js";
 import { parseTestDefinition } from "./schema.js";
+import { requiresExactText } from "./assertion-repair-policy.js";
 import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
 import { listDraftsWithDiagnostics, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
@@ -1471,6 +1472,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 input.expected.length > 10_000 ||
                 (input.match !== "exact" && input.match !== "contains")) {
               throw new Error("Explicitly confirm a valid expected text and comparison for this failed text assertion");
+            }
+            if (input.match === "contains" && requiresExactText(definition, step)) {
+              throw new Error("The original instructions explicitly require exact text. Preserve equality or revise the requirement through the full editor.");
             }
             if (failed.status === "execution-error") {
               const normalize = (value: string) => value.replace(/\s+/g, " ").trim();
