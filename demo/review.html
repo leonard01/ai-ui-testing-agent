@@ -1623,6 +1623,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         const action = step.action;
         const target = action.target;
         const add = (severity, message) => issues.push({ stepNumber: index + 1, severity, message });
+        if ((target?.by === "role" || target?.by === "intent") && target.role) {
+          const compatible = ({
+            fill: ["textbox"], "select-option": ["combobox"],
+            check: ["checkbox", "radio"], uncheck: ["checkbox"],
+          })[action.kind];
+          if (compatible && !compatible.includes(target.role)) {
+            add("Review", "Action " + action.kind +
+              " may be incompatible with target role " + target.role +
+              ". Expected role: " + compatible.join(" or ") +
+              ". Review the action type and locator together before approval.");
+          }
+        }
         if (target?.by === "css") {
           const complex = /:nth-(?:child|of-type)|(?:^|[\s>+~])(?:div|span|li)\s*[>+~]|\bcss=|\b(?:_[a-f0-9]{6,}|__[a-f0-9]{5,})\b/i.test(target.value);
           add(complex ? "Review" : "Advisory", complex
@@ -4079,7 +4091,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const evidence = data.diagnostics;
       if (!evidence || !evidence.snapshot) return;
       const warnings = Array.isArray(evidence.warnings)
-        ? evidence.warnings.filter(item => typeof item === "string") : [];
+        ? evidence.warnings.filter(item => typeof item === "string" &&
+          !/^Step \d+: action (?:fill|select-option|check|uncheck) may be incompatible with target role /.test(item)) : [];
       const notice = $("draft-quality-warnings");
       notice.textContent = warnings.length
         ? "Other quality checks (" + warnings.length + "):\n" +
