@@ -1960,3 +1960,49 @@ for (const scenario of ["fill", "assert-url"] as const) {
     }
   });
 }
+
+
+test("element search API retrieves only the selected failed run step evidence @sanity", async ({page}) => {
+  const site=createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+    res.end('<!doctype html><label for="choice">Default radio</label><input id="choice" type="radio"><p>Form ready</p>');
+  });
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition={schemaVersion:1,id:"element-api",title:"Element API",version:1,steps:[
+      {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+      {id:"choose",description:"Choose default radio",action:{kind:"select-option",target:{by:"id",value:"choice"},value:"yes"}},
+      {id:"verify",description:"Verify",action:{kind:"assert-visible",target:{by:"text",value:"Form ready"},provenance:"requirements"}}
+    ]};
+    const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
+    expect(response.status()).toBe(200);
+    const saved=await response.json();
+    await page.goto(url);
+    await page.locator("#nav-run").click();
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    const reportLink=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
+    const runId=reportLink!.split("/")[3];
+    const request={runId,stepId:"choose",query:"radio"};
+    const search=await page.request.post(url+"/api/search-elements",{data:request});
+    expect(search.status()).toBe(200);
+    const result=await search.json();
+    expect(result.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({target:{by:"id",value:"choice"},actions:expect.arrayContaining(["check"])})
+    ]));
+    for(const invalid of [{stepId:"open"},{stepId:"verify"},{runId:"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},{query:" "},{query:"a".repeat(181)}]){
+      const rejected=await page.request.post(url+"/api/search-elements",{data:{...request,...invalid}});
+      expect(rejected.status()).toBe(400);
+    }
+    const report=await (await page.request.get(url+reportLink)).json();
+    expect(report.steps.find((step:{id:string})=>step.id==="choose")).toMatchObject({elementSearchAvailable:true,status:"execution-error"});
+    expect(JSON.stringify(report)).not.toContain('"actions":["assert-visible"');
+  }finally{
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
