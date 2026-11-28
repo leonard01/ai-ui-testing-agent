@@ -200,9 +200,11 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
         .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
       const label = input.labels?.[0]?.textContent;
       const ownText = trim(el.innerText || el.textContent);
-      const name = trim(el.getAttribute("aria-label") || labelledBy || label ||
+      // Execution must compare the complete name, not the bounded diagnostic text.
+      const name = (el.getAttribute("aria-label") || labelledBy || label ||
         el.getAttribute("placeholder") || el.getAttribute("title") ||
-        (el.tagName === "INPUT" ? input.value && ["submit", "button"].includes(input.type) ? input.value : "" : ownText));
+        (el.tagName === "INPUT" ? input.value && ["submit", "button"].includes(input.type) ? input.value : "" : el.innerText || el.textContent) || "")
+        .replace(/\s+/g, " ").trim();
       // Prefer immediate grouping over the whole form/page; imperfect forms often
       // have a sibling span/label next to an unlabeled input.
       const nearby = trim((el.parentElement as HTMLElement | null)?.innerText, 180);
@@ -897,7 +899,7 @@ export async function discoverTarget(
     } else {
       detail = "No visible " + (target.role ?? operation) + " element matched " +
         JSON.stringify(target.value) + ". Candidates: " +
-        considered.slice(0, 5).map((c) => c.name || c.nearby || "<" + c.tag + ">").join("; ");
+        considered.slice(0, 5).map((c) => (c.name || c.nearby || "<" + c.tag + ">").slice(0, 130)).join("; ");
     }
     if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
     await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
