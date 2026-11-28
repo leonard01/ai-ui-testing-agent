@@ -260,8 +260,8 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
       return [{
         index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
         localCheckboxCount: el.parentElement?.querySelectorAll('input[type="checkbox"],[role="checkbox"]').length ?? 0,
-        nearby, testId: trim(el.getAttribute("data-testid"), 100),
-        id: trim(el.id, 100),
+        nearby, testId: el.getAttribute("data-testid") ?? "",
+        id: el.id,
         href: el.tagName === "A" ? el.getAttribute("href") ?? undefined : undefined,
         attributeId: el.id || undefined,
         attributeTestId: el.getAttribute("data-testid") ?? undefined,
