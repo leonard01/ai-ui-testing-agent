@@ -1199,6 +1199,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!target) return "unknown element";
       if (target.by === "role") return target.role +
         (target.name ? ' named "' + target.name + '"' : "") +
+        (target.hasText ? ' containing exact text "' + target.hasText + '"' : "") +
+        (target.within ? ' within unique ' + target.within.role + ' containing exact text "' + target.within.text + '"' : "") +
         (Number.isInteger(target.nth) ? " (match " + (target.nth + 1) + ", by DOM order)" : "");
       if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + (target.rolePolicy === "hint" ? ", hint" : "") + ")" : "");
       if (target.by === "label") return 'field labelled "' + target.value + '"';
@@ -1347,6 +1349,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               if (v.trim()) t.name = v; else delete t.name;
             });
             if (clone.action.kind !== "assert-count") {
+              labeledInput(locatorFields, "Element contains exact descendant text (optional)", t.hasText ?? "", v => {
+                if (v.trim()) t.hasText = v; else delete t.hasText;
+              });
+              const scopeLabel = make("label", "Container scope (optional)");
+              const scopeSelect = make("select");
+              for (const role of ["", "listitem", "article", "row", "group"]) {
+                const option = make("option", role || "No container");
+                option.value = role; scopeSelect.append(option);
+              }
+              scopeSelect.value = t.within?.role || "";
+              scopeSelect.addEventListener("change", () => {
+                if (scopeSelect.value) t.within = {role:scopeSelect.value,text:t.within?.text || ""};
+                else delete t.within;
+                renderLocatorFields();
+              });
+              scopeLabel.append(scopeSelect); locatorFields.append(scopeLabel);
+              if (t.within) labeledInput(locatorFields, "Container contains exact descendant text", t.within.text, v => {t.within.text = v;});
               const indexLabel = make("label", "Match index (0 = first; blank requires a unique match)");
               const indexInput = make("input");
               indexInput.type = "number";
@@ -1471,6 +1490,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             delete target.rolePolicy;
           }
           delete target.nth;
+          delete target.hasText;
+          delete target.within;
         }
         if (kind === "hover" && target.by === "intent") {
           // Require the reviewer to choose a concrete locator rather than treating an intent as exact text.
