@@ -2128,7 +2128,7 @@ test("element picker falls back to manual editing when retained evidence is unav
 test("partial paragraph assertion recovery combines verified locator and confirmed comparison @sanity", async ({page}) => {
   const site=createServer((_req,res)=>{
     res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
-    res.end('<!doctype html><main><p>Sed non urna. Donec et ante.</p><p hidden>Sed non urna</p></main>');
+    res.end('<!doctype html><main><p>Sed non urna. Donec et ante.</p><p hidden>Sed non urna. Hidden decoy.</p></main>');
   });
   await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
   const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
