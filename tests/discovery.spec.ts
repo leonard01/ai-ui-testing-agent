@@ -973,3 +973,22 @@ test("scoped role locator uses exact record identity and rejects ambiguous conta
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+// Reproduce runtime guessing separately from read-only diagnostic ranking.
+test("intent cannot borrow a missing action name from neighbouring text @sanity", async ({page}) => {
+  await page.setContent('<section><span>Approve invoice</span><button onclick="document.body.dataset.clicked=\'yes\'">Cancel</button></section>');
+  await expect(discoverTarget(page,{by:"intent",role:"button",value:"Approve invoice"},"click",300)).rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("body")).not.toHaveAttribute("data-clicked","yes");
+});
+test("intent cannot pick a partial action name merely because it is unique @sanity", async ({page}) => {
+  await page.setContent('<button onclick="document.body.dataset.clicked=\'yes\'">Delete all records</button>');
+  await expect(discoverTarget(page,{by:"intent",role:"button",value:"Delete"},"click",300)).rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("body")).not.toHaveAttribute("data-clicked","yes");
+});
+test("intent resolves an exact unique action without borrowing context @sanity", async ({page}) => {
+  await page.setContent('<section><span>Approve invoice</span><button>Cancel</button><button onclick="document.body.dataset.clicked=\'yes\'">Approve invoice</button></section>');
+  const found=await discoverTarget(page,{by:"intent",role:"button",value:"Approve invoice"},"click",300);
+  await found.locator.click();
+  await expect(page.locator("body")).toHaveAttribute("data-clicked","yes");
+});
