@@ -70,3 +70,7 @@ After the current contextual recovery, candidate context and ranking work, freez
 - Targeted CI [46113222657](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46113222657) at `f8c9e97`: 235 unit, 37 sanity and 44 feature regression tests passed. These suites may overlap; not a count of unique tests.
 - Full deterministic regression requested by this commit. No claim of full regression success until CI completes.
 - Remaining limitations: full independent live holdout validation, dedicated evidence retention expiry/eviction tests, possible hidden-element text assertion false pass (requires isolated reproduction), and existing amendment lifecycle that replaces prior saved version and can remove its associated run history. Recovery candidate visibility does not imply text assertion visibility. No complete privacy redaction guarantee for visible page content.
+
+### Sprint 3 full regression sign-off
+
+CI [46114169042](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46114169042) at `ad172f8`: 235 unit, 12 independent smoke and 280 browser tests passed (527 test executions, not necessarily unique tests). The earlier full runs exposed a positional test selector and an exact accessible-name mismatch; semantic test selectors and explicit accessible labels resolved these. Deterministic Sprint 3 sign-off is complete; the limitations above and independent live acceptance remain outstanding.
