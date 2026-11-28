@@ -80,6 +80,10 @@ GROQ_MODEL=openai/gpt-oss-20b
 
 `GROQ_MODEL` is optional. Restart the server after editing. **Do not commit `.env` or share credentials.** GroqCloud quota limits apply; Fixture mode and running already approved tests do not require Groq requests.
 
+## Adaptive regression execution
+
+`npm test` automatically selects local concurrency from available CPU and memory; CI uses a fixed two-worker profile. To override locally, use `npm run test:low-spec` (one worker), `npm run test:parallel` (two), or `npm run test:performance` (four). The startup summary explains the choice. Each wrapper run preserves JUnit, HTML, available failure evidence and environment metadata under `regression-history/<run-id>/`. Latest copies remain at `test-results/junit.xml`, `test-results/environment.json` and `playwright-report/`. Run sequentially when using latest copies; direct Playwright commands bypass history. Profiles do not change assertions, coverage or retries. See [execution profiles and diagnostic design](docs/adaptive-regression-and-ai-diagnostics.md) for thresholds, evidence and limitations.
+
 ## Development branches and testing gates
 
 Users frequently clone `main` rather than install tagged releases. Treat `main` as the stable, release-quality branch.
@@ -98,6 +102,8 @@ Users frequently clone `main` rather than install tagged releases. Treat `main` 
 | Evidence | Record relevant results | Record complete results against promotion candidate |
 
 Keep the current full automated CI suite for all PRs while runtime is acceptable. If execution becomes too costly, introduce a targeted internal-PR subset without weakening the full main promotion gate. A green deterministic CI run alone does not establish manual or live AI acceptance.
+
+From v0.3, follow the [manual release regression suite](docs/manual-release-regression.md) for cross-site breadth, rotating exploratory coverage and mandatory draft-to-execution fidelity. An unexplained mismatch between approved actions and actual execution blocks release.
 
 ### Definition of Done
 

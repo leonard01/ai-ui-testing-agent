@@ -28,7 +28,7 @@ function caseDefinition(): TestDefinition {
         expected: 2, provenance: "requirements",
       } },
       { id: "shipping", description: "Select express delivery", action: {
-        kind: "select-option", target: { by: "intent", value: "Shipping", role: "combobox" }, value: "fast",
+        kind: "select-option", target: { by: "role", name: "Shipping", role: "combobox" }, value: "fast",
       } },
       { id: "shipping-text", description: "Selected delivery", action: {
         kind: "assert-text", target: { by: "role", role: "status", name: "Shipping result" },

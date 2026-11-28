@@ -20,8 +20,10 @@ test.beforeEach(async ({ browser }) => {
 });
 
 test.afterEach(async () => {
-  await new Promise<void>((resolve, reject) =>
-    server.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+    server.closeAllConnections();
+  });
   await rm(dir, { force: true, recursive: true });
 });
 

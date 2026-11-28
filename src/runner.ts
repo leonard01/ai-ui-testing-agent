@@ -10,12 +10,12 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { requiresExactText } from "./assertion-repair-policy.js";
 import { assertCredentialsReviewed } from "./credential-guard.js";
 import { coverageWarnings } from "./requirement-preservation.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
-import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
-import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, type AssertionSearchEntry } from "./discovery.js";
+import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, captureElementSearchIndex, type ElementSearchEntry, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
 export interface RunOptions {
@@ -24,11 +24,15 @@ export interface RunOptions {
   headed?: boolean;
   timeoutMs?: number;
   onAssertionSearchIndex?: (stepId: string, entries: AssertionSearchEntry[]) => void;
+  onElementSearchIndex?: (stepId: string, entries: ElementSearchEntry[]) => void;
 }
 type Target = Exclude<TestAction, { kind: "navigate" | "assert-url" }>["target"];
 function locate(page: Page, target: Target): Locator {
   if (target.by === "role") {
-    const matches = page.getByRole(target.role, { name: target.name, exact: true });
+    const scope = "within" in target ? target.within : undefined;
+    const container = scope ? page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}) : page;
+    let matches = container.getByRole(target.role, { name: target.name, exact: true });
+    if ("hasText" in target && target.hasText) matches = matches.filter({has:page.getByText(target.hasText,{exact:true})});
     return "nth" in target && target.nth !== undefined ? matches.nth(target.nth) : matches;
   }
   if (target.by === "label")
@@ -138,6 +142,12 @@ export async function runTest(
       let checkingAssertion = false;
       try {
         const action = step.action;
+        if (action.kind === "assert-text") {
+          result.expected = action.expected;
+          result.exactTextRequired = requiresExactText(definition, step);
+          if (action.scope === "search-results") result.assertionScope = action.scope;
+          result.textMatch = action.match ?? "exact";
+        }
         if (action.kind === "navigate") {
           await page.goto(navigationURL(action.url, base), {
             waitUntil: "domcontentloaded",
@@ -161,27 +171,36 @@ export async function runTest(
           // satisfy a search-result requirement. Inspect result CARDS only.
           checkingAssertion = true;
           result.expected = action.expected;
-          result.textMatch = "contains";
+          result.textMatch = action.match ?? "exact";
           const expected = normalize(action.expected);
-          const cards = page.locator(SEARCH_RESULT_ITEM_SELECTOR);
-          const escaped = expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-          const matches = cards.filter({ hasText: new RegExp(escaped, "i") });
+          if (action.target.by === "role" && action.target.within) {
+            const scope = action.target.within;
+            await page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}).waitFor({state:"attached",timeout});
+          }
+          if (["text","intent","label","placeholder"].includes(action.target.by)) {
+            result.observedIsDiagnostic = true;
+            result.observed = "Search-result assertions require an explicit record locator, not a query-text or form locator";
+            throw new Error(result.observed);
+          }
+          const cards = locate(page, action.target);
           const deadline = performance.now() + timeout;
-          let found = false;
           while (true) {
             const count = await cards.count();
-            const matchedCount = await matches.count();
-            for (let i = 0; i < Math.min(matchedCount, 30); i++) {
-              const candidate = matches.nth(i);
-              if (!await candidate.isVisible()) continue;
-              result.observed = normalize(await candidate.innerText()).slice(0, 500);
-              found = true;
+            // hasText searches hidden descendants too. Match only rendered
+            // text from a visible record, then keep that same text as evidence.
+            const visibleRecords = await cards.filter({ visible: true }).evaluateAll(nodes =>
+              nodes.map(node => (node as HTMLElement).innerText ?? ""));
+            const matched = visibleRecords.map(normalize).find(value =>
+              action.match === "contains" ? value.includes(expected) : value === expected);
+            if (matched !== undefined) {
+              result.observedIsDiagnostic = false;
+              result.observed = matched.slice(0, 500);
               break;
             }
-            if (found) break;
+            result.observedIsDiagnostic = true;
             result.observed = count === 0
               ? "No identifiable search-result cards on the page"
-              : count + " result card(s) found, but none contains " + JSON.stringify(expected);
+              : count + " result card(s) found, but none " + (action.match === "contains" ? "contains " : "equals ") + JSON.stringify(expected) + " in visible record text";
             const remaining = deadline - performance.now();
             if (remaining <= 0) {
               throw new Error("Search-result assertion failed: " + result.observed +
@@ -191,7 +210,8 @@ export async function runTest(
           }
         } else {
           let target: Locator;
-          if (action.target.by === "intent") {
+          // Hover has a concrete locator by schema and must never invoke discovery.
+          if (action.kind !== "hover" && action.target.by === "intent") {
             const { locator, evidence } = await discoverTarget(
               page, action.target,
               action.kind === "uncheck" ? "check" :
@@ -201,27 +221,17 @@ export async function runTest(
             result.resolution = evidence;
             target = locator;
           } else {
-            target = locate(page, action.target);
-            // Backward compatibility for reviewed scripts whose AI draft
-            // confused visible placeholder text with a real HTML label.
-            // Never guess among several matches or change a saved locator.
-            if ((action.kind === "fill" || action.kind === "press") &&
-                action.target.by === "label" && await target.count() === 0) {
-              const alternative = page.getByPlaceholder(action.target.value, { exact: true });
-              if (await alternative.count() === 1 && await alternative.isVisible()) {
-                target = alternative;
-                result.resolution = {
-                  intent: action.target.value, method: "live-dom",
-                  tag: await alternative.evaluate(el => el.tagName.toLowerCase()),
-                  role: "textbox", name: action.target.value,
-                  nearby: "", locator: "exact placeholder fallback " +
-                    JSON.stringify(action.target.value),
-                  candidatesInspected: 1,
-                };
-              }
+            if (action.target.by === "role" && "within" in action.target && action.target.within) {
+              const scope = action.target.within;
+              const container = page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})});
+              // A strict wait refuses duplicate containers, even if just one contains the requested control.
+              await container.waitFor({state:"attached",timeout});
             }
+            target = locate(page, action.target);
+
           }
           if (action.kind === "click") await target.click();
+          else if (action.kind === "hover") await target.hover();
           else if (action.kind === "fill") await target.fill(action.value);
           else if (action.kind === "check") await target.check();
           else if (action.kind === "uncheck") await target.uncheck();
@@ -243,7 +253,21 @@ export async function runTest(
               }
               await delay(Math.min(50, remaining));
             }
+          } else if (action.kind === "assert-visible") {
+            // Visibility is existential over the original locator's match set.
+            // An explicit nth is already applied by locate(); never broaden it.
+            const deadline = performance.now() + timeout;
+            await target.first().waitFor({ state: "attached", timeout });
+            checkingAssertion = true;
+            result.expected = "visible";
+            // Filter before first(): a hidden first match must not mask a
+            // later visible match. Playwright retries against the live DOM.
+            await target.filter({ visible: true }).first().waitFor({
+              state: "visible", timeout: Math.max(1, Math.ceil(deadline - performance.now())),
+            });
+            result.observed = "visible";
           } else {
+            // Text comparisons still require exactly one element.
             // Missing or ambiguous targets are execution errors.
             await target.waitFor({ state: "attached", timeout });
             if ((await target.count()) !== 1)
@@ -267,11 +291,24 @@ export async function runTest(
                   );
                 }
                 const readTimeout = Math.max(150, Math.ceil(remaining));
-                result.observed = normalize(
-                  (await target.textContent({ timeout: readTimeout })) ?? "",
-                );
-                if (action.match === "contains"
-                  ? result.observed.includes(expectedText) : result.observed === expectedText) break;
+                // Read visibility and rendered text together so a hidden
+                // element cannot pass even an empty-text assertion. Never
+                // fall back to textContent, which includes hidden descendants.
+                const rendered = await target.evaluate(node => {
+                  if (!node.isConnected || !node.getClientRects().length ||
+                      getComputedStyle(node).visibility !== "visible" ||
+                      !node.getBoundingClientRect().width || !node.getBoundingClientRect().height) return null;
+                  return node instanceof HTMLElement ? node.innerText : null;
+                }, undefined, { timeout: readTimeout });
+                if (rendered !== null) {
+                  result.observed = normalize(rendered);
+                  result.observedIsDiagnostic = false;
+                  if (action.match === "contains"
+                    ? result.observed.includes(expectedText) : result.observed === expectedText) break;
+                } else {
+                  result.observed = "Assertion target is not visible or has no rendered HTML text";
+                  result.observedIsDiagnostic = true;
+                }
                 const timeLeft = deadline - performance.now();
                 if (timeLeft <= 0) {
                   throw new Error(
@@ -280,10 +317,6 @@ export async function runTest(
                 }
                 await delay(Math.min(50, timeLeft));
               }
-            } else {
-              result.expected = "visible";
-              await target.waitFor({ state: "visible", timeout });
-              result.observed = "visible";
             }
           }
         }
@@ -311,7 +344,7 @@ export async function runTest(
           } catch {
             // Keep the failed assertion even if diagnostic search fails.
           }
-        } else if (page && (step.action.kind === "click" || step.action.kind === "fill") &&
+        } else if (page && (step.action.kind === "click" || step.action.kind === "fill" || step.action.kind === "press") &&
           step.action.target.by !== "intent" && result.status === "execution-error" &&
           /Timeout.*exceeded|strict mode violation|waiting for getBy/i.test(message(error))) {
           try {
@@ -320,7 +353,7 @@ export async function runTest(
             // resolves to exactly one element. Never override app action failures.
             if (await currentLocator.count() !== 1) {
               const alternatives = await findLocatorAlternatives(
-                page, step.action.target, step.action.kind,
+                page, step.action.target, step.action.kind, step.description,
               );
               if (alternatives.candidates.length) result.locatorAlternatives = alternatives;
             } else if (step.action.kind === "click" &&
@@ -375,6 +408,7 @@ export async function runTest(
               const alternatives = await findAssertionAlternatives(
                 page, step.action.target, step.action.kind,
                 step.action.kind === "assert-text" ? step.action.expected : undefined,
+                step.action.kind === "assert-text",
               );
               result.assertionAlternatives = alternatives; // Keep original locator/query even with no suggested matches.
             }
@@ -390,6 +424,15 @@ export async function runTest(
             result.assertionSearchAvailable = true;
           } catch {
             // Failed assertion and its screenshot remain available.
+          }
+        }
+        if (page && options.onElementSearchIndex && !page.isClosed()) {
+          try {
+            const entries = await captureElementSearchIndex(page);
+            options.onElementSearchIndex(step.id, entries);
+            result.elementSearchAvailable = entries.length > 0;
+          } catch {
+            // Optional evidence must not replace the original execution verdict.
           }
         }
         result.error = message(error);

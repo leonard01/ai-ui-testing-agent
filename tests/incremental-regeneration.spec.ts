@@ -1,4 +1,16 @@
 import { test, expect } from "@playwright/test";
+
+// Legacy recovery tests explicitly opt in; every other case exercises JSON-only.
+let previousResponsePolicy: string | undefined;
+test.beforeEach(async ({}, info) => {
+  previousResponsePolicy = process.env.GROQ_RESPONSE_POLICY;
+  const legacy = ["failed initial generation displays both","automatic capture retains","Groq intermittent JSON-mode failure","malformed click action","single-step mode rejects multiple","invalid reconciliation availability reports"].some(prefix => info.title.startsWith(prefix));
+  process.env.GROQ_RESPONSE_POLICY = legacy ? "hybrid" : "json";
+});
+test.afterEach(() => {
+  if (previousResponsePolicy === undefined) delete process.env.GROQ_RESPONSE_POLICY;
+  else process.env.GROQ_RESPONSE_POLICY = previousResponsePolicy;
+});
 import { createReviewServer } from "../src/review-server.js";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +20,10 @@ import type { AddressInfo } from "node:net";
 
 test.use({ trace: "off" });
 const baseURL = "http://127.0.0.1:3000/";
+const envelope={id:"continuation-envelope",description:"Synthetic initial navigation",action:{kind:"navigate",url:baseURL}};
+function continuationResponse(steps:unknown[],coverage?:unknown) {
+  return JSON.stringify({schemaVersion:1,id:"continuation",title:"Continuation",version:1,steps:[envelope,...steps],...(coverage!==undefined?{coverage}:{})});
+}
 const newStatus = {
   id: "new-status", description: "Verify initial count includes zero",
   action: {
@@ -33,19 +49,22 @@ let dir: string;
 let url: string;
 let mockSteps: unknown[] = [];
 let mockCalls = 0;
-let mockReconciliation: unknown;
+let mockRawResponses: string[] = [];
+let mockCoverage: unknown;
 let prompts: string[] = [];
 
 test.beforeEach(async ({ browser }) => {
   dir = await mkdtemp(join(tmpdir(), "incremental-regeneration-"));
   mockCalls = 0;
-  mockReconciliation = undefined;
+  mockRawResponses = [];
+  mockCoverage = undefined;
   prompts = [];
   mockSteps = [newStatus];
   const mock = async ({ prompt }: { prompt: string }) => {
     mockCalls++;
     prompts.push(prompt);
-    return JSON.stringify({ steps: mockSteps, reconciliation: mockReconciliation });
+    if (mockRawResponses.length) return mockRawResponses.shift()!;
+    return continuationResponse(mockSteps,mockCoverage);
   };
   server = await createReviewServer(dir, browser, mock);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -73,6 +92,53 @@ async function regenerate(data: Record<string, unknown>) {
   });
 }
 
+test("response diagnostics automatically include successful output without saving raw responses", async () => {
+  const on = await regenerate({});
+  expect(on.status).toBe(200);
+  const data = await on.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(1);
+  expect(data.aiUsage.responseDiagnostics[0]).toMatchObject({call:1,mode:"json",accepted:true});
+  expect(JSON.parse(data.aiUsage.responseDiagnostics[0].raw).steps).toEqual([envelope,newStatus]);
+  const history = await (await fetch(url + "/api/ai-usage?days=0")).json();
+  expect(JSON.stringify(history)).not.toContain("responseDiagnostics");
+  expect(JSON.stringify(history)).not.toContain("new-status");
+});
+
+test("failed initial generation displays both actual malformed responses without enabling capture @sanity", async ({page}) => {
+  mockRawResponses = ['{"steps":[FIRST_INCOMPLETE', '{"steps":[SECOND_INCOMPLETE'];
+  await page.goto(url);
+  await page.locator("#test-name").fill("Failed response diagnostics");
+  await page.getByLabel("Your test instructions").fill("Add and verify a task");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.getByRole("button",{name:"Generate draft"}).click();
+  await expect(page.locator("#generation-error")).toContainText("model output was not valid JSON");
+  const panel = page.locator("#instructions-response-diagnostics > details");
+  await expect(panel.locator(":scope > summary")).toHaveText("View model responses (2)");
+  await panel.locator(":scope > summary").click();
+  const attempts=panel.locator("#response-diagnostics-list > details");
+  await expect(attempts).toHaveCount(2);
+  for (const [i, marker] of ["FIRST_INCOMPLETE","SECOND_INCOMPLETE"].entries()) {
+    const attempt=attempts.nth(i);
+    await attempt.locator(":scope > summary").click();
+    await attempt.getByText("Raw model response",{exact:true}).click();
+    await expect(attempt.locator("pre")).toContainText(marker);
+    await expect(attempt.locator("pre")).toBeVisible();
+  }
+  expect(mockCalls).toBe(2);
+});
+
+test("automatic capture retains failed first response and successful retry", async () => {
+  mockRawResponses = ['{"steps":[INCOMPLETE', continuationResponse([newStatus])];
+  const res=await regenerate({});
+  expect(res.status).toBe(200);
+  const data=await res.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(2);
+  expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics[0].accepted).not.toBe(true);
+  expect(data.aiUsage.responseDiagnostics[1].accepted).toBe(true);
+  expect(JSON.parse(data.aiUsage.responseDiagnostics[1].raw).steps).toEqual([envelope,newStatus]);
+});
+
 test("single-step proposal preserves unaffected steps and confirmed approvals", async () => {
   const response = await regenerate({});
   expect(response.status).toBe(200);
@@ -88,7 +154,7 @@ test("single-step proposal preserves unaffected steps and confirmed approvals", 
   expect(data.definition.steps.slice(2)).toEqual(fixture.steps.slice(2));
   expect(data.preservedApprovedStepIds).toEqual(["open", "enter"]);
   expect(prompts[0]).toContain("PRESERVED PRECEDING STEPS");
-  expect(prompts[0]).toContain("Replace exactly ONE step");
+  expect(prompts[0]).toContain("replacedStepCount");
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
 
@@ -113,53 +179,43 @@ test("suffix proposal preserves prefix and strips requirement links to removed I
   expect(data.definition.steps.slice(2).every((step:{id:string}) => step.id.startsWith("regen-"))).toBe(true);
 });
 
-test("AI replacement automatically reconciles affected instruction links", async () => {
-  const definition = await original();
-  definition.instructionCoverage = {
-    source: "Verify task count is zero.",
-    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
-      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
-    prerequisiteStepIds: [],
-  };
-  mockReconciliation = {
-    changes: [{id:"R1",operation:"keep"}], additions: [],
-    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"identified"}]},
-  };
-  const res = await regenerate({definition, instructions:"Verify the count includes zero"});
-  expect(res.status).toBe(200);
-  const data = await res.json();
-  expect(data.definition.instructionCoverage.entries).toHaveLength(1);
-  expect(data.definition.instructionCoverage.entries[0].stepIds).toEqual([data.replacement[0].id]);
-  expect(data.definition.instructionCoverage.entries[0].issue).toBe("");
-  expect(data.definition.workingInstructions).toBe("Verify task count is zero.");
+test("continuation preserves original requirement and remaps new instruction independently", async () => {
+  const definition=await original();
+  definition.instructionCoverage={source:"Verify task count is zero.",entries:[{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",stepIds:["empty"],issue:"",availability:"identified",confirmed:true}],prerequisiteStepIds:[]};
+  mockCoverage={entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"identified"}]};
+  const instructions="Verify the count includes zero";
+  const res=await regenerate({definition,instructions});
+  const data=await res.json();
+  expect(res.status,JSON.stringify(data)).toBe(200);
+  expect(data.definition.instructionCoverage.entries).toHaveLength(2);
+  expect(data.definition.instructionCoverage.entries[0]).toMatchObject({id:"R1",text:"Verify task count is zero.",stepIds:[],confirmed:false,availability:"uncertain"});
+  expect(data.definition.instructionCoverage.entries[0].issue).toContain("empty");
+  expect(data.definition.instructionCoverage.entries[1]).toMatchObject({id:"R2",text:instructions,stepIds:[data.replacement[0].id],confirmed:false,issue:""});
+  expect(data.definition.workingInstructions).toBe("Verify task count is zero.\n"+instructions);
   expect(data.definition.sourceInstructions).toBe("Verify task count is zero.");
 });
 
-test("adding another task automatically maps new requirements and preserves unrelated requirements @sanity", async () => {
-  const definition = await original();
-  // End at the original task visibility assertion, before completion/deletion.
-  definition.steps = definition.steps.slice(0, definition.steps.findIndex((step:{id:string})=>step.id==="visible")+1);
-  const last = definition.steps.at(-1);
-  definition.instructionCoverage = {
-    source:"Verify initial count.\nVerify original task.",
-    entries:[
-      {id:"R1",text:"Verify initial count.",interpretation:"Initial count",stepIds:["empty"],issue:"",confirmed:true},
-      {id:"R2",text:"Verify original task.",interpretation:"Original task",stepIds:[last.id],issue:"",confirmed:false}
-    ],prerequisiteStepIds:[]
-  };
-  const originalCheck = {...last,id:"original-check",action:{...last.action,provenance:"requirements"}};
-  mockSteps = [originalCheck,...remainder];
-  mockReconciliation = {changes:[],additions:["Add Buy groceries.","Verify Buy groceries."],
-    coverage:{entries:[
-      {id:"R2",interpretation:"Original task",stepIds:["original-check"]},
-      {id:"R3",interpretation:"Add task",stepIds:["new-fill","new-add"]},
-      {id:"R4",interpretation:"Verify task",stepIds:["new-check"]}
-    ]}};
-  const res = await regenerate({definition,stepId:last.id,mode:"from",instructions:"Add Buy groceries and verify it."});
+test("adding another task maps new instructions and preserves unrelated requirements @sanity", async () => {
+  const definition=await original();
+  definition.steps=definition.steps.slice(0,definition.steps.findIndex((step:{id:string})=>step.id==="visible")+1);
+  const last=definition.steps.at(-1);
+  definition.instructionCoverage={source:"Verify initial count.\nVerify original task.",entries:[
+    {id:"R1",text:"Verify initial count.",interpretation:"Initial count",stepIds:["empty"],issue:"",confirmed:true},
+    {id:"R2",text:"Verify original task.",interpretation:"Original task",stepIds:[last.id],issue:"",confirmed:false}
+  ],prerequisiteStepIds:[]};
+  mockSteps=[{...last,id:"original-check",action:{...last.action,provenance:"requirements"}},...remainder];
+  mockCoverage={entries:[
+    {id:"R1",interpretation:"Add task",stepIds:["new-fill","new-add"],availability:"identified"},
+    {id:"R2",interpretation:"Verify task",stepIds:["new-check"],availability:"identified"},
+  ]};
+  const res=await regenerate({definition,stepId:last.id,mode:"from",instructions:"Add Buy groceries. Verify Buy groceries."});
   const data=await res.json();
-  expect(res.status, JSON.stringify(data)).toBe(200);
-  expect(data.definition.instructionCoverage.entries.map((row:{issue:string})=>row.issue)).toEqual(["","","",""]);
+  expect(res.status,JSON.stringify(data)).toBe(200);
   expect(data.definition.instructionCoverage.entries[0]).toEqual(definition.instructionCoverage.entries[0]);
+  expect(data.definition.instructionCoverage.entries[1].stepIds).toEqual([]);
+  expect(data.definition.instructionCoverage.entries[1].issue).toContain(last.id);
+  expect(data.definition.instructionCoverage.entries.slice(2).map((row:{issue:string})=>row.issue)).toEqual(["",""]);
+  expect(data.definition.instructionCoverage.entries[2].stepIds).toEqual(data.replacement.slice(1,3).map((s:{id:string})=>s.id));
   expect(data.definition.workingInstructions).toContain("Verify Buy groceries.");
 });
 
@@ -173,6 +229,44 @@ test("unsafe and malformed proposals cannot alter or approve a test", async () =
   expect(forged.status).toBe(422);
   expect((await forged.json()).error).toContain("human-confirmed");
   expect((await (await fetch(url + "/api/drafts")).json()).drafts).toHaveLength(0);
+});
+
+test("automatic response diagnostics expose successful output and clear it on demand @sanity", async ({page}) => {
+  await page.goto(url);
+  const panel = page.locator("#response-diagnostics-panel");
+  const heading = panel.locator(":scope > summary");
+  await expect(page.locator("#instructions-response-diagnostics > details")).toHaveCount(1);
+  await expect(heading).toHaveText("View model responses (0)");
+  await page.locator("#test-name").fill("Response diagnostics test");
+  await page.getByLabel("Your test instructions").fill("Add and verify a task");
+  await page.getByLabel("Generate with").selectOption("fixture");
+  await page.getByRole("button", {name:"Generate draft"}).click();
+  await expect(page.locator("#step-list .step")).toHaveCount(9);
+  await page.locator("#stage-instructions").click();
+  await page.getByLabel("Generate with").selectOption("groq");
+  await page.locator("#stage-draft").click();
+  await page.locator("#step-list .step").last().getByRole("button",{name:"Reinterpret with AI"}).click();
+  await page.getByLabel("New plain-English instructions for replacement steps").fill("Verify the initial count");
+  await page.getByRole("button",{name:"Generate replacement"}).click();
+  await expect(page.locator("#incremental-status")).toContainText("Proposal ready");
+  await expect(page.locator("#draft-response-diagnostics > details")).toHaveCount(1);
+  await expect(panel).not.toHaveAttribute("open","");
+  await heading.click();
+  const list=page.locator("#response-diagnostics-list");
+  const attempt=list.locator(":scope > details");
+  await expect(attempt).toHaveCount(1);
+  await expect(attempt).not.toHaveAttribute("open","");
+  await attempt.locator(":scope > summary").click();
+  await attempt.getByText("Raw model response",{exact:true}).click();
+  await expect(attempt.locator("pre")).toContainText("new-status");
+  await expect(attempt.getByRole("button",{name:"Copy raw model response"})).toBeVisible();
+  await page.locator("#nav-ai-usage").click();
+  await expect(page.locator("#analytics-response-diagnostics > details")).toHaveCount(1);
+  await heading.click();
+  await expect(attempt).toHaveCount(1);
+  await page.locator("#clear-response-diagnostics").click();
+  await expect(list.locator(":scope > details")).toHaveCount(0);
+  await expect(heading).toHaveText("View model responses (0)");
 });
 
 test("UI proposes suffix replacement, requires Apply and leaves replacement steps unapproved @sanity", async ({page}) => {
@@ -233,7 +327,7 @@ test("Groq intermittent JSON-mode failure is retried once without changing saved
       throw new GroqProviderError(400, "json-generation", "json_validate_failed",
         "invalid_request_error", undefined, "Retry structured generation.");
     }
-    return JSON.stringify({ steps: [newStatus] });
+    return continuationResponse([newStatus]);
   };
   const proposal = await generateIncrementalProposal({
     definition: await original(),
@@ -286,7 +380,7 @@ test("malformed click action is rejected with actionable explanation, no changes
   const data = await res.json();
   expect(data.error).toContain("could not produce valid replacement test steps");
   expect(data.error).toContain("Your existing steps were not changed");
-  expect(data.error).toContain("step 1");
+  expect(data.error).toContain("steps[1].action");
   expect(mockCalls).toBe(2);
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
@@ -377,45 +471,28 @@ test("single-step mode rejects multiple replacements without saving a test", asy
   expect((await (await fetch(url + "/api/tests")).json()).tests).toHaveLength(0);
 });
 
-test("invalid reconciliation availability reports its actual field and allowed values", async () => {
-  const definition = await original();
-  definition.instructionCoverage = {
-    source: "Verify task count is zero.",
-    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
-      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
-    prerequisiteStepIds: [],
-  };
-  mockReconciliation = {
-    changes: [], additions: [],
-    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"available"}]},
-  };
-  const res = await regenerate({definition});
-  const data = await res.json();
-  expect(res.status).toBe(422);
-  expect(data.error).toContain("reconciliation.coverage.entries.0.availability");
-  expect(data.error).toContain("allowed: identified, later-state, selector-uncertain, functional-mismatch, uncertain");
-  expect(mockCalls).toBe(2);
-  expect(prompts[1]).toContain("Allowed availability: identified");
-  expect(prompts[0]).toContain("CURRENT REQUIREMENTS");
+test("invalid new mapping availability does not discard valid executable continuation", async () => {
+  const definition=await original();
+  definition.instructionCoverage={source:"Verify task count is zero.",entries:[{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],prerequisiteStepIds:[]};
+  mockCoverage={entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id],availability:"available"}]};
+  const res=await regenerate({definition});
+  const data=await res.json();
+  expect(res.status,JSON.stringify(data)).toBe(200);
+  expect(mockCalls).toBe(1);
+  expect(data.definition.instructionCoverage.entries[0].issue).toContain("Previous mapping");
+  expect(data.definition.instructionCoverage.entries[1]).toMatchObject({stepIds:[],confirmed:false,availability:"uncertain"});
+  expect(data.definition.instructionCoverage.entries[1].issue).toContain("unsupported mapping structure");
+  expect(data.definition.instructionCoverage.proceedAccepted).toBe(false);
 });
 
-test("reconciliation availability may be omitted without relaxing enum validation", async () => {
-  const definition = await original();
-  definition.instructionCoverage = {
-    source: "Verify task count is zero.",
-    entries: [{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",
-      stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],
-    prerequisiteStepIds: [],
-  };
-  mockReconciliation = {
-    changes: [], additions: [],
-    coverage: {entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id]}]},
-  };
-  const res = await regenerate({definition});
-  const data = await res.json();
-  expect(res.status, JSON.stringify(data)).toBe(200);
-  expect(data.definition.instructionCoverage.entries[0].availability).toBe("uncertain");
-  expect(data.definition.instructionCoverage.entries[0].stepIds).toEqual([data.replacement[0].id]);
+test("mapping availability may be omitted and new links stay unconfirmed", async () => {
+  const definition=await original();
+  definition.instructionCoverage={source:"Verify task count is zero.",entries:[{id:"R1",text:"Verify task count is zero.",interpretation:"Check count",stepIds:["empty"],issue:"",availability:"identified",confirmed:false}],prerequisiteStepIds:[]};
+  mockCoverage={entries:[{id:"R1",interpretation:"Verify count",stepIds:[newStatus.id]}]};
+  const res=await regenerate({definition});
+  const data=await res.json();
+  expect(res.status,JSON.stringify(data)).toBe(200);
+  expect(data.definition.instructionCoverage.entries[1]).toMatchObject({availability:"uncertain",stepIds:[data.replacement[0].id],confirmed:false});
 });
 
 test("UI explains malformed AI response and allows retry without editing instructions @sanity", async ({page}) => {
@@ -447,5 +524,102 @@ test("UI explains malformed AI response and allows retry without editing instruc
   await expect(status).toContainText("Proposal ready");
   await expect(instructions).toHaveValue("Add another task and verify it");
   await expect(page.locator("#incremental-proposed-steps .run-step")).toHaveCount(3);
-  expect(prompts.at(-1)).toContain("Replace the selected step and all following steps");
+  expect(prompts.at(-1)).toContain("replacedStepCount");
+});
+
+test("JSON-only malformed incremental response is recovered once and does not save a test",async()=>{
+  mockRawResponses=['{"steps":[INCOMPLETE',continuationResponse([newStatus])];
+  const res=await regenerate({});
+  expect(res.status).toBe(200);
+  expect(mockCalls).toBe(2);
+  const data=await res.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(2);
+  expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics[0].accepted).not.toBe(true);
+  expect(data.aiUsage.responseDiagnostics[1].accepted).toBe(true);
+  expect(data.replacement[0].action).toEqual(newStatus.action);
+  expect((await (await fetch(url+"/api/tests")).json()).tests).toHaveLength(0);
+});
+
+test("JSON-only incremental recovery stops after two malformed responses without saving",async()=>{
+  mockRawResponses=['{"steps":[INCOMPLETE','{"steps":[STILL_INCOMPLETE'];
+  const res=await regenerate({});
+  expect(res.status).toBe(422);
+  expect(mockCalls).toBe(2);
+  const data=await res.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(2);
+  expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics[1].raw).toContain("STILL_INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics.every((attempt:{accepted?:boolean})=>attempt.accepted!==true)).toBe(true);
+  expect((await (await fetch(url+"/api/tests")).json()).tests).toHaveLength(0);
+});
+
+
+test("live reinterpretation is temporarily disabled at UI and API boundary", async ({browser}) => {
+  const liveDir = await mkdtemp(join(tmpdir(), "incremental-disabled-"));
+  const live = await createReviewServer(liveDir, browser);
+  try {
+    await new Promise<void>(resolve => live.listen(0, "127.0.0.1", resolve));
+    const address = "http://127.0.0.1:" + (live.address() as AddressInfo).port;
+    const html = await (await fetch(address)).text();
+    expect(html).toContain("const incrementalReinterpretationEnabled = false;");
+    expect(html).toContain("reinterpret.disabled = !incrementalReinterpretationEnabled");
+    const response = await fetch(address + "/api/regenerate-steps", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({definition: await original(), baseURL, stepId:"empty",
+        mode:"from", instructions:"Verify count contains zero", approvedStepIds:[], provider:"groq"}),
+    });
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("temporarily disabled");
+  } finally {
+    live.closeAllConnections();
+    await new Promise<void>(resolve => live.close(() => resolve()));
+    await rm(liveDir, {recursive:true,force:true});
+  }
+});
+
+
+test("continuation permits interaction-only replacement and withholds previous fill values",async({browser})=>{
+  const {generateIncrementalProposal}=await import("../src/incremental-generation.js");
+  const definition=await original();
+  definition.steps[2].action.value="PRIVATE_PREVIOUS_VALUE";
+  const before=JSON.stringify(definition);
+  const next={id:"enter",description:"Click Add",action:{kind:"click",target:{by:"role",role:"button",name:"Add"}}};
+  const proposal=await generateIncrementalProposal({definition,baseURL,stepId:"add",mode:"step",
+    instructions:"Click Add",approvedStepIds:definition.steps.map((s:{id:string})=>s.id),model:"fixture"},
+    async request=>{
+      expect(request.prompt).not.toContain("PRIVATE_PREVIOUS_VALUE");
+      expect(request.system).toContain("synthetic envelope");
+      return continuationResponse([next]);
+    },browser);
+  expect(JSON.stringify(definition)).toBe(before);
+  expect(proposal.replacement).toHaveLength(1);
+  expect(proposal.replacement[0].action).toEqual(next.action);
+  expect(proposal.replacement[0].id).not.toBe("enter");
+  expect(proposal.definition.steps.slice(0,3)).toEqual(definition.steps.slice(0,3));
+  expect(proposal.definition.steps.slice(4)).toEqual(definition.steps.slice(4));
+  expect(proposal.preservedApprovedStepIds).not.toContain("add");
+});
+
+test("continuation rejects assertion-free combined test and empty replacement",async({browser})=>{
+  const {generateIncrementalProposal}=await import("../src/incremental-generation.js");
+  const definition=await original();
+  const options={definition,baseURL,stepId:"empty",mode:"from" as const,instructions:"Click Add",
+    approvedStepIds:["open"],model:"fixture"};
+  const next={id:"click",description:"Click Add",action:{kind:"click",target:{by:"role",role:"button",name:"Add"}}};
+  await expect(generateIncrementalProposal(options,async()=>continuationResponse([next]),browser)).rejects.toThrow(/combined test must contain at least one assertion/);
+  await expect(generateIncrementalProposal(options,async()=>continuationResponse([]),browser)).rejects.toThrow(/valid replacement test steps/);
+});
+
+test("continuation rejects cross-origin navigation and discards only synthetic entry",async({browser})=>{
+  const {generateIncrementalProposal}=await import("../src/incremental-generation.js");
+  const definition=await original();
+  const options={definition,baseURL,stepId:"empty",mode:"step" as const,instructions:"Navigate to tasks",
+    approvedStepIds:["open"],model:"fixture"};
+  const navigation={id:"next",description:"Navigate",action:{kind:"navigate",url:"https://unrelated.example/"}};
+  await expect(generateIncrementalProposal(options,async()=>continuationResponse([navigation]),browser)).rejects.toThrow(/origin/);
+  const next={...navigation,action:{kind:"navigate",url:"/health"}};
+  const proposal=await generateIncrementalProposal(options,async()=>continuationResponse([next]),browser);
+  expect(proposal.replacement.map(s=>s.action)).toEqual([next.action]);
+  expect(proposal.definition.steps[0]).toEqual(definition.steps[0]);
 });

@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 const text = z.string().trim().min(1).max(2000);
-const target = z.discriminatedUnion("by", [
+// A scope identifies one semantic container by exact descendant text.
+const roleScope = z.object({role:z.enum(["listitem","article","row","group"]),text}).strict();
+const explicitTargets = [
   z
     .object({
       by: z.literal("role"),
@@ -16,6 +18,8 @@ const target = z.discriminatedUnion("by", [
         "listitem",
       ]),
       name: text.optional(),
+      hasText: text.optional(), // exact descendant text, not substring matching
+      within: roleScope.optional(),
       // Explicit zero-based position among elements with this accessible
       // role/name. Only human-confirmed repairs should introduce this field.
       nth: z.number().int().min(0).max(249).optional(),
@@ -28,9 +32,12 @@ const target = z.discriminatedUnion("by", [
   // Preserve old schema version and existing semantic strategies.
   z.object({ by: z.literal("testid"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("id"), value: z.string().trim().min(1).max(1000) }).strict(),
-  z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(4000) }).strict(),
   z.object({ by: z.literal("xpath"), value: z.string().trim().min(1).max(1000) }).strict(),
-  z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional() }).strict(),
+] as const;
+const explicitTarget = z.discriminatedUnion("by", [...explicitTargets]);
+const target = z.discriminatedUnion("by", [...explicitTargets,
+  z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional(), rolePolicy: z.enum(["strict", "hint"]).optional() }).strict(),
 ]);
 // Count assertions require an explicit multi-match locator. Intent discovery
 // intentionally resolves exactly one element, so it cannot express counts.
@@ -62,6 +69,7 @@ const requirement = z.object({
 const action = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: text }).strict(),
   z.object({ kind: z.literal("click"), target }).strict(),
+  z.object({ kind: z.literal("hover"), target: explicitTarget }).strict(),
   z.object({ kind: z.literal("check"), target }).strict(),
   z.object({ kind: z.literal("uncheck"), target }).strict(),
   z.object({ kind: z.literal("select-option"), target, value: z.string().max(2000) }).strict(),
@@ -88,7 +96,7 @@ const action = z.discriminatedUnion("kind", [
 
 export const testStepSchema = z.object({ id: text, description: text, action }).strict();
 
-export const testDefinitionSchema = z
+const testDefinitionBaseSchema = z
   .object({
     schemaVersion: z.literal(1),
     id: text,
@@ -126,8 +134,9 @@ export const testDefinitionSchema = z
       .min(1)
       .max(100),
   })
-  .strict()
-  .superRefine((definition, ctx) => {
+  .strict();
+
+function validateDefinition(definition: z.infer<typeof testDefinitionBaseSchema>, ctx: z.RefinementCtx, requireAssertion: boolean) {
     const seen = new Set<string>();
     definition.steps.forEach((step, index) => {
       if (seen.has(step.id))
@@ -167,15 +176,29 @@ export const testDefinitionSchema = z
         message: "First step must navigate to the application",
       });
     if (
-      !definition.steps.some((step) => step.action.kind.startsWith("assert-"))
+      requireAssertion && !definition.steps.some((step) => step.action.kind.startsWith("assert-"))
     )
       ctx.addIssue({
         code: "custom",
         path: ["steps"],
         message: "A test must contain at least one assertion",
       });
-  });
+}
+
+export const testDefinitionSchema = testDefinitionBaseSchema.superRefine((definition, ctx) =>
+  validateDefinition(definition, ctx, true));
+
+// A continuation is review-only, never a runnable definition. It uses the
+// same exact action and locator schema but can rely on preserved assertions.
+const continuationDefinitionSchema = testDefinitionBaseSchema.superRefine((definition, ctx) => {
+  validateDefinition(definition, ctx, false);
+  if (definition.steps.length < 2 || definition.steps.length > 26)
+    ctx.addIssue({code:"custom",path:["steps"],message:"Continuation requires an initial navigation envelope and 1 to 25 replacement steps"});
+});
 
 export function parseTestDefinition(input: unknown) {
   return testDefinitionSchema.parse(input);
+}
+export function parseContinuationDefinition(input: unknown) {
+  return continuationDefinitionSchema.parse(input);
 }

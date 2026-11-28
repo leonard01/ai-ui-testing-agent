@@ -1,6 +1,5 @@
 import type { TestAction, TestDefinition } from "./domain.js";
 import { ensureAllowedNavigation } from "./inspect.js";
-import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { parseTestDefinition } from "./schema.js";
 import { assertCredentialsReviewed } from "./credential-guard.js";
 
@@ -21,7 +20,7 @@ type IntentRole = "button" | "textbox" | "checkbox" | "radio" | "combobox" |
   "heading" | "status" | "listitem";
 type IntentOperation = "click" | "fill" | "check" | "select-option" | "press" |
   "assert-text" | "assert-visible";
-type IntentQuery = { value: string; role?: IntentRole };
+type IntentQuery = { value: string; role?: IntentRole; rolePolicy?: "hint" | "strict" };
 type Candidate = {
   index: number; role: string; name: string; text: string;
   nearby: string; testId: string; id: string; tag: string;
@@ -43,102 +42,6 @@ function words(value: string): string[] {
 function terms(value: string): string[] {
   return [...new Set(words(value).filter((word) => !STOP_WORDS.has(word)))];
 }
-function candidateScore(candidate: Candidate, query: string[]): number | null {
-  if (!query.length) return 0;
-  const name = new Set(words(candidate.name));
-  const text = new Set(words(candidate.text));
-  const nearby = new Set(words(candidate.nearby));
-  const role = new Set(words(candidate.role));
-  let score = 0;
-  for (const word of query) {
-    if (name.has(word)) score += 15;
-    else if (text.has(word)) score += 11;
-    else if (role.has(word)) score += 10;
-    else if (nearby.has(word)) score += 4;
-    else return null;
-  }
-  const nameTerms = terms(candidate.name);
-  if (nameTerms.length === query.length &&
-      query.every((word) => nameTerms.includes(word))) score += 50;
-  return score;
-}
-
-/** Keep exported intent semantics consistent with src/discovery.ts. */
-function cartProductPhrase(value: string): { product: string; explicitCart: boolean } | null {
-  const input = value.replace(/\s+/g, " ").trim();
-  const match = /^(?:add|put)\s+(.+)$/i.exec(input);
-  if (!match) return null;
-  const explicitCart = /\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(match[1]);
-  const product = match[1]
-    .replace(/\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i, "")
-    .replace(/^(?:the|a)\s+/i, "").trim();
-  if (!product || /^(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(product))
-    return null;
-  return { product, explicitCart };
-}
-
-async function productTitles(page: Page, product: string): Promise<string[]> {
-  return page.evaluate((raw) => {
-    const clean = (value: string) => value.replace(/\s+/g, " ").trim();
-    const query = clean(raw).toLocaleLowerCase();
-    const found: string[] = [];
-    for (const node of Array.from(document.querySelectorAll<HTMLElement>("body *")).slice(0, 12000)) {
-      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,button,[role="button"],[contenteditable="true"]')) continue;
-      if (!node.getClientRects().length || getComputedStyle(node).visibility !== "visible") continue;
-      const value = clean(node.innerText || "");
-      if (value.length < 3 || value.length > 120 || value.split(" ").length > 10) continue;
-      const lowered = value.toLocaleLowerCase();
-      if (lowered !== query && !lowered.endsWith(" " + query)) continue;
-      if (Array.from(node.children).some((child) =>
-        clean((child as HTMLElement).innerText || "").toLocaleLowerCase() === lowered &&
-        !!(child as HTMLElement).getClientRects().length)) continue;
-      found.push(value);
-      if (found.length > 20) break;
-    }
-    return found;
-  }, product);
-}
-
-async function resolveCartAction(
-  page: Page, target: IntentQuery,
-): Promise<{ claimed: boolean; detail?: string; locator?: Locator }> {
-  const parsed = cartProductPhrase(target.value);
-  if (!parsed || (target.role && target.role !== "button")) return { claimed: false };
-  const actions = page.getByRole("button", { name: /^add to (?:cart|basket)$/i });
-  const buttonCount = await actions.count();
-  if (!buttonCount && !parsed.explicitCart) return { claimed: false };
-  const names = await productTitles(page, parsed.product);
-  if (!parsed.explicitCart && names.length === 0) return { claimed: false };
-  if (names.length !== 1) return {
-    claimed: true, detail: names.length
-      ? "Product " + JSON.stringify(parsed.product) + " matched multiple visible titles"
-      : "Product " + JSON.stringify(parsed.product) + " was not found as a unique visible title",
-  };
-  const title = page.getByText(names[0], { exact: true });
-  if (await title.count() !== 1 || !await title.isVisible()) return {
-    claimed: true, detail: "Product " + JSON.stringify(names[0]) +
-      " did not have a unique, visible title locator",
-  };
-  let container = title;
-  for (let depth = 0; depth < 8; depth++) {
-    container = container.locator("..");
-    // Never escape a recognised product card into its product list or page.
-    // A sold-out card can lack Add to cart while a neighbouring card has one.
-    const boundary = await container.evaluate((node) =>
-      node.matches('main,body,html,[role="main"],[role="list"],[role="feed"]'));
-    if (boundary) break;
-    const scoped = container.getByRole("button", { name: /^add to (?:cart|basket)$/i });
-    const count = await scoped.count();
-    if (count === 1 && await scoped.isVisible() && await scoped.isEnabled())
-      return { claimed: true, locator: scoped };
-    if (count > 1) break;
-    if (await container.evaluate((node) =>
-      node.matches('article,li,[role="listitem"],.inventory_item,.product-card,.product_item,[data-testid="product-card"],[data-testid="product-item"]'))) break;
-  }
-  return { claimed: true, detail: "No unique enabled Add to cart button within product " +
-    JSON.stringify(names[0]) };
-}
-
 async function intentLocator(
   page: Page,
   intent: IntentQuery,
@@ -150,18 +53,6 @@ async function intentLocator(
   }
   const deadline = Date.now() + STEP_TIMEOUT;
   while (true) {
-    if (operation === "click") {
-      const scoped = await resolveCartAction(page, intent);
-      if (scoped.claimed) {
-        if (scoped.locator) return scoped.locator;
-        if (Date.now() >= deadline) {
-          throw new Error("Could not resolve intent: " +
-            (scoped.detail ?? "Product-scoped cart action not uniquely verified"));
-        }
-        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
-        continue;
-      }
-    }
     const { selector, candidates } = await page.evaluate((op) => {
       const selectors: Record<IntentOperation, string> = {
         click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], input[type=radio], [role=button], [role=link], [role=checkbox], [role=radio]",
@@ -177,7 +68,7 @@ async function intentLocator(
         (value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
       const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector))
         .slice(0, 250).flatMap((el, index) => {
-          if (!el.getClientRects().length || el.closest("[hidden], [inert]")) return [];
+          if (!el.getClientRects().length || el.closest('[hidden], [inert], [aria-hidden="true" i]')) return [];
           const style = getComputedStyle(el);
           if (style.visibility === "hidden" || style.display === "none") return [];
           const input = el as HTMLInputElement;
@@ -198,41 +89,38 @@ async function intentLocator(
             .map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
           const label = input.labels?.[0]?.textContent;
           const text = clean(el.innerText || el.textContent);
-          const name = clean(el.getAttribute("aria-label") || labelledBy || label ||
+          const name = (el.getAttribute("aria-label") || labelledBy || label ||
             el.getAttribute("placeholder") || el.getAttribute("title") ||
             (el.tagName === "INPUT" ? input.value &&
-              ["submit", "button"].includes(input.type) ? input.value : "" : text));
+              ["submit", "button"].includes(input.type) ? input.value : "" : el.innerText || el.textContent) || "")
+            .replace(/\s+/g, " ").trim();
           const nearby = clean(el.parentElement?.innerText, 180);
           return [{
             index, tag: el.tagName.toLowerCase(), role, name, text, nearby,
-            testId: clean(el.getAttribute("data-testid"), 100),
-            id: clean(el.id, 100),
+            testId: el.getAttribute("data-testid") ?? "",
+            id: el.id,
           }];
         });
       return { selector, candidates };
     }, operation);
-    const ranked = candidates
-      .filter((candidate) => !intent.role || candidate.role === intent.role)
-      .flatMap((candidate) => {
-        const score = candidateScore(candidate, query);
-        return score === null ? [] : [{ candidate, score }];
-      }).sort((a, b) => b.score - a.score);
-    if (ranked.length) {
-      const best = ranked[0].score;
-      const tied = ranked.filter((entry) => entry.score === best);
+    const exactName = (value: string) => value.replace(/\s+/g, " ").trim();
+    const tied = candidates.filter(candidate =>
+      (!intent.role || candidate.role === intent.role) &&
+      exactName(candidate.name) === exactName(intent.value)
+    ).map(candidate => ({candidate}));
+    if (tied.length) {
       if (tied.length !== 1) {
         throw new Error("Ambiguous intent " + JSON.stringify(intent.value) +
           ": " + tied.length + " equally plausible elements. Refine the target.");
       }
       const selected = tied[0].candidate;
-      const choices = [
-        ...(selected.testId ? [page.getByTestId(selected.testId)] : []),
-        ...(selected.id ? [page.locator("[id=" + JSON.stringify(selected.id) + "]")] : []),
-        page.locator(selector).nth(selected.index),
-      ];
-      for (const choice of choices) {
-        if (await choice.count() === 1 && await choice.isVisible()) return choice;
-      }
+      const eligible = page.locator(selector).and(page.locator(':not([hidden], [inert], [aria-hidden="true" i], [hidden] *, [inert] *, [aria-hidden="true" i] *)'));
+      const role = selected.role as Parameters<Page["getByRole"]>[0];
+      const semantic = selected.role
+        ? page.getByRole(role, { name: intent.value, exact: true })
+        : page.getByText(intent.value, { exact: true });
+      const locator = eligible.and(semantic).filter({ visible: true });
+      if (await locator.count() === 1 && await locator.isVisible()) return locator;
     }
     if (Date.now() >= deadline) {
       throw new Error("Could not resolve intent " + JSON.stringify(intent.value) +
@@ -249,9 +137,12 @@ function literal(value: string | number | object): string {
 
 function targetExpression(target: Target, operation: string): string {
   if (target.by === "role") {
-    const base = "page.getByRole(" + literal(target.role) + ", " +
+    const scope = "within" in target ? target.within : undefined;
+    const parent = scope ? "container" : "page";
+    let base = parent + ".getByRole(" + literal(target.role) + ", " +
       (target.name === undefined ? "{ exact: true }" :
         "{ name: " + literal(target.name) + ", exact: true }") + ")";
+    if ("hasText" in target && target.hasText) base += ".filter({ has: page.getByText(" + literal(target.hasText) + ", { exact: true }) })";
     return "nth" in target && target.nth !== undefined
       ? base + ".nth(" + target.nth + ")" : base;
   }
@@ -269,7 +160,7 @@ function targetExpression(target: Target, operation: string): string {
   if (target.by === "css") return "page.locator(" + literal("css=" + target.value) + ")";
   if (target.by === "xpath") return "page.locator(" + literal("xpath=" + target.value) + ")";
   return "await intentLocator(page, " +
-    literal({ value: target.value, ...(target.role ? { role: target.role } : {}) }) +
+    literal({ value: target.value, ...(target.role ? { role: target.role } : {}), ...(target.rolePolicy ? { rolePolicy: target.rolePolicy } : {}) }) +
     ", " + literal(operation) + ")";
 }
 
@@ -292,26 +183,36 @@ function exportAction(action: TestAction, base: URL): string[] {
     ];
   }
   if (action.kind === "assert-text" && action.scope === "search-results") {
-    const escaped = action.expected.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const expected = action.expected.replace(/\s+/g, " ").trim();
     return [
       "// Assertion provenance: " + action.provenance,
       "// Only identifiable search-result cards count; never the query box or whole page.",
-      "const resultCards = page.locator(" + literal(SEARCH_RESULT_ITEM_SELECTOR) + ");",
-      "const resultPattern = new RegExp(" + literal(escaped) + ", 'i');",
+      ...(action.target.by === "role" && action.target.within ? [
+        "const container = page.getByRole(" + literal(action.target.within.role) + ").filter({ has: page.getByText(" + literal(action.target.within.text) + ", { exact: true }) });",
+        'await container.waitFor({ state: "attached", timeout: STEP_TIMEOUT });',
+      ] : []),
+      "const resultCards = " + (["text","intent","label","placeholder"].includes(action.target.by) ? '(() => { throw new Error("Search-result assertions require an explicit record locator"); })() as Locator' : targetExpression(action.target, "assert-text")) + ";",
+      "const expectedResultText = " + literal(expected) + ";",
       "await expect.poll(async () => {",
-      "  const matching = resultCards.filter({ hasText: resultPattern });",
-      "  for (let i = 0; i < await matching.count(); i++) {",
-      "    if (await matching.nth(i).isVisible()) return true;",
-      "  }",
-      "  return false;",
+      "  const visibleRecords = await resultCards.filter({ visible: true }).evaluateAll(nodes =>",
+      "    nodes.map(node => (node as HTMLElement).innerText ?? ''));",
+      "  return visibleRecords.some(value => value.replace(/\\s+/g, ' ').trim()" +
+        (action.match === "contains" ? ".includes(expectedResultText)" : " === expectedResultText") + ");",
       "}, { timeout: STEP_TIMEOUT }).toBe(true);",
     ];
   }
   const operation = action.kind === "uncheck" ? "check" : action.kind === "assert-count"
     ? "assert-visible" : action.kind;
   const locator = targetExpression(action.target, operation);
-  const lines = ["const target = " + locator + ";"];
+  const lines: string[] = [];
+  if (action.target.by === "role" && "within" in action.target && action.target.within) {
+    const scope = action.target.within;
+    lines.push("const container = page.getByRole(" + literal(scope.role) + ").filter({ has: page.getByText(" + literal(scope.text) + ", { exact: true }) });");
+    lines.push('await container.waitFor({ state: "attached", timeout: STEP_TIMEOUT });');
+  }
+  lines.push("const target = " + locator + ";");
   if (action.kind === "click") lines.push("await target.click();");
+  else if (action.kind === "hover") lines.push("await target.hover();");
   else if (action.kind === "fill") {
     lines.push("await target.fill(" + literal(action.value) + ");");
   } else if (action.kind === "check") lines.push("await target.check();");
@@ -327,12 +228,13 @@ function exportAction(action: TestAction, base: URL): string[] {
   } else if (action.kind === "assert-text") {
     lines.push("// Assertion provenance: " + action.provenance);
     lines.push("await expect(target).toHaveCount(1, { timeout: STEP_TIMEOUT });");
+    lines.push("await expect(target).toBeVisible({ timeout: STEP_TIMEOUT });");
     lines.push("await expect(target)." + (action.match === "contains" ? "toContainText(" : "toHaveText(") + literal(action.expected) +
-      ", { timeout: STEP_TIMEOUT });");
+      ", { timeout: STEP_TIMEOUT, useInnerText: true });");
   } else if (action.kind === "assert-visible") {
     lines.push("// Assertion provenance: " + action.provenance);
-    lines.push("await expect(target).toHaveCount(1, { timeout: STEP_TIMEOUT });");
-    lines.push("await expect(target).toBeVisible({ timeout: STEP_TIMEOUT });");
+    lines.push("// At least one matching element must be visible; keep any explicit index.");
+    lines.push("await expect(target.filter({ visible: true }).first()).toBeVisible({ timeout: STEP_TIMEOUT });");
   }
   return lines;
 }

@@ -51,6 +51,60 @@ export function draftQualityWarnings(
       missing.map((phrase) => JSON.stringify(phrase)).join(", ") +
       ". Check whether the model changed the test's purpose.");
   }
+  // Recognise only simple explicit click instructions. An ordinal elsewhere
+  // in the requirements is not evidence for this particular named control.
+  // This is advisory lexical evidence, not a full natural-language parser.
+  const ordinalWords = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
+  const normaliseName = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+  const positionalRequests: Array<{name:string; role:string; nth:number}> = [];
+  for (const clause of requirements.split(/[.\n;!?]+/)) {
+    const match = /^\s*(?:please\s+)?click\s+(?:on\s+)?(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\s+(.+?)\s+(button|checkbox|radio|combobox|textbox)\s*$/i.exec(clause);
+    if (!match) continue;
+    const ordinal = match[1].toLowerCase();
+    const wordIndex = ordinalWords.indexOf(ordinal);
+    const nth = wordIndex >= 0 ? wordIndex : Number.parseInt(ordinal, 10) - 1;
+    if (nth < 0 || nth > 249) continue;
+    positionalRequests.push({name:normaliseName(match[2].replace(/^["']|["']$/g, "")),role:match[3].toLowerCase(),nth});
+  }
+  for (const [index, step] of definition.steps.entries()) {
+    const action = step.action;
+    if (action.kind === "assert-count" || !("target" in action) || action.target.by !== "role") continue;
+    const target = action.target;
+    const requested = action.kind === "click" && target.name
+      ? [...new Set(positionalRequests.filter(item => item.role === target.role &&
+          item.name === normaliseName(target.name!)).map(item => item.nth))]
+      : [];
+    if (target.nth !== undefined && (requested.length !== 1 || requested[0] !== target.nth)) {
+      warnings.push("Step " + (index + 1) + ": positional index " + target.nth +
+        (requested.length === 1 ? " does not match the requested position (index " + requested[0] + ")." :
+          " cannot be verified against a unique explicit position for this control.") +
+        " Review the original instruction and locator before approval.");
+    } else if (target.nth === undefined && requested.length > 0) {
+      warnings.push("Step " + (index + 1) + ": explicit position requested for this control but the locator has no index. Review the original instruction before approval.");
+    }
+  }
+  // Semantic roles are evidence of likely incompatibility, not proof of
+  // the underlying widget implementation. Keep these warnings advisory;
+  // do not rewrite actions, values or requirement links.
+  for (const [index, step] of definition.steps.entries()) {
+    const action = step.action;
+    if (!("target" in action)) continue;
+    const target = action.target;
+    if (target.by !== "role" && target.by !== "intent") continue;
+    const role = target.role;
+    if (!role) continue;
+    const compatible: string[] | undefined =
+      action.kind === "fill" ? ["textbox"] :
+      action.kind === "select-option" ? ["combobox"] :
+      action.kind === "check" ? ["checkbox", "radio"] :
+      action.kind === "uncheck" ? ["checkbox"] : undefined;
+    if (compatible && !compatible.includes(role)) {
+      warnings.push("Step " + (index + 1) + ": action " + action.kind +
+        " may be incompatible with target role " + role +
+        ". Expected role: " + compatible.join(" or ") +
+        ". Review the action type and locator together before approval.");
+    }
+  }
   for (const step of definition.steps) {
     if (step.action.kind !== "assert-text") continue;
     const expected = step.action.expected;

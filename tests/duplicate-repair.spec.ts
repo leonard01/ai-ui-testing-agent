@@ -134,3 +134,119 @@ for (const nth of [0, 1]) {
     }
   });
 }
+
+
+for (const kind of ["link", "unnamed"] as const) {
+  test("verified " + kind + " action suggestion can be selected and rerun through UI", async ({ browser, page }) => {
+    const dir = await mkdtemp(join(tmpdir(), "verified-repair-"));
+    const html = kind === "link"
+      ? '<main><a href="#profile">View profile</a><a href="#logout" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a><p id="status" role="status">Pending</p></main>'
+      : '<main><button id="submit_search" onclick="document.getElementById(\'status\').textContent=\'Done\'"></button><button id="subscribe" onclick="document.getElementById(\'status\').textContent=\'Wrong\'"></button><p id="status" role="status">Pending</p></main>';
+    const targetServer = createServer((_req,res)=>{res.writeHead(200,{"Content-Type":"text/html"});res.end(html);});
+    let review: Server | undefined;
+    try {
+      const websiteURL=await listen(targetServer);
+      review=await createReviewServer(dir,browser);
+      const reviewURL=await listen(review);
+      const definition={
+        schemaVersion:1,id:"verified-action",title:"Verified action repair",version:1,
+        steps:[
+          {id:"open",description:"Open demo",action:{kind:"navigate",url:"/"}},
+          {id:"click",description:kind==="link"?"Log out":"Submit search",action:{kind:"click",target:kind==="link"?{by:"role",role:"button",name:"Logout"}:{by:"role",role:"button"}}},
+          {id:"verify",description:"Verify outcome",action:{kind:"assert-text",target:{by:"role",role:"status"},expected:"Done",provenance:"requirements"}},
+        ],
+      };
+      const savedResponse=await page.request.post(reviewURL+"/api/save",{data:{testName:"Verified repair",definition,baseURL:websiteURL}});
+      expect(savedResponse.status()).toBe(200);
+      const saved=await savedResponse.json();
+      await page.goto(reviewURL);
+      await selectSavedScript(page,saved.id);
+      await page.getByRole("button",{name:"Run selected test"}).click();
+      await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+      await expect(page.locator("#run-summary")).toContainText("FAILED");
+      const repair=page.locator(".locator-repair");
+      await expect(repair).toBeVisible();
+      const option=repair.locator(".locator-option").filter({hasText:kind==="link"?"Logout":"submit_search"});
+      await expect(option).toHaveCount(1);
+      await option.locator("input").check();
+      const save=repair.getByRole("button",{name:"Save corrected locator and rerun from start"});
+      await expect(save).toBeEnabled();
+      await save.click();
+      await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+      await expect(page.locator("#run-summary")).toContainText("PASSED");
+      const revisedId=await page.locator("#execution-panel").getByLabel("Test",{exact:true}).inputValue();
+      const corrected=JSON.parse(await readFile(await approvedPath(dir,revisedId),"utf8"));
+      expect(corrected.steps[1].action.target).toEqual(kind==="link"?{by:"css",value:'a[href="#logout"]'}:{by:"id",value:"submit_search"});
+      expect(corrected.steps[2].action).toEqual(definition.steps[2].action);
+    } finally {
+      if(review) await close(review);
+      await close(targetServer);
+      await rm(dir,{recursive:true,force:true});
+    }
+  });
+}
+
+
+test("TodoMVC fill repair followed by explicit Enter locator repair completes the task @sanity", async ({browser,page})=>{
+  const dir=await mkdtemp(join(tmpdir(),"press-repair-"));
+  const targetServer=createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html"});
+    res.end(`<main><h1>todos</h1><input placeholder="What needs to be done?" id="todo"><ul id="tasks"></ul></main>
+      <script>document.querySelector('#todo').addEventListener('keydown',e=>{
+        if(e.key==='Enter' && e.target.value){const li=document.createElement('li');li.textContent=e.target.value;document.querySelector('#tasks').append(li);e.target.value='';}
+      });</script>`);
+  });
+  let review:Server|undefined;
+  try{
+    const websiteURL=await listen(targetServer);
+    review=await createReviewServer(dir,browser);
+    const reviewURL=await listen(review);
+    const wrong={by:"label",value:"What needs to be done?"};
+    const definition={schemaVersion:1,id:"todo-press-repair",title:"Create test1",version:1,steps:[
+      {id:"open",description:"Open todos",action:{kind:"navigate",url:"/"}},
+      {id:"fill",description:"Create task test1",action:{kind:"fill",target:wrong,value:"test1"}},
+      {id:"enter",description:"Submit task",action:{kind:"press",target:wrong,key:"Enter"}},
+      {id:"verify",description:"Verify test1 appears",action:{kind:"assert-visible",target:{by:"text",value:"test1"},provenance:"requirements"}},
+    ]};
+    const savedResponse=await page.request.post(reviewURL+"/api/save",{data:{testName:"Todo press repair",definition,baseURL:websiteURL}});
+    expect(savedResponse.status()).toBe(200);
+    const saved=await savedResponse.json();
+    await page.goto(reviewURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    const repair=page.locator(".locator-repair");
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    await expect(repair).toContainText("What needs to be done?");
+    await repair.locator(".locator-option input").check();
+    const priorReport=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
+    await repair.getByRole("button",{name:"Save corrected locator and rerun from start",exact:true}).click();
+    await expect(page.getByRole("link",{name:"View full JSON report"})).not.toHaveAttribute("href",priorReport! ,{timeout:25000});
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    await expect(page.locator("#run-summary")).toBeVisible();
+    const reportLink=page.getByRole("link",{name:"View full JSON report"});
+    await expect(reportLink).toBeVisible();
+    const reportURL=await reportLink.getAttribute("href");
+    if(!reportURL) throw new Error("Missing second run report link");
+    const response=await page.request.get(new URL(reportURL,reviewURL).href);
+    expect(response.status(),await response.text()).toBe(200);
+    const second=await response.json();
+    expect(second.steps.map((s:{status:string})=>s.status)).toEqual(["passed","passed","execution-error","skipped"]);
+    expect(second.steps[2].locatorAlternatives?.candidates).toHaveLength(1);
+    await expect(repair).toContainText("What needs to be done?");
+    await repair.locator(".locator-option input").check();
+    await repair.getByRole("button",{name:"Save corrected locator and rerun from start",exact:true}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    const id=await page.locator("#execution-panel").getByLabel("Test",{exact:true}).inputValue();
+    const corrected=JSON.parse(await readFile(await approvedPath(dir,id),"utf8"));
+    expect(corrected.steps[2].action.kind).toBe("press");
+    expect(corrected.steps[2].action.key).toBe("Enter");
+    expect(corrected.steps[3]).toEqual(definition.steps[3]);
+  }finally{
+    if(review)await close(review);
+    await close(targetServer);
+    await rm(dir,{recursive:true,force:true});
+  }
+});

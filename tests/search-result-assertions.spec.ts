@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { runTest } from "../src/runner.js";
 import { generateDraft } from "../src/generation.js";
 import { generatePlaywrightSpec } from "../src/export.js";
+import { SEARCH_RESULT_ITEM_SELECTOR } from "../src/search-results.js";
 
 test.use({ trace: "off" });
 
@@ -21,26 +22,26 @@ const steps = (url: string) => ({
       kind: "press", target: { by: "placeholder", value: "Search" }, key: "Enter",
     } },
     { id: "verify", description: "Verify returned result contains shoes", action: {
-      kind: "assert-text", target: { by: "text", value: "shoes" },
+      kind: "assert-text", target: { by: "css", value: SEARCH_RESULT_ITEM_SELECTOR },
       expected: "shoes", match: "contains", scope: "search-results", provenance: "requirements",
     } },
   ],
 });
 
-async function fixturePage(result: "match" | "unrelated" | "none"): Promise<{ server: Server; url: string }> {
+async function fixturePage(result: "match" | "unrelated" | "none", customResults?: string): Promise<{ server: Server; url: string }> {
   const server = createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     if (req.url?.startsWith("/search?")) {
       // A submit with no entered query must not magically return results.
       const searched = new URL(req.url, "http://127.0.0.1").searchParams.get("q");
       const cards = searched !== "shoes" ? "" : result === "match"
-        ? '<article data-testid="search-result">Comfortable running SHOES for women</article>'
+        ? '<article data-testid="search-result">Comfortable running shoes for women</article>'
         : result === "unrelated"
           ? '<article data-testid="search-result">Waterproof boots for hiking</article>'
           : "";
       res.end(`<!doctype html><html><title>Search</title>
       <header><h1>Results for shoes</h1><nav>Shoes | Men | Women</nav></header>
-      <main><section aria-label="Search results">${cards}</section></main></html>`);
+      <main>${customResults !== undefined && searched === "shoes" ? customResults : `<section aria-label="Search results">${cards}</section>`}</main></html>`);
     } else {
       res.end(`<!doctype html><html><title>Search</title>
       <header><h1>Search for shoes</h1><nav>Shoes | Men | Women</nav></header>
@@ -70,7 +71,7 @@ for (const result of ["match", "unrelated", "none"] as const) {
       if (result === "match") {
         expect(report.status).toBe("passed");
         expect(assertion).toMatchObject({ status: "passed", textMatch: "contains" });
-        expect(assertion.observed).toContain("SHOES");
+        expect(assertion.observed).toContain("shoes");
       } else {
         expect(report.status).toBe("assertion-failed");
         expect(assertion.status).toBe("assertion-failed");
@@ -90,6 +91,7 @@ test("AI draft missing a query fill restores type-then-Enter and actually search
   const { server, url } = await fixturePage("match");
   try {
     const proposal = steps(url);
+    proposal.steps[3].action.target = {by:"text",value:"shoes"};
     // Reproduce the generated Google draft: description claims typing, but JSON only presses Enter.
     proposal.steps.splice(1, 1);
     proposal.steps[1].description = "Enter 'shoes' in search box and submit";
@@ -138,6 +140,7 @@ test("AI draft matching the user search query is deterministically scoped to res
   try {
     const proposed = steps(url);
     const last = proposed.steps[3].action as Record<string, unknown>;
+    last.target = {by:"text",value:"shoes"};
     delete last.scope;
     delete last.match;
     const generated = await generateDraft({
@@ -152,7 +155,9 @@ test("AI draft matching the user search query is deterministically scoped to res
     }
     const exported = generatePlaywrightSpec(generated.definition, { baseURL: url });
     expect(exported).toContain("const resultCards = page.locator(");
-    expect(exported).toContain("const resultPattern = new RegExp(");
+    expect(exported).toContain('const expectedResultText = "shoes";');
+    expect(exported).toContain(".includes(expectedResultText)");
+    expect(exported).not.toContain("const resultPattern = new RegExp(");
     expect(exported).not.toContain('getByText("shoes"');
   } finally {
     await new Promise<void>((resolve, reject) =>
@@ -165,6 +170,7 @@ test("ordinary text assertions and unrelated expected values remain unscoped", a
   try {
     const proposed = steps(url);
     const action = proposed.steps[3].action as Record<string, unknown>;
+    action.target = {by:"text",value:"shoes"};
     delete action.scope;
     delete action.match;
     const generated = await generateDraft({
@@ -179,3 +185,58 @@ test("ordinary text assertions and unrelated expected values remain unscoped", a
       server.close(error => error ? reject(error) : resolve()));
   }
 });
+
+
+const containerCases = [
+  {
+    label: "visible matching record in a labelled results table",
+    html: '<section aria-label="Search results"><table><thead><tr><th>Product</th><th>Price</th></tr></thead><tbody><tr><td>Boots</td><td>20</td></tr><tr><td>Running shoes</td><td>30</td></tr></tbody></table></section>',
+    passes: true,
+  },
+  {
+    label: "visible matching record in an ARIA grid",
+    html: '<div role="region" aria-label="Search results"><div role="grid"><div role="rowgroup"><div role="row"><span role="columnheader">Name</span></div><div role="row"><span role="gridcell">Boots</span></div><div role="row"><span role="gridcell">Running shoes</span></div></div></div></div>',
+    passes: true,
+  },
+  {
+    label: "matching repeated generic records in a labelled result region",
+    html: '<section aria-label="Search results"><h2>Results for shoes</h2><div><div><h3>Boots</h3><a href="/record/1">Details</a></div><div><h3>Running shoes</h3><a href="/record/2">Details</a></div></div></section>',
+    passes: true,
+  },
+  {
+    label: "query in result region heading but not in any record",
+    html: '<section aria-label="Search results"><h2>Results for shoes</h2><div><div><h3>Boots</h3><a href="/record/1">Details</a></div><div><h3>Sandals</h3><a href="/record/2">Details</a></div></div></section>',
+    passes: false,
+  },
+  {
+    label: "query only in hidden content of a recognised result card",
+    html: '<section aria-label="Search results"><article data-testid="search-result">Boots<span hidden>shoes</span></article></section>',
+    passes: false,
+  },
+  {
+    label: "query only in a results table column heading",
+    html: '<section aria-label="Search results"><table><thead><tr><th>Results for shoes</th></tr></thead><tbody><tr><td>Boots</td></tr></tbody></table></section>',
+    passes: false,
+  },
+  {
+    label: "query only in an unrelated unscoped table",
+    html: '<section aria-label="Search results"><p>No matching results</p></section><aside><table><tbody><tr><td>Recommended shoes</td></tr></tbody></table></aside>',
+    passes: false,
+  },
+] as const;
+
+for (const scenario of containerCases) {
+  test("generalised search-result containers: "+scenario.label,async({browser},info)=>{
+    const {server,url}=await fixturePage("none",scenario.html);
+    try {
+      const report=await runTest(steps(url),{baseURL:url,outputDir:info.outputPath("run"),timeoutMs:1000},browser);
+      const assertion=report.steps[3];
+      expect(assertion.domWideAssertion).toBeUndefined();
+      expect(report.status,JSON.stringify(report.steps)).toBe(scenario.passes?"passed":"assertion-failed");
+      if(scenario.passes) expect(assertion.observed).toMatch(/shoes/i);
+    }finally{
+      server.closeAllConnections();
+      await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+    }
+  });
+}

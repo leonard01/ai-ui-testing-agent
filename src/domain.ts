@@ -23,6 +23,11 @@ export interface StepResult {
   expected?: string;
   observed?: string;
   textMatch?: "exact" | "contains";
+  /** Quick comparison repair must preserve explicit equality requirements. */
+  exactTextRequired?: boolean;
+  assertionScope?: "search-results";
+  /** Diagnostic explanation, not observed application text. */
+  observedIsDiagnostic?: boolean;
   error?: string;
   resolution?: DiscoveryEvidence;
   ambiguity?: AmbiguousResolution;
@@ -38,6 +43,8 @@ export interface StepResult {
   };
   assertionAlternatives?: MissingAssertionChoices;
   assertionSearchAvailable?: boolean;
+  /** Transient failure-time element evidence is available to the current caller. */
+  elementSearchAvailable?: boolean;
 }
 export interface RunReport {
   schemaVersion: 1;

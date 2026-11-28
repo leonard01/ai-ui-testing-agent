@@ -1,3 +1,4 @@
+import { estimateModelTokens } from "./token-estimation.js";
 import type { ModelProvider, ModelRequest } from "./generation.js";
 import { readTokenUsage, type UsageAttempt } from "./ai-usage.js";
 
@@ -8,6 +9,25 @@ export function groqCompletionBudget(value = process.env.GROQ_MAX_COMPLETION_TOK
     throw new Error("GROQ_MAX_COMPLETION_TOKENS must be an integer from 256 to 5000. No model request was made.");
   }
   return Number(value);
+}
+export type GroqResponsePolicy = "hybrid" | "json" | "text";
+export function groqResponsePolicy(value = process.env.GROQ_RESPONSE_POLICY): GroqResponsePolicy {
+  const mode = value?.trim() || "json";
+  if (mode !== "hybrid" && mode !== "json" && mode !== "text")
+    throw new Error("GROQ_RESPONSE_POLICY must be hybrid, json or text. No model request was made.");
+  return mode;
+}
+export function groqReasoningEffort(model: string, value = process.env.GROQ_REASONING_EFFORT): "low" | "medium" | "high" | undefined {
+  const effort = value?.trim();
+  if (!effort) return model === "openai/gpt-oss-20b" ? "low" : undefined;
+  if (effort !== "low" && effort !== "medium" && effort !== "high")
+    throw new Error("GROQ_REASONING_EFFORT must be low, medium or high. No model request was made.");
+  if (!["openai/gpt-oss-20b","openai/gpt-oss-120b"].includes(model))
+    throw new Error("Explicit GROQ_REASONING_EFFORT is currently supported only for GPT-OSS models. No model request was made.");
+  return effort;
+}
+export function effectiveGroqMode(requested: "json" | "text" = "json", policy = groqResponsePolicy()): "json" | "text" {
+  return policy === "hybrid" ? requested : policy;
 }
 type LimitFigures = Pick<UsageAttempt,"providerRequestedTokens"|"providerTokenLimit"|"providerUsedTokens">;
 function tokenLimitFigures(detail:string):LimitFigures {
@@ -58,6 +78,11 @@ export class GroqProviderError extends Error {
   }
 }
 
+/** Only explicit HTTP 400 JSON-generation failures qualify for text fallback. */
+export function isGroqJSONModeFailure(error: unknown): boolean {
+  return error instanceof GroqProviderError && error.httpStatus === 400 && error.category === "json-generation";
+}
+
 /** Request transport failed before an HTTP response was available.
  * This does not mean that the user's test instructions are invalid.
  * Never surface raw errors; URLs/proxy details can contain secrets.
@@ -80,7 +105,7 @@ function safeIdentifier(value: unknown): string | undefined {
     ? value : undefined;
 }
 
-async function classifyGroqFailure(response: Response): Promise<GroqProviderError> {
+async function classifyGroqFailure(response: Response, body: string): Promise<GroqProviderError> {
   // Bound provider parsing to avoid retaining extremely large/hostile bodies.
   let code: string | undefined;
   let type: string | undefined;
@@ -88,7 +113,7 @@ async function classifyGroqFailure(response: Response): Promise<GroqProviderErro
   let detail = "";
   let reportedUsage: unknown;
   try {
-    const raw = (await response.text()).slice(0, 8192);
+    const raw = body.slice(0, 8192);
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && "usage" in parsed) reportedUsage = parsed.usage;
     if (parsed && typeof parsed === "object" && "error" in parsed) {
@@ -144,16 +169,35 @@ async function classifyGroqFailure(response: Response): Promise<GroqProviderErro
  * No extra npm packages or local model installation are required.
  */
 export const groqProvider: ModelProvider = async function (
-  { model, system, prompt }: ModelRequest,
+  request: ModelRequest,
 ): Promise<string> {
-  return requestGroq({ model, system, prompt });
+  return requestGroq(request);
 };
+
+/** Per-call transient diagnostics; never persist HTTP bodies in usage analytics. */
+export interface GroqResponseEvidence {
+  httpStatus?: number;
+  httpBody?: string;
+  content?: string;
+  contentCharacters?: number;
+  finishReason?: string;
+  completionTokens?: number;
+  reasoningTokens?: number;
+  completionBudget?: number;
+  status?: string;
+  transportAttempt?: number;
+  responseMode?: "json" | "text";
+  reasoningEffort?: "low" | "medium" | "high";
+  responsePolicy?: GroqResponsePolicy;
+}
 
 /** Exported with injectable fetch so unit tests never contact a paid service. */
 export async function requestGroq(
-  { model, system, prompt }: ModelRequest,
+  { model, system, prompt, responseMode: requestedMode = "json" }: ModelRequest,
   requester: typeof fetch = fetch,
   observe?: (attempt: UsageAttempt) => void | Promise<void>,
+  captureError?: (raw: string) => void,
+  captureEvidence?: (evidence: GroqResponseEvidence) => void,
 ): Promise<string> {
   const key = process.env.GROQ_API_KEY?.trim();
   if (!key) {
@@ -174,14 +218,21 @@ export async function requestGroq(
   // limit automatic retry to ONE extra attempt to bound potential charges.
   // Timeout/unknown errors and HTTP responses are never retried here.
   const completionBudget=groqCompletionBudget();
-  const estimatedInputTokens=Math.ceil((system.length+prompt.length)/4);
+  const responsePolicy=groqResponsePolicy();
+  const responseMode=effectiveGroqMode(requestedMode,responsePolicy);
+  const reasoningEffort=groqReasoningEffort(model);
+  function evidence(fields: GroqResponseEvidence) {
+    try { captureEvidence?.({completionBudget,responseMode,reasoningEffort,responsePolicy, ...fields}); } catch { /* Diagnostics must not affect generation. */ }
+  }
+  const estimate=estimateModelTokens({model,system,prompt,responseMode},undefined,"groqcloud");
   const requestBody = JSON.stringify({
     model,
     messages: [
       { role: "system", content: system },
       { role: "user", content: prompt },
     ],
-    response_format: { type: "json_object" },
+    ...(responseMode === "json" ? { response_format: { type: "json_object" } } : {}),
+    ...(reasoningEffort ? {reasoning_effort:reasoningEffort} : {}),
     stream: false,
     temperature: 0.1,
     max_completion_tokens: completionBudget,
@@ -189,7 +240,7 @@ export async function requestGroq(
   let response: Response | undefined;
   let started = Date.now();
   let transportAttempt = 1;
-  async function record(status: string, response?: Response, usage?: unknown, figures: LimitFigures = {}) {
+  async function record(status: string, response?: Response, usage?: unknown, figures: LimitFigures = {}, finishReason?: string, reasoningTokens?: number) {
     const remaining = response?.headers.get("x-ratelimit-remaining-tokens");
     const reset = response?.headers.get("x-ratelimit-reset-tokens");
     const retry = response?.headers.get("retry-after");
@@ -199,9 +250,9 @@ export async function requestGroq(
     try { await observe?.({
       provider:"groqcloud", model, startedAt:new Date(started).toISOString(),
       durationMs:Date.now()-started,status,httpStatus:response?.status,
-      ...readTokenUsage(usage), completionBudget, estimatedInputTokens, ...figures, retryAfter,
+      ...readTokenUsage(usage), completionBudget, ...estimate, ...figures, retryAfter,
       systemCharacters:system.length,promptCharacters:prompt.length,
-      remainingTokens,resetTokens,transportAttempt,
+      remainingTokens,resetTokens,transportAttempt,responseMode,reasoningEffort,responsePolicy,finishReason,reasoningTokens,
     }); } catch { /* Telemetry must not invalidate or retry an AI request. */ }
   }
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -221,8 +272,9 @@ export async function requestGroq(
     } catch (error) {
       const category = error instanceof Error && error.name === "TimeoutError"
         ? "timeout" : error instanceof TypeError ? "network" : "transport";
+      evidence({status:category, transportAttempt});
       await record(category);
-      if (category === "network" && attempt === 0) {
+      if (category === "network" && attempt === 0 && responseMode === "json") {
         await new Promise<void>((resolve) => setTimeout(resolve, 300));
         continue;
       }
@@ -230,24 +282,49 @@ export async function requestGroq(
     }
   }
   if (!response) throw new GroqTransportError("transport");
+  let body: string;
+  evidence({httpStatus:response.status, transportAttempt});
+  try {
+    body = await response.text();
+  } catch {
+    evidence({status:"unreadable-response",httpStatus:response.status,transportAttempt});
+    if (!response.ok) {
+      const failure=await classifyGroqFailure(response,"");
+      await record(failure.category,response,failure.reportedUsage,failure.limitFigures);
+      throw failure;
+    }
+    await record("unreadable-response",response);
+    throw new Error("GroqCloud returned an unreadable response");
+  }
+  evidence({httpStatus:response.status,httpBody:body,transportAttempt});
   if (!response.ok) {
-    const failure=await classifyGroqFailure(response);
+    try { captureError?.(body); } catch { /* Diagnostics only. */ }
+    const failure=await classifyGroqFailure(response,body);
+    evidence({status:failure.category,completionTokens:readTokenUsage(failure.reportedUsage).outputTokens});
     await record(failure.category,response,failure.reportedUsage,failure.limitFigures);
     throw failure;
   }
   let data: unknown;
   try {
-    data = await response.json();
+    data = JSON.parse(body);
   } catch {
+    evidence({status:"unreadable-response"});
     await record("unreadable-response",response);
     throw new Error("GroqCloud returned an unreadable response");
   }
   const parsed = data as {
-    choices?: Array<{ message?: { content?: unknown } }>;
-    usage?: unknown;
+    choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>;
+    usage?: { completion_tokens_details?: { reasoning_tokens?: unknown } };
   } | null;
   const text = parsed?.choices?.[0]?.message?.content;
-  await record(typeof text === "string" && text.trim() ? "response-received" : "empty-response",response,parsed?.usage);
+  const status = typeof text === "string" && text.trim() ? "response-received" : "empty-response";
+  const reasoning = parsed?.usage?.completion_tokens_details?.reasoning_tokens;
+  evidence({status, content:typeof text === "string" ? text : undefined,
+    contentCharacters:typeof text === "string" ? text.length : undefined,
+    finishReason:safeIdentifier(parsed?.choices?.[0]?.finish_reason),
+    completionTokens:readTokenUsage(parsed?.usage).outputTokens,
+    reasoningTokens:typeof reasoning === "number" && Number.isSafeInteger(reasoning) && reasoning >= 0 ? reasoning : undefined});
+  await record(status,response,parsed?.usage,{},safeIdentifier(parsed?.choices?.[0]?.finish_reason),typeof reasoning === "number" && Number.isSafeInteger(reasoning) && reasoning >= 0 ? reasoning : undefined);
   if (typeof text !== "string" || !text.trim()) {
     throw new Error("GroqCloud returned no generated JSON text");
   }

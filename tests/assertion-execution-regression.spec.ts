@@ -19,12 +19,16 @@ test.beforeEach(async () => {
       <button onclick="document.querySelector('#clicked').textContent='first'">Choose</button>
       <button onclick="document.querySelector('#clicked').textContent='second'">Choose</button>
       <p id="clicked">neither</p>
+      <p class="duplicate" hidden>Record found</p><p class="duplicate">Record found</p>
+      <p class="all-hidden" hidden>Hidden record</p><p class="all-hidden" style="display:none">Hidden record</p>
+      <p class="delayed-visible" hidden>Delayed record</p><p class="delayed-visible" hidden>Delayed record</p>
       <div class="item">One</div><div class="item">Two</div>
       <div id="dynamic"></div>
       <script>
       if(location.pathname==='/seed') {localStorage.setItem('test','stored');sessionStorage.setItem('test','stored');}
       document.querySelector('#storage').textContent=(localStorage.getItem('test')||'absent')+'/'+(sessionStorage.getItem('test')||'absent');
       setTimeout(()=>document.querySelector('#dynamic').textContent='Ready',150);
+      setTimeout(()=>document.querySelectorAll('.delayed-visible')[1].hidden=false,250);
       </script></body></html>`);
   });
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
@@ -79,4 +83,27 @@ test("cookies and browser storage do not leak between independent runs",async({b
   expect(first.status).toBe("passed");
   const second=await runTest(definition([text("cookie","absent"),text("storage","absent/absent")]),{baseURL,outputDir:info.outputPath("fresh"),timeoutMs:1000},browser);
   expect(second.status,JSON.stringify(second.steps)).toBe("passed");
+});
+
+
+for (const [label,target,status] of [
+  ["duplicate exact text with a visible match",{by:"text",value:"Record found"},"passed"],
+  ["multiple visible elements",{by:"css",value:".item"},"passed"],
+  ["all matches hidden",{by:"css",value:".all-hidden"},"assertion-failed"],
+  ["a later match becomes visible",{by:"css",value:".delayed-visible"},"passed"],
+  ["explicit missing indexed match",{by:"role",role:"button",name:"Choose",nth:9},"execution-error"],
+] as const) {
+  test("existential visibility: "+label,async({browser},info)=>{
+    const action:TestAction={kind:"assert-visible",target,provenance:"requirements"};
+    const report=await runTest(definition([action]),{baseURL,outputDir:info.outputPath("run"),timeoutMs:1000},browser);
+    expect(report.status,JSON.stringify(report.steps)).toBe(status);
+    expect(report.steps[1].status).toBe(status);
+  });
+}
+
+test("existential visibility does not relax unique text assertions or explicit counts",async({browser},info)=>{
+  const exact=await runTest(definition([{kind:"assert-text",target:{by:"css",value:".item"},expected:"One",provenance:"requirements"}]),{baseURL,outputDir:info.outputPath("exact"),timeoutMs:500},browser);
+  expect(exact.status).toBe("execution-error");
+  const counted=await runTest(definition([count(1)]),{baseURL,outputDir:info.outputPath("count"),timeoutMs:500},browser);
+  expect(counted.status).toBe("assertion-failed");
 });

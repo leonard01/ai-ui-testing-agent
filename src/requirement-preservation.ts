@@ -23,6 +23,58 @@ const proposalSchema = z.object({
   prerequisiteStepIds:z.array(z.string()).max(100).optional(),
 }).strict();
 
+/** Translate the compact wire contract to the existing review contract.
+ * Only actual steps can contribute links; never infer a missing action.
+ * Legacy model responses remain reviewable during the transition.
+ */
+export function decodeEmbeddedCoverage(candidate: Record<string, unknown>, instructions: string) {
+  const {coverage, requirementNotes, ...definition} = candidate;
+  if (!Array.isArray(definition.steps)) return {candidate: definition, proposal: coverage};
+  const embedded = definition.steps.some(step => step && typeof step === "object" && "requirementIds" in step)
+    || requirementNotes !== undefined;
+  if (!embedded) return {candidate: definition, proposal: coverage};
+  const source = sourceRequirements(instructions);
+  const known = new Set(source.map(row => row.id));
+  const links = new Map<string, string[]>();
+  const problems: string[] = [];
+  const prerequisites: string[] = [];
+  const steps = definition.steps.map(step => {
+    if (!step || typeof step !== "object" || Array.isArray(step)) return step;
+    const {requirementIds, memoryPrerequisite, ...actionStep} = step as Record<string, unknown>;
+    if (!Array.isArray(requirementIds) || requirementIds.some(id => typeof id !== "string")) {
+      problems.push("Missing or invalid step requirement IDs.");
+    } else if (typeof actionStep.id === "string") {
+      if (new Set(requirementIds).size !== requirementIds.length) problems.push("Duplicate requirement IDs on a step.");
+      for (const id of new Set<string>(requirementIds)) {
+        if (!known.has(id)) problems.push("Unknown requirement ID on a step.");
+        else links.set(id, [...(links.get(id) ?? []), actionStep.id]);
+      }
+      if (memoryPrerequisite === true && !requirementIds.length) prerequisites.push(actionStep.id);
+      else if (memoryPrerequisite !== undefined && (memoryPrerequisite !== true || requirementIds.length)) problems.push("Invalid memory prerequisite marker.");
+    }
+    return actionStep;
+  });
+  const notesSchema = z.array(z.object({id:z.string(), issue:z.string().max(1000).optional(),
+    availability:z.enum(["identified","later-state","selector-uncertain","functional-mismatch","uncertain"]).optional()}).strict()).max(40);
+  const notes = notesSchema.safeParse(requirementNotes ?? []);
+  const noteMap = new Map<string, {issue?:string; availability?: "identified"|"later-state"|"selector-uncertain"|"functional-mismatch"|"uncertain"}>();
+  if (!notes.success) problems.push("Invalid requirement notes.");
+  else for (const note of notes.data) {
+    if (!known.has(note.id) || noteMap.has(note.id)) problems.push("Unknown or duplicate requirement note ID.");
+    else noteMap.set(note.id,note);
+  }
+  if (coverage !== undefined) problems.push("Mixed embedded and legacy mapping formats.");
+  const issue = [...new Set(problems)].join(" ");
+  return {candidate:{...definition,steps}, proposal:{
+    entries:source.map(row => {
+      const note=noteMap.get(row.id);
+      return {id:row.id, interpretation:"", stepIds:links.get(row.id) ?? [],
+        issue:issue ? (issue+" "+(note?.issue ?? "")).trim().slice(0,1000) : note?.issue,
+        availability:issue ? "uncertain" : note?.availability ?? "uncertain"};
+    }), prerequisiteStepIds:prerequisites
+  }};
+}
+
 export function proposedCoverage(instructions:string, definition:TestDefinition, proposal:unknown, hasMemoryHints:boolean) {
   const source=sourceRequirements(instructions);
   const parsed=proposalSchema.safeParse(proposal);

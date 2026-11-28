@@ -64,7 +64,8 @@ test("first-open explanation is dismissible, persists across reload and remains 
 
 test("AI reinterpretation explains invalidated requirement mappings and allows explicit step association", async ({browser,page}) => {
   const dir=await mkdtemp(join(tmpdir(),"incremental-coverage-review-"));
-  const server=await createReviewServer(dir,browser);
+  // Browser routes supply all responses; injected provider enables the legacy test-only UI gate.
+  const server=await createReviewServer(dir,browser,async()=>{ throw new Error("Unexpected provider call in intercepted UI test"); });
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
   const url="http://127.0.0.1:"+(server.address() as AddressInfo).port;
   const source="Add a task called Review report.\nVerify Review report is visible.";
@@ -140,6 +141,9 @@ test("AI reinterpretation explains invalidated requirement mappings and allows e
     await expect(panel).toBeVisible();
     await page.locator("#accept-coverage-warning").uncheck();
     const first=panel.locator('[data-requirement-id="R2"]');
+    await expect(first.locator(".coverage-options")).not.toBeVisible();
+    await first.getByText("Review mapping for R2",{exact:true}).click();
+    await expect(first.locator(".coverage-options")).toBeVisible();
     await expect(first.getByRole("button",{name:"Confirm mapping for R2"})).toBeDisabled();
     await first.locator('input[value="verify-new"]').check();
     await first.getByRole("button",{name:"Confirm mapping for R2"}).click();
@@ -147,6 +151,9 @@ test("AI reinterpretation explains invalidated requirement mappings and allows e
     await expect(page.getByRole("button",{name:"Save Test"})).toBeDisabled();
 
     const second=panel.locator('[data-requirement-id="R3"]');
+    await expect(second.locator(".coverage-options")).not.toBeVisible();
+    await second.getByText("Review mapping for R3",{exact:true}).click();
+    await expect(second.locator(".coverage-options")).toBeVisible();
     await second.locator('input[value="verify-new"]').check();
     await second.getByRole("button",{name:"Confirm mapping for R3"}).click();
     await expect(panel).toBeHidden();

@@ -1,3 +1,4 @@
+import { estimateModelTokens } from "./token-estimation.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, type Dirent } from "node:fs";
 import { mkdir, readFile, readdir, rm, unlink, writeFile, rmdir } from "node:fs/promises";
@@ -10,14 +11,16 @@ import { assertInstructionCoverageReviewed } from "./requirement-preservation.js
 import { draftQualityWarnings } from "./draft-diagnostics.js";
 import { generateIncrementalProposal } from "./incremental-generation.js";
 import { fixtureProvider } from "./local-providers.js";
-import { requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
+import { effectiveGroqMode, requestGroq, GroqProviderError, GroqTransportError } from "./hosted-providers.js";
 import { createUsageStore, summarizeUsage, type UsageRecord } from "./ai-usage.js";
+import { createResponseCapture } from "./response-diagnostics.js";
 import { parseTestDefinition } from "./schema.js";
+import { requiresExactText } from "./assertion-repair-policy.js";
 import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credential-guard.js";
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
 import { listDraftsWithDiagnostics, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
-import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
+import { searchCapturedAssertionText, searchCapturedElements, type ElementSearchEntry, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
 import { preflightSelectors } from "./preflight.js";
 import { generatePlaywrightSpec } from "./export.js";
@@ -33,6 +36,8 @@ const MAX_RUN_HISTORY = 1000;
 const MAX_SUITE_HISTORY = 1000;
 const HISTORY_PAGE_SIZE = 10;
 const MAX_SUITE_CASES = 10;
+const MAX_ELEMENT_EVIDENCE_RUNS = 20;
+const ELEMENT_EVIDENCE_TTL_MS = 30 * 60 * 1000;
 
 type RunJob = {
   id: string;
@@ -44,6 +49,7 @@ type RunJob = {
   error?: string;
   /** Short-lived DOM evidence held in memory, never included in reports. */
   assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
+  elementSearchIndex?: { capturedAt: number; entries: Map<string, ElementSearchEntry[]> };
   suiteId?: string;
   baseURL?: string;
 };
@@ -183,23 +189,37 @@ export function diagnoseRun(report: RunReport): { kind: string; explanation: str
  * there is deliberately no public-network listener or user authentication.
  */
 export async function createReviewServer(outputDir = "generated", suppliedBrowser?: Browser, groqOverride?: ModelProvider) {
-  const html = await readFile(new URL("../demo/review.html", import.meta.url));
+  // Temporary release gate: production reinterpretation is disabled; injected mock providers retain regression coverage.
+  const incrementalReinterpretationEnabled = groqOverride !== undefined;
+  const html = (await readFile(new URL("../demo/review.html", import.meta.url), "utf8")).replace(
+    "const incrementalReinterpretationEnabled = false;",
+    "const incrementalReinterpretationEnabled = " + incrementalReinterpretationEnabled + ";",
+  );
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
   const usageStore = createUsageStore(join(savedDir,"ai-usage"));
   function trackAI(operation: UsageRecord["operation"]) {
+    const capture = createResponseCapture();
     const operationId=randomUUID();
     const records: UsageRecord[]=[];
     let modelCall=0, storageFailed=false;
     const provider: ModelProvider=async request=>{
       const call=++modelCall;
-      if (groqOverride) return groqOverride(request);
-      return requestGroq(request,fetch,async attempt=>{
+      capture.start(call, effectiveGroqMode(request.responseMode));
+      const output = groqOverride ? await groqOverride(request) : await requestGroq(request,fetch,async attempt=>{
         try { records.push(await usageStore.record(operationId,operation,call,attempt)); }
         catch { storageFailed=true; records.push({...attempt,id:randomUUID(),operationId,operation,modelCall:call}); }
-      });
+      }, raw=>capture.providerError(call,raw), evidence=>capture.evidence(call,evidence));
+      capture.raw(call, output);
+      return output;
     };
-    return {provider, snapshot:()=>({operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records)})};
+    return {provider, observeResponse: capture.observe, snapshot:async (validation: "accepted" | "rejected")=>{
+      if (records.length) {
+        try { await usageStore.recordResult({operationId,validation}); }
+        catch { storageFailed=true; }
+      }
+      return {operationId,records,storageFailed,modelCalls:modelCall,summary:summarizeUsage(records), responseDiagnostics: capture.snapshot()};
+    }};
   }
   const jobs = new Map<string, RunJob>();
   const suites = new Map<string, SuiteJob>();
@@ -207,7 +227,25 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   let activePreflight = false;
   let activeDeletion = false;
 
+  function pruneElementEvidence() {
+    const now = Date.now();
+    const retained = [...jobs.values()].filter(job => {
+      if (job.elementSearchIndex && now - job.elementSearchIndex.capturedAt >= ELEMENT_EVIDENCE_TTL_MS) delete job.elementSearchIndex;
+      return !!job.elementSearchIndex;
+    });
+    while (retained.length > MAX_ELEMENT_EVIDENCE_RUNS) {
+      const oldest = retained.shift();
+      if (oldest) delete oldest.elementSearchIndex;
+    }
+  }
+  function retainElementEvidence(job: RunJob, stepId: string, entries: ElementSearchEntry[]) {
+    if (!entries.length) return;
+    job.elementSearchIndex ??= { capturedAt: Date.now(), entries: new Map() };
+    job.elementSearchIndex.entries.set(stepId, entries);
+    pruneElementEvidence();
+  }
   function registerRun(fileId: string, suiteId?: string, baseURL?: string): RunJob {
+    pruneElementEvidence();
     const id = randomUUID();
     const job: RunJob = {
       id, fileId, state: "running", startedAt: new Date().toISOString(),
@@ -612,7 +650,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const now=Date.now();
           const records=all.filter(row=>!days || Date.parse(row.startedAt)>=now-days*86400000);
           const minute=all.filter(row=>Date.parse(row.startedAt)>=now-60000);
-          json(res,200,{records:records.slice(-200).reverse(),summary:summarizeUsage(records),minute:summarizeUsage(minute),totalRecords:records.length});
+          const ids=new Set(records.map(row=>row.operationId));
+          const results=(await usageStore.results()).filter(row=>ids.has(row.operationId));
+          if (query.get("export")==="1") {
+            res.writeHead(200,{"Content-Type":"application/json; charset=utf-8","Content-Disposition":"attachment; filename=ai-experiment-results.json","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"});
+            res.end(JSON.stringify({schemaVersion:1,records,results},null,2));
+          } else json(res,200,{records:records.slice(-200).reverse(),results,summary:summarizeUsage(records),minute:summarizeUsage(minute),totalRecords:records.length});
         } catch { json(res,500,{error:"AI usage history unavailable"}); }
         return;
       }
@@ -770,7 +813,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom", "/api/search-elements", "/api/ai-usage/assessment", "/api/estimate-tokens"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -783,6 +826,20 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         body = await readJSON(req);
       } catch (error) {
         json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      if (path === "/api/ai-usage/assessment") {
+        const data=body as {operationId?: unknown; assessment?: unknown}|null;
+        const id=data?.operationId;
+        const assessment=data?.assessment;
+        if (typeof id!=="string" || !RUN_ID.test(id) || (assessment!=="correct" && assessment!=="incorrect" && assessment!=="unreviewed")) {
+          json(res,400,{error:"Invalid operation assessment"}); return;
+        }
+        try {
+          if (!(await usageStore.list()).some(row=>row.operationId===id)) {json(res,404,{error:"Operation not found"});return;}
+          await usageStore.recordResult({operationId:id,assessment});
+          json(res,200,{ok:true});
+        } catch {json(res,500,{error:"Could not persist assessment"});}
         return;
       }
       if (path === "/api/drafts/save") {
@@ -1178,12 +1235,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             throw new Error("A complete set of live DOM alternatives is not available");
           }
           const chosen = evidence.candidates[input.candidateIndex];
-          if (!chosen || !chosen.name.trim()) {
-            throw new Error("Choose a named element from the failed run");
+          if (!chosen || (!chosen.target && !chosen.name.trim())) {
+            throw new Error("Choose a verified element from the failed run");
           }
           const identical = evidence.candidates.filter((candidate) =>
-            candidate.name === chosen.name && candidate.role === chosen.role);
-          const isDuplicate = identical.length > 1;
+            !candidate.target && candidate.name === chosen.name && candidate.role === chosen.role);
+          const isDuplicate = !chosen.target && identical.length > 1;
           if (isDuplicate && (
               !Number.isInteger(chosen.nth) || chosen.nth! < 0 ||
               chosen.matchCount !== identical.length ||
@@ -1196,29 +1253,35 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((entry) => entry.id === failed.id);
-          if (!step || (step.action.kind !== "click" && step.action.kind !== "fill") ||
+          if (!step || (step.action.kind !== "click" && step.action.kind !== "fill" && step.action.kind !== "press") ||
               JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted)) {
             throw new Error("The saved test no longer matches this run; rerun before repairing");
           }
           const role = chosen.role;
-          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" ||
-              step.action.kind === "fill" && role !== "textbox") {
+          if (step.action.kind === "click" && role !== "button" && role !== "checkbox" && role !== "radio" && role !== "link" && !(role === "clickable" && chosen.target) ||
+              step.action.kind === "fill" && role !== "textbox" ||
+              step.action.kind === "press" && !["textbox", "button", "checkbox", "radio", "link", "combobox"].includes(role)) {
             throw new Error("The selected element cannot perform this action");
           }
-          // A role/name locator corresponds to the user-selected, uniquely
-          // resolved visible candidate. Do not accept arbitrary selectors.
-          if (role !== "button" && role !== "checkbox" && role !== "textbox") {
-            throw new Error("Unsupported element role");
-          }
           const previousTarget = step.action.target;
-          const approvedTarget: typeof previousTarget = isDuplicate
-            ? { by: "role" as const, role, name: chosen.name, nth: chosen.nth }
-            : { by: "role" as const, role, name: chosen.name };
+          // Explicit targets come only from the server-owned failure evidence,
+          // never from the repair request. Existing role repairs remain supported.
+          let approvedTarget: typeof previousTarget;
+          if (chosen.target) {
+            approvedTarget = chosen.target;
+          } else {
+            if (role !== "button" && role !== "checkbox" && role !== "textbox") {
+              throw new Error("Unsupported element role");
+            }
+            approvedTarget = isDuplicate
+              ? { by: "role", role, name: chosen.name, nth: chosen.nth }
+              : { by: "role", role, name: chosen.name };
+          }
           // Only exact same-action locators later in the failed test are eligible.
           // Never propagate an indexed/ambiguous choice or cross navigation boundaries.
           const failedIndex = definition.steps.indexOf(step);
           const matches = [step];
-          if (!isDuplicate && !("nth" in previousTarget) && (chosen.matchCount === undefined || chosen.matchCount === 1)) {
+          if (!chosen.target && !isDuplicate && !("nth" in previousTarget) && (chosen.matchCount === undefined || chosen.matchCount === 1)) {
             for (const entry of definition.steps.slice(failedIndex + 1)) {
               if (entry.action.kind === "navigate") break;
               if (entry.action.kind === step.action.kind &&
@@ -1240,7 +1303,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           }
           const selectedSteps = all ? matches : [step];
           for (const entry of selectedSteps) {
-            if (entry.action.kind === "click" || entry.action.kind === "fill") entry.action.target = approvedTarget;
+            if (entry.action.kind === "click" || entry.action.kind === "fill" || entry.action.kind === "press") entry.action.target = approvedTarget;
           }
           const corrected = parseTestDefinition(definition);
           const { id, replacedId } = await saveApproved(corrected, job.fileId);
@@ -1251,6 +1314,33 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           });
         } catch (error) {
           json(res, 400, { error: error instanceof Error ? error.message : "Invalid locator repair" });
+        }
+        return;
+      }
+      if (path === "/api/search-elements") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Expected an element search request");
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId) ||
+              typeof input.stepId !== "string" || !input.stepId.trim() ||
+              typeof input.query !== "string" || !input.query.trim() || input.query.trim().length > 180) {
+            throw new Error("Valid run and failed step IDs and a 1–180 character search query are required");
+          }
+          pruneElementEvidence();
+          const job = jobs.get(input.runId);
+          const failed = job?.report?.steps.find(step => step.id === input.stepId &&
+            (step.status === "execution-error" || step.status === "assertion-failed") &&
+            step.elementSearchAvailable === true);
+          const entries = job?.elementSearchIndex?.entries.get(input.stepId);
+          if (!job || job.state !== "finished" || !failed || !entries ||
+              (job.report?.status !== "execution-error" && job.report?.status !== "assertion-failed")) {
+            throw new Error("No retained element evidence for this failed step. Edit the locator manually or run the test again.");
+          }
+          json(res, 200, { candidates: searchCapturedElements(entries, input.query),
+            source: "captured-failure-state",
+            message: "Search uses retained failure-time DOM evidence. No browser actions are replayed." });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid element search" });
         }
         return;
       }
@@ -1286,6 +1376,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const step = definition.steps.find((entry) => entry.id === failed.id);
           if (!step || (step.action.kind !== "assert-text" &&
               step.action.kind !== "assert-visible") ||
+              (step.action.kind === "assert-text" && step.action.scope === "search-results") ||
               (failed.status === "assertion-failed" &&
                (step.action.kind !== "assert-text" ||
                 failed.expected !== step.action.expected))) {
@@ -1352,6 +1443,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((entry) => entry.id === failed.id);
           if (!step || (step.action.kind !== "assert-visible" && step.action.kind !== "assert-text") ||
+              (step.action.kind === "assert-text" && step.action.scope === "search-results") ||
               JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted) ||
               (failed.status === "assertion-failed" &&
                 (step.action.kind !== "assert-text" ||
@@ -1383,11 +1475,25 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const previousTarget = step.action.target;
           const previousExpected = step.action.kind === "assert-text" ? step.action.expected : undefined;
           if (mode !== "target") {
-            if (step.action.kind !== "assert-text" || failed.status !== "assertion-failed" ||
+            if (step.action.kind !== "assert-text" || step.action.scope === "search-results" ||
                 input.confirmed !== true || typeof input.expected !== "string" ||
                 input.expected.length > 10_000 ||
                 (input.match !== "exact" && input.match !== "contains")) {
               throw new Error("Explicitly confirm a valid expected text and comparison for this failed text assertion");
+            }
+            if (input.match === "contains" && requiresExactText(definition, step)) {
+              throw new Error("The original instructions explicitly require exact text. Preserve equality or revise the requirement through the full editor.");
+            }
+            if (failed.status === "execution-error") {
+              const normalize = (value: string) => value.replace(/\s+/g, " ").trim();
+              const phrase = normalize(step.action.expected);
+              const rendered = normalize(selected.text ?? "");
+              if (mode !== "both" || sameTarget || input.expected !== step.action.expected ||
+                  (step.action.match ?? "exact") !== "exact" || input.match !== "contains" ||
+                  failed.expected !== step.action.expected || failed.textMatch !== "exact" ||
+                  !phrase || rendered === phrase || !rendered.includes(phrase)) {
+                throw new Error("Locator-failure comparison repair requires a verified partial text match, unchanged expectation and explicit confirmation");
+              }
             }
             if (input.expected === step.action.expected &&
                 input.match === (step.action.match ?? "exact")) {
@@ -1453,7 +1559,13 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (input.match !== undefined && input.match !== "exact" && input.match !== "contains") {
             throw new Error("Text comparison must be Exact or Contains");
           }
+          if (step.action.scope === "search-results" || failed.observedIsDiagnostic) {
+            throw new Error("Scoped assertion diagnostics are not observed application text. Review the requirement in the full editor without broadening its scope.");
+          }
           const newMatch = input.match ?? (step.action.match ?? "exact");
+          if (newMatch === "contains" && requiresExactText(definition, step)) {
+            throw new Error("The original instructions require exact text; preserve equality.");
+          }
           if (input.expected === step.action.expected &&
               newMatch === (step.action.match ?? "exact")) {
             throw new Error("Expected text and comparison mode are unchanged");
@@ -1542,6 +1654,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                   baseURL: base.href, outputDir: run.outputDir, timeoutMs,
                   onAssertionSearchIndex: (stepId, evidence) =>
                     run.assertionSearchIndex?.set(stepId, evidence),
+                  onElementSearchIndex: (stepId, entries) => retainElementEvidence(run, stepId, entries),
                 }, suppliedBrowser);
                 run.report = report;
                 // Store only an abstract prerequisite signal after a complete
@@ -1620,6 +1733,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         void runTest(definition, {
           baseURL: base.href, outputDir: job.outputDir, timeoutMs,
           onAssertionSearchIndex: (stepId, entries) => job.assertionSearchIndex?.set(stepId, entries),
+          onElementSearchIndex: (stepId, entries) => retainElementEvidence(job, stepId, entries),
         }, suppliedBrowser).then(async (report) => {
           job.report = report;
           await observeSuccessfulRun(savedDir, base.href, definition, report).catch(() => {});
@@ -1634,6 +1748,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (path === "/api/regenerate-steps") {
+        if (!incrementalReinterpretationEnabled) {
+          json(res, 503, { error: "AI reinterpretation is temporarily disabled while execution fidelity is being improved. Use manual step editing." });
+          return;
+        }
         const tracked=trackAI("reinterpret");
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
@@ -1664,10 +1782,11 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
             approvedStepIds: data.approvedStepIds as string[],
             model: process.env.GROQ_MODEL ?? "openai/gpt-oss-20b",
             retryMalformedOutput: true,
+            observeResponse: tracked.observeResponse,
           }, tracked.provider, suppliedBrowser);
           json(res, 200, {
             ...proposal,
-            aiUsage: tracked.snapshot(),
+            aiUsage: await tracked.snapshot("accepted"),
             needsReview: true,
             message: "Incremental AI proposal ready. Nothing has been saved or approved.",
           });
@@ -1675,12 +1794,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (error instanceof GroqProviderError) {
             json(res, 502, {
               source: error.source, providerStatus: error.httpStatus,
-              aiUsage: tracked.snapshot(),
+              aiUsage: await tracked.snapshot("rejected"),
               category: error.category, error: error.message,
             });
           } else {
             json(res, 422, {
-              aiUsage: tracked.snapshot(),
+              aiUsage: await tracked.snapshot("rejected"),
               error: error instanceof Error ? error.message : "Incremental regeneration failed",
             });
           }
@@ -1689,7 +1808,8 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (path === "/api/generate") {
+      if (path === "/api/generate" || path === "/api/estimate-tokens") {
+        const dryRun=path === "/api/estimate-tokens";
         let input: ReturnType<typeof requestDetails>;
         try {
           input = requestDetails(body);
@@ -1698,7 +1818,12 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           return;
         }
         const tracked=trackAI("generate");
-        const provider = input.provider === "groq" ? tracked.provider : fixtureProvider();
+        let estimate: ReturnType<typeof estimateModelTokens> | undefined;
+        const stop = new Error("Token estimate complete");
+        const provider: ModelProvider = dryRun ? async request=>{
+          estimate=estimateModelTokens(request);
+          throw stop;
+        } : input.provider === "groq" ? tracked.provider : fixtureProvider();
         const model = input.provider === "groq" ? process.env.GROQ_MODEL ?? "openai/gpt-oss-20b" : "deterministic-fixture";
         try {
           const memory = input.provider === "groq" && (body as Record<string, unknown>)?.useApplicationMemory !== false
@@ -1706,14 +1831,15 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const suggestions = getMemorySuggestions(memory, input.requirements);
           const result = await generateDraft({
             baseURL: input.baseURL, requirements: input.requirements, model,
-            retryMalformedOutput: input.provider === "groq",
+            retryMalformedOutput: !dryRun && input.provider === "groq",
+            observeResponse: input.provider === "groq" ? tracked.observeResponse : undefined,
             prerequisiteHints: suggestions.map(item => item.text),
             instructionCoverage: input.provider === "groq",
             // Acknowledge warnings only after inspecting the actual draft.
           }, provider);
           json(res, 200, {
             definition: result.definition, needsReview: true, provider: input.provider,
-            aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+            aiUsage: input.provider==="groq" ? await tracked.snapshot("accepted") : undefined,
             generationAttempts: result.generationAttempts,
             memorySuggestions: suggestions,
             diagnostics: {
@@ -1735,7 +1861,9 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                 : "AI-generated draft. Verify each step and inferred assertion before approving.",
           });
         } catch (error) {
-          if (error instanceof InspectionAccessError) {
+          if (dryRun && error === stop && estimate) {
+            json(res,200,{...estimate,model,providerRequests:0,completionEstimate:null,reasoningEstimate:null});
+          } else if (error instanceof InspectionAccessError) {
             json(res, 502, {
               source: error.source,
               category: error.category,
@@ -1756,7 +1884,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               providerParam: error.providerParam,
               error: error.message,
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           } else if (error instanceof GroqTransportError) {
             json(res, 502, {
@@ -1764,7 +1892,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               category: error.category,
               error: error.message,
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           } else if (error instanceof GeneratedDraftValidationError) {
             json(res, 422, {
@@ -1774,14 +1902,14 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
               problems: error.problems,
               error: error.message,
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           } else {
             json(res, 422, {
               source: "generator",
               error: error instanceof Error ? error.message : "Generation failed",
               requirementsCharacters: input.requirements.length,
-              aiUsage: input.provider==="groq" ? tracked.snapshot() : undefined,
+              aiUsage: input.provider==="groq" ? await tracked.snapshot("rejected") : undefined,
             });
           }
         }

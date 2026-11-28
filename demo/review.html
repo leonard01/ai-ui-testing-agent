@@ -256,7 +256,7 @@
     main[data-workspace="diagnostics"] > :not(#diagnostics-panel),
     main[data-workspace="ai-usage"] > :not(#ai-usage-panel),
     main[data-workspace="results"] > :not(#results-panel) { display:none !important; }
-    main[data-workspace="existing"] #draft-usage, main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
+    main[data-workspace="existing"] #draft-response-diagnostics, main[data-workspace="existing"] #draft-usage, main[data-workspace="existing"] #draft, main[data-workspace="existing"] #generation-exception,
     main[data-workspace="draft"] #placeholder { display:none !important; }
     #results-panel[data-result-kind="single"] #suite-output,
     #results-panel[data-result-kind="suite"] #single-output { display:none !important; }
@@ -381,7 +381,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         <li>Save the approved JSON test; select it under Run Tests to execute with Playwright and review results and failure evidence.</li>
       </ol>
       <h3>Editing and incremental regeneration</h3>
-      <p>You can edit individual steps manually. With GroqCloud selected, Reinterpret with AI replaces the selected step and everything following it. AI proposals are not applied automatically; review them first. Earlier approved steps outside the replacement range stay unchanged. A working draft can be saved before all steps are approved.</p>
+      <p>You can edit individual steps manually. Reinterpret with AI is temporarily unavailable while execution fidelity is being improved. Use Edit fields to correct steps manually. A working draft can be saved before all steps are approved.</p>
       <h3>Important limitations</h3>
       <ul>
         <li><strong>AI is non-deterministic.</strong> The same instructions may produce different actions or occasionally invalid output. Review steps and execution results rather than assuming they are correct.</li>
@@ -464,18 +464,22 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           <option value="fixture">Prewritten demonstration · no AI</option>
         </select>
         <div class="tip">Only clicking <strong>Generate draft</strong> sends selected instructions and an application snapshot to Groq. If a draft fails schema validation, the generator makes at most one extra Groq model call to correct it (two calls maximum). The API key stays on your computer's local server.</div>
+        <button type="button" id="estimate-tokens" class="secondary">Estimate tokens (no AI request)</button>
+        <p id="estimate-tokens-status" role="status" class="muted"></p>
         <button type="submit" id="generate" style="margin-top:20px;width:100%">Generate draft</button>
         <p id="generate-readiness" class="field-readiness" role="status"></p>
       </form>
       <p class="status" id="generation-status" role="status"></p>
       <div class="error" id="generation-error" role="alert"></div>
       <div id="instructions-usage" class="request-usage" aria-live="polite"></div>
+      <div id="instructions-response-diagnostics"></div>
       <button type="button" id="start-new-test" class="secondary" hidden style="margin-top:12px">Start a separate new test</button>
       <button type="button" id="open-existing-editor" class="secondary" style="margin-top:12px">Edit existing test or resume draft</button>
 
     </section>
     <section id="review-workspace" aria-labelledby="review-heading" hidden>
       <h2 id="review-heading">Test Draft</h2><div id="draft-usage" class="request-usage" aria-live="polite"></div>
+      <div id="draft-response-diagnostics"></div>
       <p class="sub">Each step shows what the runner will actually do. Check each one only if it matches your intention. You can edit fields or revise the instructions and regenerate.</p>
       <section id="generation-exception" hidden aria-labelledby="exception-title" style="margin-top:12px;border:1px solid #c95353;padding:14px;border-radius:8px">
         <h3 id="exception-title">Test generation blocked</h3>
@@ -748,8 +752,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     <section id="ai-usage-panel" aria-labelledby="ai-usage-heading">
       <h2 id="ai-usage-heading">AI Usage Analytics</h2>
       <p class="muted">Historical provider attempts, independent of execution history. Only reported tokens are included in totals.</p>
+      <div id="analytics-response-diagnostics"><details id="response-diagnostics-panel" class="run-step">
+        <summary id="response-diagnostics-heading">View model responses (0)</summary>
+        <p class="muted">Responses are captured automatically for successful and failed AI attempts. They can contain sensitive test data. Only the latest operation is kept in this browser tab; not saved to analytics history. The configured API key is redacted, but other secrets may remain. Review before copying.</p>
+        <button type="button" id="clear-response-diagnostics" class="secondary">Clear captured responses</button>
+        <p id="response-diagnostics-status" role="status">No model responses yet.</p>
+        <div id="response-diagnostics-list"></div>
+      </details></div>
       <label for="usage-days">Date range</label><select id="usage-days"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option><option value="0">All time</option></select>
       <button id="usage-refresh" type="button" class="secondary">Refresh AI usage</button>
+      <button id="usage-export" type="button" class="secondary">Export experiment results</button>
+      <p class="muted">Results are saved locally. Assess draft correctness once per generation operation. Export includes metadata for the selected date range, not raw responses or test instructions.</p>
+      <div id="experiment-summary" class="result-metrics"></div>
       <p id="usage-status" role="status"></p><div id="usage-metrics" class="result-metrics"></div>
       <p id="usage-minute" class="muted"></p><div id="usage-records"></div>
       <div class="planned-report"><h3>Planned enhancements — to be implemented</h3><p>Provider/model filters, prompt version comparisons, charts, CSV export and persistent per-test associations.</p></div>
@@ -851,6 +865,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (view === "draft" || view === "existing") {
         $("review-workspace").hidden = false;
         $("placeholder").hidden = view !== "existing";
+      }
+      if (["instructions","draft","ai-usage"].includes(view)) {
+        const host = $(view === "ai-usage" ? "analytics-response-diagnostics" : view + "-response-diagnostics");
+        const panel = $("response-diagnostics-panel");
+        if (panel.parentElement !== host) {
+          host.append(panel);
+          panel.open = false;
+          for (const item of panel.querySelectorAll("details")) item.open = false;
+        }
       }
       if (view === "ai-usage") void refreshAIUsage();
       if (view === "diagnostics") {
@@ -1091,6 +1114,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         return;
       }
       if (!confirmReplaceWorkspace()) return;
+      clearResponseDiagnostics();
       editorRevision++;
       persistedEditorState = null;
       expandedStepIds.clear();
@@ -1170,12 +1194,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("draft-save-status").textContent = error.message || String(error);
       } finally { saving = false; updateApproval(); }
     });
+    const incrementalReinterpretationEnabled = false; // Server enables only for injected test provider.
     function describeTarget(target) {
       if (!target) return "unknown element";
       if (target.by === "role") return target.role +
         (target.name ? ' named "' + target.name + '"' : "") +
+        (target.hasText ? ' containing exact text "' + target.hasText + '"' : "") +
+        (target.within ? ' within unique ' + target.within.role + ' containing exact text "' + target.within.text + '"' : "") +
         (Number.isInteger(target.nth) ? " (match " + (target.nth + 1) + ", by DOM order)" : "");
-      if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + ")" : "");
+      if (target.by === "intent") return 'element matching intent "' + target.value + '"' + (target.role ? " (role: " + target.role + (target.rolePolicy === "hint" ? ", strict; legacy hint ignored" : "") + ")" : "");
       if (target.by === "label") return 'field labelled "' + target.value + '"';
       if (target.by === "placeholder") return 'field with placeholder "' + target.value + '"';
       if (target.by === "text") return 'visible text "' + target.value + '"';
@@ -1189,13 +1216,17 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (action.kind === "navigate") return 'Open "' + action.url + '"';
       if (action.kind === "fill") return 'Enter "' + action.value + '" into ' + describeTarget(action.target);
       if (action.kind === "click") return "Click " + describeTarget(action.target);
+      if (action.kind === "hover") return "Hover over " + describeTarget(action.target);
       if (action.kind === "check") return "Check " + describeTarget(action.target);
       if (action.kind === "uncheck") return "Uncheck " + describeTarget(action.target);
       if (action.kind === "select-option") return 'Select option value "' + action.value + '" in ' + describeTarget(action.target);
       if (action.kind === "press") return 'Press ' + action.key + " on " + describeTarget(action.target);
-      if (action.kind === "assert-text" && action.scope === "search-results") return 'Verify a returned search result contains "' + action.expected + '" (result cards only)';
+      if (action.kind === "assert-text" && action.scope === "search-results") return 'Verify a returned search result ' + (action.match === "contains" ? 'contains "' : 'equals "') + action.expected + '" (case-sensitive; any visible match of ' + describeTarget(action.target) + ')';
       if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + (action.match === "contains" ? ' contains "' : ' equals "') + action.expected + '"';
-      if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
+      if (action.kind === "assert-visible") {
+        if (action.target.by === "intent" || Number.isInteger(action.target.nth)) return "Verify " + describeTarget(action.target) + " is visible";
+        return "Verify at least one element matching " + describeTarget(action.target) + " is visible";
+      }
       if (action.kind === "assert-count") return "Verify " + describeTarget(action.target) + " matches " + action.expected + " elements";
       if (action.kind === "assert-url") return 'Verify current URL equals "' + action.expected + '"';
       return "Unsupported action";
@@ -1209,24 +1240,37 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       label.append(input);
       parent.append(label);
     }
-    function beginEdit(card, step, index) {
+    function beginEdit(card, step, index, failureEvidence) {
       const edits = make("div", null, "edits");
       const clone = JSON.parse(JSON.stringify(step));
       labeledInput(edits, "Description", clone.description, (v) => { clone.description = v; });
+      const actionLabel = make("label", "Action type");
+      const actionSelect = make("select");
+      actionSelect.setAttribute("aria-label", "Action type");
+      const kinds = ["navigate","click","hover","fill","check","uncheck","select-option","press","assert-visible","assert-text","assert-count","assert-url"];
+      for (const kind of kinds) {
+        if (index === 0 && kind !== "navigate") continue;
+        const option = make("option", kind);
+        option.value = kind;
+        actionSelect.append(option);
+      }
+      actionSelect.value = clone.action.kind;
+      actionLabel.append(actionSelect);
+      edits.append(actionLabel);
+      const actionFields = make("div");
+      edits.append(actionFields);
+      const renderActionFields = () => {
+      actionFields.replaceChildren();
       if (clone.action.kind === "navigate") {
-        labeledInput(edits, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
+        labeledInput(actionFields, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
       } else if (clone.action.kind === "assert-url") {
-        labeledInput(edits, "Expected URL / path", clone.action.expected, (v) => {
+        labeledInput(actionFields, "Expected URL / path", clone.action.expected, (v) => {
           clone.action.expected = v;
         });
-      } else if (clone.action.kind === "assert-text" && clone.action.scope === "search-results") {
-        labeledInput(edits, "Expected text in a returned search result", clone.action.expected, (v) => {
-          clone.action.expected = v;
-        });
-        edits.append(make("p", "This assertion checks visible returned search-result cards, not the search field, page heading, navigation or whole page. If result cards cannot be identified, it fails safely.", "note"));
       } else {
         const strategyLabel = make("label", "Locator strategy");
         const strategySelect = make("select");
+        strategySelect.setAttribute("aria-label", "Locator strategy");
         for (const [value, title] of [
           ["role", "Accessible role and name"],
           ["label", "Form label"],
@@ -1236,7 +1280,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           ["id", "Stable HTML id"],
           ["css", "CSS fallback (review brittleness)"],
           ["xpath", "XPath fallback (last resort)"],
-          ...(clone.action.kind === "assert-count" ? [] :
+          ...((["assert-count","hover"].includes(clone.action.kind) || clone.action.scope === "search-results") ? [] :
             [["intent", "Live DOM intent (recommended for unknown elements)"]]),
         ]) {
           const option = make("option", title);
@@ -1245,9 +1289,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         strategySelect.value = clone.action.target.by;
         strategyLabel.append(strategySelect);
-        edits.append(strategyLabel);
+        actionFields.append(strategyLabel);
         const locatorFields = make("div");
-        edits.append(locatorFields);
+        actionFields.append(locatorFields);
         const renderLocatorFields = () => {
           locatorFields.replaceChildren();
           const t = clone.action.target;
@@ -1266,9 +1310,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             roleSelect.addEventListener("change", () => {
               if (roleSelect.value) t.role = roleSelect.value;
               else delete t.role;
+              delete t.rolePolicy; // Explicitly changing the role restores a strict constraint.
+              renderLocatorFields();
             });
             roleLabel.append(roleSelect);
             locatorFields.append(roleLabel);
+            if (t.rolePolicy === "hint") {
+              locatorFields.append(make("p", "Legacy role hint: the declared role is now enforced strictly. Choose the correct role or explicit locator.", "note"));
+            }
           } else if (t.by === "role") {
             const roleLabel = make("label", "Element role");
             const roleSelect = make("select");
@@ -1285,6 +1334,23 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
               if (v.trim()) t.name = v; else delete t.name;
             });
             if (clone.action.kind !== "assert-count") {
+              labeledInput(locatorFields, "Element contains exact descendant text (optional)", t.hasText ?? "", v => {
+                if (v.trim()) t.hasText = v; else delete t.hasText;
+              });
+              const scopeLabel = make("label", "Container scope (optional)");
+              const scopeSelect = make("select");
+              for (const role of ["", "listitem", "article", "row", "group"]) {
+                const option = make("option", role || "No container");
+                option.value = role; scopeSelect.append(option);
+              }
+              scopeSelect.value = t.within?.role || "";
+              scopeSelect.addEventListener("change", () => {
+                if (scopeSelect.value) t.within = {role:scopeSelect.value,text:t.within?.text || ""};
+                else delete t.within;
+                renderLocatorFields();
+              });
+              scopeLabel.append(scopeSelect); locatorFields.append(scopeLabel);
+              if (t.within) labeledInput(locatorFields, "Container contains exact descendant text", t.within.text, v => {t.within.text = v;});
               const indexLabel = make("label", "Match index (0 = first; blank requires a unique match)");
               const indexInput = make("input");
               indexInput.type = "number";
@@ -1350,7 +1416,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         });
         renderLocatorFields();
         if (clone.action.kind === "fill" || clone.action.kind === "select-option") {
-          labeledInput(edits, clone.action.kind === "fill" ? "Value to enter" : "Option value",
+          labeledInput(actionFields, clone.action.kind === "fill" ? "Value to enter" : "Option value",
             clone.action.value, (v) => { clone.action.value = v; });
         }
         if (clone.action.kind === "press") {
@@ -1366,10 +1432,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           input.value = clone.action.key;
           input.addEventListener("change", () => { clone.action.key = input.value; });
           label.append(input);
-          edits.append(label);
+          actionFields.append(label);
         }
         if (clone.action.kind === "assert-text") {
-          labeledInput(edits, "Expected text", clone.action.expected, (v) => { clone.action.expected = v; });
+          labeledInput(actionFields, "Expected text", clone.action.expected, (v) => { clone.action.expected = v; });
           const comparison = make("label", "Text comparison");
           const mode = make("select");
           for (const [value, label] of [["exact", "Exact match"], ["contains", "Contains text"]]) {
@@ -1380,7 +1446,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           mode.value = clone.action.match || "exact";
           mode.addEventListener("change", () => { clone.action.match = mode.value; });
           comparison.append(mode);
-          edits.append(comparison);
+          actionFields.append(comparison);
+          if (clone.action.scope === "search-results") actionFields.append(make("p", "Any visible element matching the approved locator may satisfy this case-sensitive assertion. Choose result records, not the whole page or search field.", "note"));
+        }
+        if (clone.action.kind === "assert-visible") {
+          actionFields.append(make("p", "At least one matching element must be visible. An explicit match index checks only that position; live DOM intent requires a unique resolved element. To verify uniqueness, add a count assertion.", "note"));
         }
         if (clone.action.kind === "assert-count") {
           const label = make("label", "Expected element count");
@@ -1394,13 +1464,146 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             clone.action.expected = input.value === "" ? -1 : Number(input.value);
           });
           label.append(input);
-          edits.append(label);
+          actionFields.append(label);
         }
+      }
+      };
+      actionSelect.addEventListener("change", () => {
+        const previous = clone.action;
+        const kind = actionSelect.value;
+        const target = previous.target ? JSON.parse(JSON.stringify(previous.target)) : {by:"role",role:"button"};
+        if (kind === "assert-count") {
+          if (target.by === "intent") {
+            target.by = "text";
+            delete target.role;
+            delete target.rolePolicy;
+          }
+          delete target.nth;
+          delete target.hasText;
+          delete target.within;
+        }
+        if (kind === "hover" && target.by === "intent") {
+          // Require the reviewer to choose a concrete locator rather than treating an intent as exact text.
+          target.by = "text"; target.value = ""; delete target.role; delete target.rolePolicy;
+        }
+        if (target.by === "intent" && kind !== "click") delete target.rolePolicy;
+        const assertion = kind.startsWith("assert-");
+        clone.action = {
+          kind,
+          ...(!["navigate","assert-url"].includes(kind) ? {target} : {}),
+          ...(kind === "navigate" ? {url:previous.url || ""} : {}),
+          ...(["fill","select-option"].includes(kind) ? {value:typeof previous.value === "string" ? previous.value : ""} : {}),
+          ...(kind === "press" ? {key:previous.key || "Enter"} : {}),
+          ...(kind === "assert-count" ? {expected:typeof previous.expected === "number" ? previous.expected : 1} : {}),
+          ...(["assert-text","assert-url"].includes(kind) ? {expected:typeof previous.expected === "string" ? previous.expected : ""} : {}),
+          ...(assertion ? {provenance:"human-confirmed"} : {}),
+        };
+        renderActionFields();
+      });
+      renderActionFields();
+      if (failureEvidence) {
+        const picker = make("div", null, "locator-repair element-picker");
+        picker.append(make("h3", "Find an element on the failed page"));
+        picker.append(make("p", "Captured failure state only. Search does not open the website or replay actions. Results may no longer match the current page.", "muted"));
+        if (!failureEvidence.available) {
+          picker.append(make("p", "No captured element evidence is available for this step. Edit the locator manually, or explicitly rerun the test to capture a fresh failure.", "note"));
+        } else {
+          const label = make("label", "Search captured page elements");
+          const query = make("input");
+          query.type = "text";
+          query.maxLength = 180;
+          label.append(query);
+          const search = make("button", "Search elements", "secondary");
+          search.type = "button";
+          search.disabled = true;
+          const status = make("p", "Search names, roles, visible text, identifiers or nearby context.", "muted");
+          status.setAttribute("role", "status");
+          const choices = make("div");
+          const use = make("button", "Use selected element", "secondary");
+          use.type = "button";
+          use.disabled = true;
+          const recommendation = make("p", "", "note");
+          recommendation.hidden = true;
+          let chosen = null, revision = 0;
+          const canPopulate = () => !!clone.action.target && clone.action.scope !== "search-results" && clone.action.kind !== "assert-count";
+          query.addEventListener("input", () => {
+            revision++;
+            chosen = null;
+            choices.replaceChildren();
+            use.disabled = true;
+            search.disabled = !query.value.trim();
+            status.textContent = "Search again to refresh results.";
+          });
+          search.addEventListener("click", async () => {
+            const value = query.value.trim();
+            if (!value) return;
+            const requestRevision = ++revision;
+            chosen = null;
+            choices.replaceChildren();
+            use.disabled = true;
+            search.disabled = true;
+            status.textContent = "Searching captured elements...";
+            try {
+              const response = await requestJSON("/api/search-elements", {
+                method: "POST", headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({runId:failureEvidence.runId,stepId:step.id,query:value}),
+              });
+              if (!edits.isConnected || requestRevision !== revision) return;
+              const candidates = response.candidates || [];
+              for (const candidate of candidates) {
+                const option = make("label", null, "locator-option");
+                const radio = make("input");
+                radio.type = "radio";
+                radio.name = "element-picker-" + index;
+                const info = make("span");
+                info.append(make("strong", candidate.name || candidate.text || "(unnamed element)"));
+                info.append(make("small", candidate.role || candidate.tag));
+                info.append(make("small", describeTarget(candidate.target)));
+                if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
+                option.append(radio, info);
+                radio.addEventListener("change", () => {
+                  chosen = candidate;
+                  use.disabled = !canPopulate();
+                  status.textContent = canPopulate()
+                    ? "Element selected. Apply its locator without changing the action or expectation."
+                    : "This action has no compatible single-element locator. Change the action explicitly or edit manually.";
+                });
+                choices.append(option);
+              }
+              status.textContent = candidates.length
+                ? candidates.length + " verified captured element(s). Select one to review its locator."
+                : "No matching captured elements. Try another phrase or edit the locator manually.";
+            } catch (error) {
+              if (edits.isConnected && requestRevision === revision) status.textContent = error.message || String(error);
+            } finally {
+              if (edits.isConnected && requestRevision === revision) search.disabled = !query.value.trim();
+            }
+          });
+          use.addEventListener("click", () => {
+            if (!chosen || !canPopulate()) return;
+            clone.action.target = JSON.parse(JSON.stringify(chosen.target));
+            renderActionFields();
+            recommendation.hidden = false;
+            recommendation.textContent = "Compatible actions: " + chosen.actions.join(", ") +
+              ". The action and expectation have not been changed.";
+            status.textContent = "Locator populated in this unsaved edit. Review and apply changes.";
+          });
+          actionSelect.addEventListener("change", () => { use.disabled = !chosen || !canPopulate(); });
+          picker.append(label, search, status, choices, use, recommendation);
+        }
+        edits.append(picker);
       }
       const buttons = make("div", null, "actions");
       const apply = make("button", "Apply changes");
       apply.type = "button";
       apply.onclick = () => {
+        const wasAssertion = step.action.kind.startsWith("assert-");
+        const isAssertion = clone.action.kind.startsWith("assert-");
+        const expectationChanged = (wasAssertion || isAssertion) &&
+          (step.action.kind !== clone.action.kind ||
+           step.action.expected !== clone.action.expected ||
+           (step.action.match || "exact") !== (clone.action.match || "exact") ||
+           step.action.scope !== clone.action.scope);
         if ("target" in clone.action &&
             ["testid", "id", "css", "xpath"].includes(clone.action.target.by) &&
             !clone.action.target.value.trim()) {
@@ -1412,6 +1615,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           message.textContent = "Enter the actual locator value; an accessible name is not a CSS/XPath selector or HTML ID.";
           return;
         }
+        if (expectationChanged && step.action.kind !== clone.action.kind && !window.confirm("Confirm that this assertion change reflects the original test requirements.")) return;
+        if (expectationChanged && isAssertion) clone.action.provenance = "human-confirmed";
         invalidateCoverageForStep(definition.steps[index].id);
         definition.steps[index] = clone;
         approvals.delete(index);
@@ -1430,10 +1635,49 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function findTestDesignIssues() {
       if (!definition) return [];
       const issues = [];
+      // Mirror draft-diagnostics.ts for live, local review after edits.
+      const ordinalWords = ["first","second","third","fourth","fifth","sixth","seventh","eighth","ninth","tenth"];
+      const normaliseName = value => value.trim().replace(/\s+/g, " ").toLowerCase();
+      const positionalRequests = [];
+      for (const clause of ($("requirements").value || definition.workingInstructions || definition.sourceInstructions || "").split(/[.\n;!?]+/)) {
+        const match = /^\s*(?:please\s+)?click\s+(?:on\s+)?(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\s+(.+?)\s+(button|checkbox|radio|combobox|textbox)\s*$/i.exec(clause);
+        if (!match) continue;
+        const ordinal = match[1].toLowerCase();
+        const wordIndex = ordinalWords.indexOf(ordinal);
+        const nth = wordIndex >= 0 ? wordIndex : Number.parseInt(ordinal, 10) - 1;
+        if (nth < 0 || nth > 249) continue;
+        positionalRequests.push({name:normaliseName(match[2].replace(/^["']|["']$/g, "")),role:match[3].toLowerCase(),nth});
+      }
       for (const [index, step] of definition.steps.entries()) {
         const action = step.action;
         const target = action.target;
         const add = (severity, message) => issues.push({ stepNumber: index + 1, severity, message });
+        if (target?.by === "role" && action.kind !== "assert-count") {
+          const requested = action.kind === "click" && target.name
+            ? [...new Set(positionalRequests.filter(item => item.role === target.role &&
+                item.name === normaliseName(target.name)).map(item => item.nth))]
+            : [];
+          if (target.nth !== undefined && (requested.length !== 1 || requested[0] !== target.nth)) {
+            add("Review", "Positional index " + target.nth +
+              (requested.length === 1 ? " does not match the requested position (index " + requested[0] + ")." :
+                " cannot be verified against a unique explicit position for this control.") +
+              " Review the original instruction and locator before approval.");
+          } else if (target.nth === undefined && requested.length > 0) {
+            add("Review", "Explicit position requested for this control but the locator has no index. Review the original instruction before approval.");
+          }
+        }
+        if ((target?.by === "role" || target?.by === "intent") && target.role) {
+          const compatible = ({
+            fill: ["textbox"], "select-option": ["combobox"],
+            check: ["checkbox", "radio"], uncheck: ["checkbox"],
+          })[action.kind];
+          if (compatible && !compatible.includes(target.role)) {
+            add("Review", "Action " + action.kind +
+              " may be incompatible with target role " + target.role +
+              ". Expected role: " + compatible.join(" or ") +
+              ". Review the action type and locator together before approval.");
+          }
+        }
         if (target?.by === "css") {
           const complex = /:nth-(?:child|of-type)|(?:^|[\s>+~])(?:div|span|li)\s*[>+~]|\bcss=|\b(?:_[a-f0-9]{6,}|__[a-f0-9]{5,})\b/i.test(target.value);
           add(complex ? "Review" : "Advisory", complex
@@ -1622,6 +1866,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (index > 0) {
           const reinterpret = make("button", "Reinterpret with AI", "textbtn");
           reinterpret.type = "button";
+          // Temporary v0.3 gate: retain the legacy implementation for isolated mock tests only.
+          reinterpret.disabled = !incrementalReinterpretationEnabled;
+          if (reinterpret.disabled) reinterpret.title = "Temporarily unavailable while execution fidelity is being improved. Use Edit fields instead.";
           reinterpret.addEventListener("click", () => {
             incrementalRevision++;
             incrementalSelectedId = step.id;
@@ -1658,8 +1905,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function showIncrementalError(error) {
       const status = $("incremental-status");
       const technical = error.message || String(error);
-      const malformed = error.category === "json-generation" || /Malformed JSON response|json_validate_failed/i.test(technical);
-      const schema = error.category === "response-schema" || /Response schema validation:/.test(technical);
+      const malformed = error.category === "json-generation" || /Malformed JSON response|model output was not valid JSON|json_validate_failed/i.test(technical);
+      const schema = error.category === "response-schema" || /Response schema validation:|could not produce valid replacement test steps/i.test(technical);
       if (!malformed && !schema) {
         status.textContent = technical;
         return;
@@ -2031,7 +2278,25 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (row.issue) reasons.push(row.issue);
         if (!row.stepIds.length && !row.issue) reasons.push("No current test step is associated with this statement.");
         section.append(make("p", reasons.join(" ") || "Review this mapping against the revised test.", "coverage-reason"));
-        section.append(make("p", "Select every current step needed to satisfy this statement:", "muted"));
+        for (const [index, step] of definition.steps.entries()) {
+          if (!row.stepIds.includes(step.id)) continue;
+          const review = make("button", "Review step " + (index + 1), "secondary");
+          review.type = "button";
+          review.addEventListener("click", () => {
+            const currentIndex = definition.steps.findIndex(item => item.id === step.id);
+            if (currentIndex < 0) return;
+            const card = document.querySelectorAll("#step-list .step")[currentIndex];
+            if (!card) return;
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+            const edit = Array.from(card.querySelectorAll("button"))
+              .find(button => button.textContent.trim() === "Edit fields");
+            if (edit && !card.querySelector(".edits")) edit.click();
+          });
+          section.append(review);
+        }
+        const details = make("details");
+        details.append(make("summary", "Review mapping for " + row.id));
+        details.append(make("p", "Select every current step needed to satisfy this statement:", "muted"));
         const options = make("div", null, "coverage-options");
         for (const [index, step] of definition.steps.entries()) {
           const label = make("label");
@@ -2063,7 +2328,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           target.confirmed = true;
           updateApproval();
         });
-        section.append(options, confirm);
+        details.append(options, confirm);
+        section.append(details);
         panel.append(section);
       }
       syncReviewFeedback();
@@ -2194,6 +2460,83 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       approvals = new Set(definition.steps.map((_, index) => index));
       renderSteps();
     });
+    let responseCaptureRevision = 0;
+    let latestResponseDiagnostics = [];
+    function renderResponseDiagnostics() {
+      const list = $("response-diagnostics-list");
+      list.replaceChildren();
+      const rows = latestResponseDiagnostics;
+      $("response-diagnostics-heading").textContent = ($("response-diagnostics-panel").open ? "Hide" : "View") + " model responses (" + rows.length + ")";
+      $("response-diagnostics-status").textContent = rows.length ? rows.length + " model attempt(s) from the latest operation." : "No model responses yet. Generate or reinterpret a test.";
+      for (const row of rows) {
+        const item = make("details");
+        item.className = "run-step";
+        item.append(make("summary","Call " + row.call + " — " + row.mode.toUpperCase() + " mode — " +
+          (row.accepted ? "Passed validation" : "Not accepted")));
+        if (row.status || row.httpStatus !== undefined) item.append(make("p",
+          "Provider status: " + (row.status ?? "unknown") + " · HTTP: " + (row.httpStatus ?? "not received") +
+          " · Transport attempt: " + (row.transportAttempt ?? "unknown"),"muted"));
+        if (row.responsePolicy) item.append(make("p","Response policy: " + row.responsePolicy + " · Reasoning effort: " + (row.reasoningEffort ?? "provider default"),"muted"));
+        item.append(make("p","Finish reason: " + (row.finishReason ?? "not reported") +
+          " · Completion tokens: " + (row.completionTokens ?? "unknown") + " / " + (row.completionBudget ?? "unknown") +
+          " · Reasoning tokens: " + (row.reasoningTokens ?? "not reported"),"muted"));
+        item.append(make("p","Model content characters: " + (row.contentCharacters ?? "not returned") +
+          " · HTTP body characters: " + (row.httpBodyCharacters ?? "not captured"),"muted"));
+        if (row.finishReason === "length") item.append(make("p","Provider reported a length limit. The completion may be incomplete.","error"));
+        if (row.repairs?.length) item.append(make("p","Local repairs: " + row.repairs.join(", ")));
+        if (row.validation) item.append(make("p",row.validation,"muted"));
+        for (const [title, value, truncated] of [
+          ["Raw model response",row.raw,row.rawTruncated],
+          ["Raw HTTP response body",row.httpBody,row.httpBodyTruncated],
+          ["Provider error response",row.providerError,row.errorTruncated],
+          ["Locally repaired JSON",row.repairedJSON,row.repairedTruncated],
+        ]) {
+          if (typeof value !== "string") continue;
+          const section = make("details");
+          section.append(make("summary",title + (truncated ? " (truncated)" : "")));
+          const pre = make("pre",value === "" ? "(empty string)" : value);
+          pre.style.whiteSpace = "pre-wrap";
+          pre.style.overflowWrap = "anywhere";
+          pre.style.maxHeight = "420px";
+          pre.style.overflow = "auto";
+          const copy = make("button","Copy " + title.toLowerCase(),"secondary");
+          copy.type = "button";
+          const feedback = make("span","","muted");
+          copy.addEventListener("click", async () => {
+            try { await navigator.clipboard.writeText(value); feedback.textContent = "Copied."; }
+            catch { feedback.textContent = "Clipboard unavailable. Select and copy the response manually."; }
+          });
+          section.append(copy,feedback,pre);
+          item.append(section);
+        }
+        if (row.status === "empty-response") item.append(make("p","HTTP response received, but model completion content was empty or missing.","muted"));
+        else if (row.status === "unreadable-response") item.append(make("p","HTTP response received, but the body could not be read or parsed.","muted"));
+        else if (row.httpStatus === undefined && row.status) item.append(make("p","No HTTP response was received; provider receipt of the request is unknown.","muted"));
+        else if (row.raw === undefined && row.providerError === undefined && row.httpBody === undefined) item.append(make("p","No response content captured for this attempt.","muted"));
+        list.append(item);
+      }
+    }
+    function clearResponseDiagnostics() {
+      $("response-diagnostics-panel").open = false;
+      responseCaptureRevision++;
+      latestResponseDiagnostics = [];
+      renderResponseDiagnostics();
+    }
+    function beginResponseCapture() {
+      clearResponseDiagnostics();
+      return {revision:responseCaptureRevision};
+    }
+    function receiveResponseCapture(usage, capture) {
+      const rows = usage?.responseDiagnostics;
+      if (usage) delete usage.responseDiagnostics;
+      if (capture.revision !== responseCaptureRevision) return;
+      latestResponseDiagnostics = Array.isArray(rows) ? rows : [];
+      renderResponseDiagnostics();
+    }
+    $("response-diagnostics-panel").addEventListener("toggle",()=>{
+      $("response-diagnostics-heading").textContent = ($("response-diagnostics-panel").open ? "Hide" : "View") + " model responses (" + latestResponseDiagnostics.length + ")";
+    });
+    $("clear-response-diagnostics").addEventListener("click",clearResponseDiagnostics);
     function showRequestUsage(target, usage) {
       const panel=$(target);
       panel.replaceChildren();
@@ -2208,9 +2551,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!totals.requests) details.append(make("p","No hosted provider attempt was recorded for this operation.","muted"));
       details.append(make("p",totals.requests+" provider attempts · "+usage.modelCalls+" model calls · "+totals.unknownRequests+" unknown counts","muted"));
       for (const row of usage.records) {
-        details.append(make("p",row.status+" · "+row.model+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
+        details.append(make("p",row.status+" · "+row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+" · Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Total: "+(row.totalTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms"));
         details.append(make("p","Input size: "+row.systemCharacters.toLocaleString()+" system characters + "+row.promptCharacters.toLocaleString()+" prompt characters (not token counts).","muted"));
-        if(row.estimatedInputTokens!==undefined) details.append(make("p","Estimated input: "+row.estimatedInputTokens.toLocaleString()+" tokens (rough characters/4 estimate, not tokenizer output). Estimated input + completion allowance: "+(row.estimatedInputTokens+row.completionBudget).toLocaleString()+" tokens. Not actual usage.","muted"));
+        if(row.estimatedInputTokens!==undefined) details.append(make("p","Estimated input: "+row.estimatedInputTokens.toLocaleString()+" tokens ("+(row.estimator??"legacy characters/4 estimate")+"). Estimated input + completion allowance: "+(row.estimatedInputTokens+row.completionBudget).toLocaleString()+" tokens. Not actual usage.","muted"));
         if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) details.append(make("p","Provider rate-limit figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used in quota window: "+(row.providerUsedTokens??"unknown")+". These are not per-request actual usage."));
         if(row.retryAfter!==undefined) details.append(make("p","Provider Retry-After: "+row.retryAfter+(/^\d+(?:\.\d+)?$/.test(row.retryAfter)?" seconds":" (HTTP date)"),"muted"));
         if(row.remainingTokens!==undefined || row.resetTokens!==undefined) details.append(make("p","Provider remaining tokens: "+(row.remainingTokens??"unknown")+" · reset: "+(row.resetTokens??"unknown"),"muted"));
@@ -2230,23 +2573,71 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         $("usage-minute").textContent="Last 60 seconds (local recorded attempts): "+data.minute.totalTokens.toLocaleString()+" reported tokens; "+data.minute.unknownRequests+" unknown counts. This is not the provider quota.";
         const list=$("usage-records");list.replaceChildren();
+        const assessments=new Map((data.results??[]).map(r=>[r.operationId,r]));
+        const seen=new Set();
+        const summary=$("experiment-summary");summary.replaceChildren();
+        // The summary covers the displayed attempts (latest 200); export covers the entire selected period.
+        const groups=new Map();
+        for(const row of data.records){
+          if(row.operation!=="generate" || row.responsePolicy==="hybrid" || !row.responsePolicy) continue;
+          const key=row.model+" · "+row.responsePolicy+" / "+(row.reasoningEffort??"default");
+          if(!groups.has(key))groups.set(key,[]);
+          groups.get(key).push(row);
+        }
+        for(const [key,rows] of groups){
+          const ops=[...new Set(rows.map(r=>r.operationId))];
+          const rated=ops.filter(id=>["correct","incorrect"].includes(assessments.get(id)?.assessment));
+          const correct=rated.filter(id=>assessments.get(id)?.assessment==="correct").length;
+          const avg=k=>{const known=rows.filter(r=>typeof r[k]==="number");return known.length?Math.round(known.reduce((n,r)=>n+r[k],0)/known.length):"unknown";};
+          const metric=make("div",null,"result-metric");
+          metric.append(make("strong",key),make("p",ops.length+" operations · "+correct+"/"+rated.length+" manually correct"),make("p","Avg. tokens/attempt: "+avg("totalTokens")+" · Reasoning: "+avg("reasoningTokens"),"muted"));
+          summary.append(metric);
+        }
         for(const row of data.records) {
           const card=make("article",null,"run-step");
-          card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
+          card.append(make("strong",new Date(row.startedAt).toLocaleString()+" · "+row.operation+" · "+row.status),make("p",row.model+(row.responseMode ? " · "+row.responseMode+" mode" : "")+(row.responsePolicy ? " · "+row.responsePolicy+" policy · reasoning "+(row.reasoningEffort ?? "default") : "")+" · Call "+row.modelCall+" / transport attempt "+row.transportAttempt+" · Total tokens: "+(row.totalTokens??"unknown")),make("p","Input: "+(row.inputTokens??"unknown")+" · Output: "+(row.outputTokens??"unknown")+" · Budget: "+row.completionBudget+" · "+row.durationMs+" ms","muted"));
           if(row.providerRequestedTokens!==undefined || row.providerTokenLimit!==undefined || row.providerUsedTokens!==undefined) card.append(make("p","Provider quota figures — requested: "+(row.providerRequestedTokens??"unknown")+"; limit: "+(row.providerTokenLimit??"unknown")+"; used: "+(row.providerUsedTokens??"unknown"),"muted"));
-          if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens (rough estimate)","muted"));
+          if(row.estimatedInputTokens!==undefined) card.append(make("p","Estimated input: "+row.estimatedInputTokens+" tokens ("+(row.estimator??"legacy characters/4")+")"+(typeof row.inputTokens==="number"&&row.inputTokens>0?" · Difference: "+(row.estimatedInputTokens-row.inputTokens)+" tokens ("+((row.estimatedInputTokens-row.inputTokens)/row.inputTokens*100).toFixed(1)+"%)":""),"muted"));
           if(row.retryAfter!==undefined) card.append(make("p","Retry-After: "+row.retryAfter,"muted"));
+          card.append(make("p","Finish: "+(row.finishReason??"not reported")+" · Reasoning tokens: "+(row.reasoningTokens??"not recorded"),"muted"));
+          if(!seen.has(row.operationId)){
+            seen.add(row.operationId);
+            const result=assessments.get(row.operationId);
+            card.append(make("p","Operation validation: "+(result?.validation??"not recorded")+" · Manual assessment: "+(result?.assessment??"unreviewed"),"muted"));
+            const controls=make("div");
+            for(const [value,label] of [["correct","Correct draft"],["incorrect","Incorrect draft"],["unreviewed","Clear assessment"]]){
+              const btn=make("button",label,"secondary");btn.type="button";
+              btn.disabled=(result?.assessment??"unreviewed")===value;
+              btn.addEventListener("click",async()=>{
+                for(const child of controls.children)child.disabled=true;
+                try {
+                  await requestJSON("/api/ai-usage/assessment",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operationId:row.operationId,assessment:value})});
+                  await refreshAIUsage();
+                } catch(error) {
+                  $("usage-status").textContent="Assessment not saved: "+(error.message||String(error));
+                  for(const child of controls.children)child.disabled=false;
+                }
+              });
+              controls.append(btn);
+            }
+            card.append(controls);
+          }
           list.append(card);
         }
         $("usage-status").textContent=data.totalRecords ? "Showing latest "+data.records.length+" of "+data.totalRecords+" attempts." : "No recorded AI requests for this period.";
       } catch(error) { $("usage-status").textContent=error.message||String(error); }
     }
     $("usage-refresh").addEventListener("click",()=>void refreshAIUsage());
+    $("usage-export").addEventListener("click",()=>{const link=document.createElement("a");link.href="/api/ai-usage?export=1&days="+$("usage-days").value;link.download="ai-experiment-results.json";document.body.append(link);link.click();link.remove();});
     $("usage-days").addEventListener("change",()=>void refreshAIUsage());
     async function requestJSON(url, options) {
+      const capture = url === "/api/regenerate-steps" ? beginResponseCapture() : null;
       const response = await fetch(url, options);
       const payload = await response.json();
-      if (url === "/api/regenerate-steps") showRequestUsage("draft-usage",payload.aiUsage);
+      if (capture) {
+        receiveResponseCapture(payload.aiUsage,capture);
+        showRequestUsage("draft-usage",payload.aiUsage);
+      }
       if (!response.ok) {
         const error = new Error(payload.error || "Request failed (" + response.status + ")");
         error.category = payload.category;
@@ -2513,7 +2904,19 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
-        const failedAssertion = (step.status === "execution-error" ||
+        if (step.status === "execution-error" || step.status === "assertion-failed") {
+          const editStep = make("button", "Edit failing step", "secondary");
+          editStep.type = "button";
+          editStep.disabled = !result.fileId;
+          editStep.addEventListener("click", () => {
+            if (result.fileId) void loadSavedForEditing(result.fileId, step.id, {runId:result.id,available:step.elementSearchAvailable === true});
+          });
+          card.append(editStep);
+        }
+        if (step.assertionScope === "search-results" && step.status !== "passed" && step.status !== "skipped") {
+          card.append(make("p", "This assertion checks returned result cards only. The failure diagnostic is not observed application text. Review the scoped assertion using Edit failing step; page-wide replacement is not offered.", "note"));
+        }
+        const failedAssertion = step.assertionScope !== "search-results" && !step.observedIsDiagnostic && (step.status === "execution-error" ||
           step.status === "assertion-failed") &&
           (step.actionKind === "assert-visible" || step.actionKind === "assert-text" ||
            step.assertionSearchAvailable || step.assertionAlternatives);
@@ -2539,7 +2942,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           searchInput.type = "text";
           searchInput.maxLength = 180;
           searchInput.value = step.assertionAlternatives?.query ||
-            (mismatch && typeof step.expected === "string" ? step.expected : "");
+            (typeof step.expected === "string" ? step.expected : "");
           field.append(searchInput);
           repair.append(field);
           const searchButton = make("button", "Search captured DOM", "secondary");
@@ -2561,6 +2964,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           let savingRepair = false;
           const canReviewExpectation = mismatch && step.actionKind === "assert-text" &&
             typeof step.expected === "string";
+          const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
+          const partialCorrection = candidate => !step.exactTextRequired && !mismatch && step.actionKind === "assert-text" &&
+            typeof step.expected === "string" && !!normalize(step.expected) &&
+            (step.textMatch ?? "exact") === "exact" && typeof candidate?.text === "string" &&
+            normalize(candidate.text) !== normalize(step.expected) &&
+            normalize(candidate.text).includes(normalize(step.expected));
           const review = make("div", null, "repair-scope");
           review.hidden = true;
           const modeLabel = make("label", "Assertion correction");
@@ -2596,6 +3005,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             const candidate = selectedCandidate();
             const changesExpectation = mode.value === "expectation" || mode.value === "both";
             expectationFields.hidden = !changesExpectation;
+            expected.readOnly = !mismatch;
+            match.disabled = !mismatch || step.exactTextRequired === true;
+            if (step.exactTextRequired) match.value = "exact";
+            useText.hidden = !mismatch;
             save.textContent = changesExpectation
               ? mode.value === "both" ? "Save corrected target and expectation and rerun" : "Save corrected expectation and rerun"
               : "Save corrected assertion target and rerun";
@@ -2606,9 +3019,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }
           function selectCorrection() {
             mode.replaceChildren();
+            const partial = partialCorrection(selectedCandidate()) && !sameTarget();
             const options = sameTarget()
               ? (canReviewExpectation ? [["expectation", "Update expected text or comparison"]] : [])
-              : [["target", "Replace assertion target"], ...(canReviewExpectation ? [["both", "Update target and expectation"]] : [])];
+              : [["target", "Replace assertion target"], ...(canReviewExpectation || partial ? [["both", "Update target and expectation"]] : [])];
             for (const [value, label] of options) {
               const option = make("option", label);
               option.value = value;
@@ -2617,7 +3031,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             expected.value = step.expected ?? "";
             match.value = step.textMatch ?? "exact";
             confirm.checked = false;
-            review.hidden = !canReviewExpectation || options.length === 0;
+            if (partial) {
+              mode.value = "both";
+              match.value = "contains";
+            }
+            review.hidden = !(canReviewExpectation || partial) || options.length === 0;
             updateRepair();
           }
           mode.addEventListener("change", () => { confirm.checked = false; updateRepair(); });
@@ -2650,6 +3068,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 ? 'Visible text "' + candidate.target.value + '"'
                 : candidate.target.role + ' named "' + candidate.target.name + '"';
               info.append(make("strong", description));
+              if (typeof candidate.text === "string") {
+                const query = normalize(evidence.query);
+                const rendered = normalize(candidate.text);
+                info.append(make("small", (rendered === query ? "Exact match" : rendered.includes(query) ? "Partial match" : "Rendered text") + ": " + candidate.text));
+              }
               info.append(make("small", "<" + candidate.tag + "> · role: " +
                 (candidate.role || "no explicit role")));
               if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
@@ -2662,7 +3085,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 if (unchanged) searchStatus.textContent = canReviewExpectation
                   ? "This is already the correct assertion target. Review the expected text or comparison below, then explicitly confirm your correction."
                   : "This is already the assertion target. No locator change is possible.";
-                else searchStatus.textContent = "Verified element selected. Review the correction before saving.";
+                else searchStatus.textContent = partialCorrection(candidate)
+                  ? "The visible element contains the expected phrase but has additional text. Use the combined correction only if Contains satisfies the original requirement; retain Exact if equality is required."
+                  : step.exactTextRequired ? "Exact equality is required. A locator correction preserves the original comparison." : "Verified element selected. Review the correction before saving.";
               });
               choices.append(label);
             });
@@ -2859,13 +3284,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             radio.name = "missing-" + result.id + "-" + step.id;
             radio.value = String(index);
             const info = make("span");
-            const duplicate = evidence.candidates.filter((item) =>
-              item.role === candidate.role && item.name === candidate.name).length > 1;
+            const duplicate = !candidate.target && evidence.candidates.filter((item) =>
+              !item.target && item.role === candidate.role && item.name === candidate.name).length > 1;
             const ordinal = duplicate && Number.isInteger(candidate.nth)
               ? " — match " + (candidate.nth + 1) + " of " + candidate.matchCount
               : "";
-            info.append(make("strong", candidate.role + " named " + candidate.name + ordinal));
+            info.append(make("strong", candidate.role + (candidate.name ? " named " + candidate.name : " (unnamed)") + ordinal));
             info.append(make("small", "<" + candidate.tag + ">"));
+            if (candidate.target) info.append(make("small", describeTarget(candidate.target)));
             if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
             radio.addEventListener("change", () => {
               selected = index;
@@ -3050,7 +3476,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           repair.append(save, feedback);
           card.append(repair);
         }
-        if (step.status === "assertion-failed" &&
+        if (step.status === "assertion-failed" && step.assertionScope !== "search-results" && !step.observedIsDiagnostic &&
             typeof step.expected === "string" && typeof step.observed === "string") {
           const review = make("div", null, "assertion-repair");
           review.append(make("h3", "Review failed text assertion"));
@@ -3077,6 +3503,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             matchSelect.append(option);
           }
           matchSelect.value = step.textMatch || "exact";
+          if (step.exactTextRequired) { matchSelect.value = "exact"; matchSelect.disabled = true; }
           comparisonField.append(matchSelect);
           review.append(comparisonField);
           const confirmLabel = make("label", null, "confirm-label");
@@ -3551,7 +3978,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("run-management-error").textContent = error.message || String(error);
       }
     });
-    async function loadSavedForEditing(id, focusStepId) {
+    async function loadSavedForEditing(id, focusStepId, failureEvidence) {
       if (!id || running || saving || generatingDraft || editorLoading) return;
       if (!confirmReplaceWorkspace()) return;
       editorLoading = true;
@@ -3596,7 +4023,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (index >= 0) {
           const card = $("step-list").querySelectorAll(".step")[index];
           const edit = card?.querySelector("button.textbtn");
-          if (edit) edit.click();
+          if (edit && failureEvidence) {
+            const step = definition.steps[index];
+            const details = card.querySelector(".step-details");
+            if (details) details.open = true;
+            expandedStepIds.add(step.id);
+            edit.disabled = true;
+            beginEdit(card, step, index, failureEvidence);
+          } else if (edit) edit.click();
           card?.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
           $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3722,7 +4156,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const evidence = data.diagnostics;
       if (!evidence || !evidence.snapshot) return;
       const warnings = Array.isArray(evidence.warnings)
-        ? evidence.warnings.filter(item => typeof item === "string") : [];
+        ? evidence.warnings.filter(item => typeof item === "string" &&
+          !/^Step \d+: action (?:fill|select-option|check|uncheck) may be incompatible with target role /.test(item) &&
+          !/^Step \d+: (?:positional index \d+|explicit position requested for this control)/.test(item)) : [];
       const notice = $("draft-quality-warnings");
       notice.textContent = warnings.length
         ? "Other quality checks (" + warnings.length + "):\n" +
@@ -3861,6 +4297,18 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     $("exception-generate-anyway").addEventListener("click",()=>{
       if(pendingException&&$("exception-risk").checked) retryException(pendingException.request.requirements,true);
     });
+    $("estimate-tokens").addEventListener("click",async()=>{
+      const button=$("estimate-tokens"), status=$("estimate-tokens-status");
+      button.disabled=true;
+      status.textContent="Inspecting the application and counting prompt tokens locally…";
+      try{
+        const result=await requestJSON("/api/estimate-tokens",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({baseURL:$("base-url").value,requirements:$("requirements").value.trim(),provider:"groq",useApplicationMemory:$("use-application-memory").checked})});
+        status.textContent="Estimated input: "+result.estimatedInputTokens.toLocaleString()+" tokens ("+result.estimator+"). "+
+          (result.systemTokens===undefined?"":"System: "+result.systemTokens+" · User/context: "+result.promptTokens+". ")+
+          "Provider formatting, future completion and reasoning are not included. No AI request made.";
+      }catch(error){status.textContent=error.message||String(error);}
+      finally{button.disabled=false;}
+    });
     $("generate-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       // Guard keyboard/programmatic submissions as well as the disabled button.
@@ -3899,6 +4347,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       $("generation-status").classList.add("ai-progress");
       $("generation-status").textContent = "Generating test steps with AI… Inspecting the application and preparing a draft. No test has been modified.";
       $("generation-review-status").textContent = "Generating a new draft; previous steps have been cleared.";
+      const capture = beginResponseCapture();
       try {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -3910,6 +4359,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }),
         });
         const data = await response.json();
+        receiveResponseCapture(data.aiUsage,capture);
         showRequestUsage("instructions-usage",data.aiUsage);
         showRequestUsage("draft-usage",data.aiUsage);
         if (response.status===409 && data.category==="instruction-mismatch") {

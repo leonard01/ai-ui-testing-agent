@@ -6,6 +6,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createReviewServer } from "../src/review-server.js";
 import { generatePlaywrightSpec } from "../src/export.js";
+import { runTest } from "../src/runner.js";
+import { SEARCH_RESULT_ITEM_SELECTOR } from "../src/search-results.js";
 import type { TestDefinition } from "../src/domain.js";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -94,7 +96,7 @@ test("portable export selects the correct product-scoped Add to cart button", as
       version: 1, steps: [
         { id: "open", description: "Open", action: { kind: "navigate", url: "/" } },
         { id: "add", description: "Add Sauce Labs Backpack to cart", action: {
-          kind: "click", target: { by: "intent", value: "Add Sauce Labs Backpack", role: "button" },
+          kind: "click", target: { by: "role", role: "button", name: "Add to cart", within: {role:"article",text:"Sauce Labs Backpack"} },
         } },
         { id: "verify", description: "Verify Backpack", action: {
           kind: "assert-text", target: { by: "role", role: "status", name: "Cart" },
@@ -103,8 +105,8 @@ test("portable export selects the correct product-scoped Add to cart button", as
       ],
     };
     const source = generatePlaywrightSpec(definition, { baseURL: url, timeoutMs: 1500 });
-    expect(source).toContain("async function resolveCartAction(");
-    expect(source).toContain("async function productTitles(");
+    expect(source).not.toContain("async function resolveCartAction(");
+    expect(source).toContain('container.getByRole("button", { name: "Add to cart", exact: true })');
     const result = await executePortable(source, info.outputPath("portable-cart"), url);
     expect(result.stdout + result.stderr).toMatch(/1 passed/);
   } finally {
@@ -270,3 +272,234 @@ test("portable export uses toContainText only when comparison mode is contains",
   const exact = generatePlaywrightSpec(definition, { baseURL, timeoutMs: 1500 });
   expect(exact).toContain('await expect(target).toHaveText("tasks, 0 completed"');
 });
+
+
+for (const visible of [true,false]) {
+  test("portable existential visibility "+(visible?"passes on a later visible match":"rejects all hidden matches"),async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main><p hidden>Record found</p><p id="later" hidden>Record found</p>'+
+        (visible?'<script>setTimeout(()=>document.getElementById("later").hidden=false,250)</script>':'')+'</main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"portable-visible",title:"Visibility",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify record is visible",action:{kind:"assert-visible",target:{by:"text",value:"Record found"},provenance:"requirements"}},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      if(visible){
+        const result=await executePortable(source,info.outputPath("portable-visible"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try {await executePortable(source,info.outputPath("portable-hidden"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toMatch(/1 failed/);
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
+
+
+for(const scenario of [
+  {label:"approved result selector excludes matching unrelated record",html:'<article id="chosen" data-testid="search-result">Boots</article><article data-testid="search-result">Running shoes</article>',selector:"#chosen",passes:false},
+  {label:"approved result selector accepts custom record markup",html:'<section><div id="chosen">Running shoes</div></section>',selector:"#chosen",passes:true},
+  {label:"missing approved selector cannot match other results",html:'<article data-testid="search-result">Running shoes</article>',selector:"#missing",passes:false},
+  {label:"exact rejects extra result text",html:'<article data-testid="search-result">Running shoes</article>',match:"exact",passes:false},
+  {label:"contains rejects wrong case",html:'<article data-testid="search-result">Running SHOES</article>',match:"contains",passes:false},
+  {label:"exact accepts exact result text",html:'<article data-testid="search-result">shoes</article>',match:"exact",passes:true},
+  {label:"scoped table data",html:'<section aria-label="Search results"><table><tbody><tr><td>Running shoes</td></tr></tbody></table></section>',passes:true},
+  {label:"repeated generic records",html:'<section aria-label="Search results"><div><div><h3>Boots</h3><a href="/1">Details</a></div><div><h3>Running shoes</h3><a href="/2">Details</a></div></div></section>',passes:true},
+  {label:"hidden matching text",html:'<section aria-label="Search results"><article data-testid="search-result">Boots<span hidden>shoes</span></article></section>',passes:false},
+  {label:"query outside records",html:'<section aria-label="Search results"><h2>Results for shoes</h2><table><thead><tr><th>Shoes</th></tr></thead><tbody><tr><td>Boots</td></tr></tbody></table></section>',passes:false},
+] as const){
+  test("portable scoped result assertion: "+scenario.label,async({browser},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main>'+scenario.html+'</main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try{
+      const definition:TestDefinition={schemaVersion:1,id:"portable-results",title:"Scoped results",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify returned result contains shoes",action:{
+          kind:"assert-text",target:typeof scenario.selector === "string" ? {by:"css",value:scenario.selector} : {by:"css",value:SEARCH_RESULT_ITEM_SELECTOR},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
+        }},
+      ]};
+      const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-results")},browser);
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      if(scenario.passes){
+        const result=await executePortable(source,info.outputPath("portable-results"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try{await executePortable(source,info.outputPath("portable-results"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toMatch(/1 failed/);
+      }
+      expect(report.status,JSON.stringify(report.steps)).toBe(scenario.passes?"passed":"assertion-failed");
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
+
+
+for(const scenario of [
+  {label:"hidden target",html:'<p id="message" hidden>Payment successful</p>',match:"exact",passes:false},
+  {label:"hidden descendant",html:'<p id="message">Payment pending<span hidden>Payment successful</span></p>',match:"contains",passes:false},
+  {label:"visible target with hidden diagnostic",html:'<p id="message">Payment successful<span hidden>Internal diagnostic</span></p>',match:"exact",passes:true},
+] as const){
+  test("portable visible text assertion: "+scenario.label,async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main>'+scenario.html+'</main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try{
+      const definition:TestDefinition={schemaVersion:1,id:"portable-visible-text",title:"Visible text",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify visible payment successful text",action:{
+          kind:"assert-text",target:{by:"id",value:"message"},expected:"Payment successful",match:scenario.match,provenance:"requirements",
+        }},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      expect(source).toContain("useInnerText: true");
+      expect(source).toContain("await expect(target).toBeVisible(");
+      if(scenario.passes){
+        const result=await executePortable(source,info.outputPath("portable-visible-text"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try{await executePortable(source,info.outputPath("portable-visible-text"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        const output=(failure?.stdout??"")+(failure?.stderr??"");
+        expect(output).toMatch(/1 failed/);
+        expect(output).toContain(scenario.label==="hidden target"?"toBeVisible":"toContainText");
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
+
+
+for (const scenario of [
+  {label:"long HTML id must not redirect to prefix decoy",html:`<button id="${"a".repeat(100)}" onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><button id="${"a".repeat(100)}-actual" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:true},
+  {label:"long test id must not redirect to prefix decoy",html:`<button data-testid="${"b".repeat(100)}" onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><button data-testid="${"b".repeat(100)}-actual" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:true},
+  {label:"whitespace in HTML id must not redirect to normalized decoy",html:`<button id="a b" onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><button id="a  b" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:true},
+  {label:"long name prefix must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">${"A".repeat(130)} extra</button>`,intentName:"A".repeat(130),policy:"strict",passes:false},
+  {label:"complete long name resolves",html:`<button onclick="document.getElementById('status').textContent='Done'">${"A".repeat(130)} extra</button>`,intentName:"A".repeat(130)+" extra",policy:"strict",passes:true},
+  {label:"case mismatch must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">LOGOUT</button>`,policy:"strict",passes:false},
+  {label:"aria-hidden control must not execute",html:`<button aria-hidden="true" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:false},
+  {label:"exact button with legacy hint",html:`<button onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"hint",passes:true},
+  {label:"legacy hint rejects unique exact link",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a>',policy:"hint",passes:false},
+  {label:"strict role",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a>',policy:"strict",passes:false},
+  {label:"duplicate exact links",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a><a href="#other">Logout</a>',policy:"hint",passes:false},
+  {label:"partial button decoy",html:'<a href="#done">Logout</a><button onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout settings</button>',policy:"strict",passes:false},
+] as const) {
+  test("portable strict role: "+scenario.label,async({browser},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main>'+scenario.html+'<p id="status">Ready</p></main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"portable-role",title:"Strict role",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"click",description:"Click Logout",action:{kind:"click",target:{by:"intent",role:"button",value:typeof scenario.intentName === "string" ? scenario.intentName : "Logout",rolePolicy:scenario.policy}}},
+        {id:"verify",description:"Verify Done",action:{kind:"assert-text",target:{by:"id",value:"status"},expected:"Done",provenance:"requirements"}},
+      ]};
+      const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-role")},browser);
+      expect.soft(report.status,JSON.stringify(report.steps)).toBe(scenario.passes?"passed":"execution-error");
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      if(scenario.passes){
+        const result=await executePortable(source,info.outputPath("portable-role"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try {await executePortable(source,info.outputPath("portable-role"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        const output=(failure?.stdout??"")+(failure?.stderr??"");
+        expect(output).toMatch(/1 failed/);
+        expect(output).toContain("Could not resolve intent");
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
+
+
+// Inject only a deterministic fixture mutation between the exported resolver
+// returning and the original exported interaction. No resolver/action code is replaced.
+for (const scenario of ["reorder","reuse-id","duplicate"] as const) {
+  test("portable intent remains strict after DOM mutation: "+scenario,async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end(`<!doctype html><main><button ${scenario==="reuse-id"?'id="action"':""} onclick="document.getElementById('status').textContent='Approved'">Approve</button><button onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><p id="status">Ready</p></main>`);
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"portable-dynamic-intent",title:"Dynamic intent",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"click",description:"Approve",action:{kind:"click",target:{by:"intent",role:"button",value:"Approve"}}},
+        {id:"verify",description:"Verify approved",action:{kind:"assert-text",target:{by:"id",value:"status"},expected:"Approved",provenance:"requirements"}},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      const action="await target.click();";
+      expect(source.split(action)).toHaveLength(2);
+      const mutation=`await page.evaluate(() => {
+        const main=document.querySelector("main")!;
+        const approve=main.querySelector("button")!;
+        const cancel=main.querySelectorAll("button")[1];
+        if (${JSON.stringify(scenario)} === "reorder") main.prepend(cancel);
+        else if (${JSON.stringify(scenario)} === "reuse-id") {
+          cancel.id=approve.id;
+          approve.replaceWith(cancel);
+        } else {
+          const duplicate=document.createElement("button");
+          duplicate.textContent="Approve";
+          duplicate.onclick=()=>{document.getElementById("status")!.textContent="Wrong";};
+          main.prepend(duplicate);
+        }
+      });`;
+      // Negative scenarios must reject the actual click and leave state unchanged.
+      const interaction=scenario==="reorder"?action:`let rejected=false;
+        try { ${action} } catch { rejected=true; }
+        await expect(page.locator("#status")).toHaveText("Ready");
+        expect(rejected).toBe(true);
+        throw new Error("Expected strict click rejection verified");`;
+      const instrumented=source.replace(action,mutation+"\n"+interaction);
+      if(scenario==="reorder"){
+        const result=await executePortable(instrumented,info.outputPath("portable-dynamic"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try{await executePortable(instrumented,info.outputPath("portable-dynamic"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toContain("Error: Expected strict click rejection verified");
+      }
+    } finally {
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}

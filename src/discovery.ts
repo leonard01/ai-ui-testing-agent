@@ -5,6 +5,8 @@ export interface IntentTarget {
   by: "intent";
   value: string;
   role?: "button" | "textbox" | "checkbox" | "radio" | "combobox" | "heading" | "status" | "listitem";
+  /** Legacy compatibility field; all declared roles are now strict. */
+  rolePolicy?: "hint" | "strict";
 }
 export type TargetOperation = "click" | "fill" | "select-option" | "check" | "press" | "assert-text" | "assert-visible";
 
@@ -17,6 +19,10 @@ interface DomCandidate {
   nearby: string;
   testId: string;
   id: string;
+  href?: string;
+  attributeId?: string;
+  attributeTestId?: string;
+  repairContext?: string;
 }
 /** Page-derived alternatives offered for explicit human selection only. */
 export interface AmbiguousCandidate {
@@ -28,6 +34,8 @@ export interface AmbiguousCandidate {
   nth?: number;
   /** Total verified matches for that role/name at the failure point. */
   matchCount?: number;
+  /** Explicit DOM-verified fallback, for human-reviewed repairs only. */
+  target?: ExplicitTarget;
 }
 export interface AmbiguousResolution {
   intent: string;
@@ -49,6 +57,8 @@ export interface MissingLocatorChoices {
 
 /** Explicitly selected correction for a missing assertion target. */
 export interface AssertionCandidate extends AmbiguousCandidate {
+  /** Full verified rendered text, not diagnostic output or accessible name. */
+  text?: string;
   /** Verified Playwright selector, grounded in the live DOM. */
   target: ExplicitTarget;
 }
@@ -94,6 +104,8 @@ export interface DiscoveryEvidence {
   nearby: string;
   locator: string;
   candidatesInspected: number;
+  requestedRole?: string;
+  roleRecovery?: "exact-compatible-role";
 }
 
 const COMMON = new Set([
@@ -137,10 +149,10 @@ function candidateScore(candidate: DomCandidate, words: string[]): number | null
  * Collect only elements relevant to the action, on the LIVE page at execution time.
  * Avoids DOM dumps, page-wide AI guesses, and values of sensitive input fields.
  */
-async function inspectCandidates(page: Page, operation: TargetOperation): Promise<{
+async function inspectCandidates(page: Page, operation: TargetOperation, repairOnly = false): Promise<{
   selector: string; candidates: DomCandidate[];
 }> {
-  return page.evaluate((op) => {
+  return page.evaluate(({op, repairOnly}) => {
     const selectorByOperation = {
       click: "button, a[href], input[type=submit], input[type=button], input[type=checkbox], input[type=radio], [role=button], [role=link], [role=checkbox], [role=radio]",
       fill: "input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]), textarea, [contenteditable=true], [role=textbox]",
@@ -150,16 +162,28 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
       "assert-text": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, [data-testid]",
       "assert-visible": "[role=status], [role=alert], li, p, span, label, h1, h2, h3, td, strong, button, a[href], input, [data-testid]",
     } as const;
-    const selector = selectorByOperation[op];
+    // Nonsemantic controls are considered only for human-reviewed click repairs.
+    // Inline handlers or a local pointer cursor combined with a description
+    // provide evidence for suggestions, never proof of interactive behaviour.
+    const selector = selectorByOperation[op] + (repairOnly && op === "click"
+      ? ", span[onclick], div[onclick], i[onclick], svg[onclick], span[title], div[title], i[title], svg[title], span[aria-label], div[aria-label], i[aria-label], svg[aria-label]" : "");
     const trim = (value: string | null | undefined, limit = 130) =>
       (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
     const all = Array.from(document.querySelectorAll<HTMLElement>(selector)).slice(0, 250);
     const candidates = all.flatMap((el, index) => {
-      if (!el.getClientRects().length || el.closest("[hidden], [inert]")) return [];
+      if (!el.getClientRects().length || el.closest('[hidden], [inert], [aria-hidden="true" i]')) return [];
       const style = getComputedStyle(el);
       if (style.visibility === "hidden" || style.display === "none") return [];
       const input = el as HTMLInputElement;
       const explicitRole = el.getAttribute("role");
+      // A pointer cursor alone, a title alone or a focusable decorative
+      // element is insufficient. Require an identifying description and
+      // a locally introduced pointer cursor for nonsemantic suggestions.
+      const locallyPointing = style.cursor === "pointer" &&
+        (!!el.parentElement && getComputedStyle(el.parentElement).cursor !== "pointer");
+      const described = !!(el.getAttribute("title")?.trim() || el.getAttribute("aria-label")?.trim());
+      const plausibleControl = repairOnly && op === "click" &&
+        (el.hasAttribute("onclick") || (locallyPointing && described));
       const role = explicitRole || (
         el.tagName === "BUTTON" || (el.tagName === "INPUT" && ["submit", "button"].includes(input.type)) ? "button" :
         el.tagName === "A" ? "link" :
@@ -168,30 +192,86 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
         el.tagName === "SELECT" ? "combobox" :
         el.tagName === "INPUT" || el.tagName === "TEXTAREA" ? "textbox" :
         /^H[1-6]$/.test(el.tagName) ? "heading" :
-        el.tagName === "LI" ? "listitem" : ""
+        el.tagName === "LI" ? "listitem" :
+        plausibleControl ? "clickable" : ""
       );
       const labelledBy = (el.getAttribute("aria-labelledby") ?? "")
         .split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
       const label = input.labels?.[0]?.textContent;
       const ownText = trim(el.innerText || el.textContent);
-      const name = trim(el.getAttribute("aria-label") || labelledBy || label ||
+      // Execution must compare the complete name, not the bounded diagnostic text.
+      const name = (el.getAttribute("aria-label") || labelledBy || label ||
         el.getAttribute("placeholder") || el.getAttribute("title") ||
-        (el.tagName === "INPUT" ? input.value && ["submit", "button"].includes(input.type) ? input.value : "" : ownText));
+        (el.tagName === "INPUT" ? input.value && ["submit", "button"].includes(input.type) ? input.value : "" : el.innerText || el.textContent) || "")
+        .replace(/\s+/g, " ").trim();
       // Prefer immediate grouping over the whole form/page; imperfect forms often
       // have a sibling span/label next to an unlabeled input.
       const nearby = trim((el.parentElement as HTMLElement | null)?.innerText, 180);
+      let repairContext: string | undefined;
+      if (repairOnly && op === "click") {
+        if (el.closest('[aria-disabled="true"],[aria-hidden="true"],[disabled]')) return [];
+        // Only visible rendered text, never input values or hidden descendants.
+        const visibleText = (root: Element): string => {
+          const parts: string[] = [];
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          let visited = 0, length = 0;
+          while (walker.nextNode() && visited++ < 250 && length < 600) {
+            const node = walker.currentNode;
+            const parent = node.parentElement;
+            if (!parent || parent.closest('script,style,noscript,template,svg,[hidden],[inert],[aria-hidden="true"],input,textarea,select,[contenteditable]:not([contenteditable="false"])')) continue;
+            if (getComputedStyle(parent).visibility !== "visible" || !parent.getClientRects().length) continue;
+            const text = (node.textContent ?? "").trim();
+            if (text) { parts.push(text); length += text.length; }
+          }
+          return trim(parts.join(" "),180);
+        };
+        // Stop before shared page regions or a container with competing
+        // same-action controls. Generic nested divs need no special classes.
+        // Treat native and nonsemantic controls alike, but ignore descendants
+        // of the current control and decorative matches.
+        const competing = (other: Element) => {
+          if (other === el || el.contains(other) || other.contains(el) ||
+              other.closest('[hidden],[inert],[aria-hidden="true"]') ||
+              !other.getClientRects().length || getComputedStyle(other).visibility !== "visible") return false;
+          const tag = other.tagName.toLowerCase();
+          const otherRole = other.getAttribute("role");
+          const native = ["button","a","input"].includes(tag) ||
+            ["button","link","checkbox","radio"].includes(otherRole ?? "");
+          const descriptive = !!(other.getAttribute("title")?.trim() || other.getAttribute("aria-label")?.trim());
+          const pointer = getComputedStyle(other).cursor === "pointer" &&
+            !!other.parentElement && getComputedStyle(other.parentElement).cursor !== "pointer";
+          if (!native && !other.hasAttribute("onclick") && !(descriptive && pointer)) return false;
+          // Any competing control is a conservative boundary unless the
+          // ancestor itself is a semantic record (handled below).
+          return true;
+        };
+        repairContext = visibleText(el);
+        let ancestor = el.parentElement;
+        for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+          if (ancestor.matches('html,body,main,[role="main"],table,tbody,thead,tfoot,ul,ol,nav,[role="navigation"],[role="list"],[role="feed"]')) break;
+          const record = ancestor.matches('tr,[role="row"],li,[role="listitem"],article,[role="group"]');
+          if (!record && Array.from(ancestor.querySelectorAll(selector)).some(competing)) break;
+          const context = visibleText(ancestor);
+          if (context) repairContext = context;
+          if (record) break;
+        }
+      }
       return [{
         index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
-        nearby, testId: trim(el.getAttribute("data-testid"), 100),
-        id: trim(el.id, 100),
+        nearby, testId: el.getAttribute("data-testid") ?? "",
+        id: el.id,
+        href: el.tagName === "A" ? el.getAttribute("href") ?? undefined : undefined,
+        attributeId: el.id || undefined,
+        attributeTestId: el.getAttribute("data-testid") ?? undefined,
+        repairContext,
       }];
     });
     return { selector, candidates };
-  }, operation);
+  }, {op: operation, repairOnly});
 }
 
 /**
- * Diagnose a failed *explicit* click or fill locator against the live DOM.
+ * Diagnose a failed *explicit* click, fill or keyboard locator against the live DOM.
  * Only offer role/name pairs that Playwright confirms uniquely identify
  * a visible element. A user must select; this does NOT click or fill.
  * Potentially sensitive input values and arbitrary page text are excluded.
@@ -199,7 +279,8 @@ async function inspectCandidates(page: Page, operation: TargetOperation): Promis
 export async function findLocatorAlternatives(
   page: Page,
   attempted: ExplicitTarget,
-  operation: "click" | "fill",
+  operation: "click" | "fill" | "press",
+  instruction?: string,
 ): Promise<MissingLocatorChoices> {
   // A strict-mode violation can come from multiple *identically named*
   // role matches (Google's two "Google Search" submit buttons, for example).
@@ -215,17 +296,49 @@ export async function findLocatorAlternatives(
     if (count > 1) {
       const options: AmbiguousCandidate[] = [];
       if (count <= 12) {
+        // Collect context for the exact Playwright match set in one DOM
+        // snapshot. Never cross into a container holding a competing match.
+        const contexts = await exact.evaluateAll(elements => elements.map(element => {
+          const clip = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, 180);
+          const visibleText = (root: Element): string => {
+            const parts: string[] = [];
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            let visited = 0;
+            let length = 0;
+            while (walker.nextNode() && visited++ < 250 && length < 600) {
+              const node = walker.currentNode;
+              const parent = node.parentElement;
+              if (!parent || parent.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,[contenteditable]:not([contenteditable="false"])')) continue;
+              const style = getComputedStyle(parent);
+              if (style.visibility !== "visible" || !parent.getClientRects().length) continue;
+              const text = (node.textContent ?? "").trim();
+              if (text) {
+                parts.push(text);
+                length += text.length;
+              }
+            }
+            return clip(parts.join(" "));
+          };
+          let nearby = visibleText(element);
+          let ancestor = element.parentElement;
+          for (let depth = 0; ancestor && depth < 6; depth++, ancestor = ancestor.parentElement) {
+            if (ancestor.matches('html,body,main,[role="main"],[role="list"],[role="feed"],table,tbody,thead,tfoot,ul,ol,nav,[role="navigation"]') ||
+                elements.some(other => other !== element && ancestor!.contains(other))) break;
+            const text = visibleText(ancestor);
+            if (text) nearby = text;
+            // Semantic item boundaries are strong evidence of local grouping.
+            if (ancestor.matches('article,li,tr,[role="row"],[role="listitem"],[role="group"]')) break;
+          }
+          return {tag: element.tagName.toLowerCase(), nearby};
+        }));
+        // If the match set changed during collection, avoid positional advice.
+        if (contexts.length !== count || await exact.count() !== count) {
+          return { attempted, candidates: [], total: await exact.count() };
+        }
         for (let nth = 0; nth < count; nth++) {
           const item = exact.nth(nth);
           if (!await item.isVisible()) continue;
-          const context = await item.evaluate((element) => {
-            const clip = (text: string | null | undefined) =>
-              (text ?? "").replace(/\s+/g, " ").trim().slice(0, 180);
-            return {
-              tag: element.tagName.toLowerCase(),
-              nearby: clip(element.parentElement?.textContent),
-            };
-          });
+          const context = contexts[nth];
           options.push({
             tag: context.tag, role: attempted.role, name: attempted.name,
             nearby: context.nearby, nth, matchCount: count,
@@ -234,30 +347,78 @@ export async function findLocatorAlternatives(
       }
       // An incomplete set cannot be used for positional repair, but it is
       // still reported so the reviewer can manually edit the original step.
+      // Advisory only: promote a single full contextual match. Partial
+      // matches and ties are deliberately not ranked; keep original nth.
+      if (instruction && options.length === count) {
+        const actionWords = new Set(keywords(attempted.name));
+        const contextWords = keywords(instruction).filter(word => !actionWords.has(word));
+        if (contextWords.length) {
+          const matching = options.filter(candidate => {
+            const nearby = new Set(keywords(candidate.nearby));
+            return contextWords.every(word => nearby.has(word));
+          });
+          if (matching.length === 1) {
+            const best = matching[0];
+            return { attempted, candidates: [best, ...options.filter(candidate => candidate !== best)], total: count };
+          }
+        }
+      }
       return { attempted, candidates: options, total: count };
     }
   }
   const requested = attempted.by === "role" ? attempted.name ?? "" : attempted.value;
   const terms = keywords(requested);
-  const { candidates } = await inspectCandidates(page, operation);
+  const instructionTerms = keywords(instruction ?? "");
+  const { selector, candidates } = await inspectCandidates(page, operation, true);
   const allowed = operation === "fill" ? new Set(["textbox"]) :
-    new Set(["button", "checkbox"]);
+    operation === "press" ? new Set(["textbox", "button", "checkbox", "radio", "link", "combobox"]) :
+    new Set(["button", "checkbox", "radio", "link", "clickable"]);
   const ranked = candidates.flatMap((candidate) => {
-    if (!allowed.has(candidate.role) || !candidate.name) return [];
-    const score = terms.length ? candidateScore(candidate, terms) : 0;
-    if (score === null) return [];
+    if (!allowed.has(candidate.role)) return [];
+    // Attribute evidence is advisory, not a change to execution scoring.
+    const attributes = new Set(keywords(candidate.id + " " + candidate.testId));
+    const primary = candidateScore(candidate, terms);
+    if (primary === null && !terms.every(word => attributes.has(word))) return [];
+    const score = (primary ?? 0) + terms.filter(word => attributes.has(word)).length * 8 +
+      instructionTerms.filter(word => attributes.has(word)).length * 8 +
+      (candidate.repairContext ? instructionTerms.filter(word => keywords(candidate.repairContext!).includes(word)).length * 4 : 0);
     return [{ candidate, score }];
   }).sort((a, b) => b.score - a.score);
   const matches: AmbiguousCandidate[] = [];
-  // Only expose a small, bounded, verified candidate set to the reviewer.
   for (const { candidate } of ranked.slice(0, 24)) {
-    const role = candidate.role as "button" | "checkbox" | "textbox";
-    const locator = page.getByRole(role, { name: candidate.name, exact: true });
-    if (await locator.count() !== 1 || !await locator.isVisible()) continue;
-    if (matches.some((x) => x.role === role && x.name === candidate.name)) continue;
-    matches.push({
-      tag: candidate.tag, role, name: candidate.name, nearby: candidate.nearby,
-    });
+    const source = page.locator(selector).nth(candidate.index);
+    const role = candidate.role;
+    const proposals: Array<{target: ExplicitTarget; locator: Locator}> = [];
+    // Keep existing named-role repair behaviour for supported roles.
+    if (candidate.name && (role === "button" || role === "checkbox" || role === "textbox" || role === "radio" || (operation === "press" && role === "combobox"))) {
+      proposals.push({target:{by:"role",role,name:candidate.name},
+        locator:page.getByRole(role,{name:candidate.name,exact:true})});
+    }
+    const safeAttribute = (value: string | undefined): value is string =>
+      !!value && value.length <= 500 && !/[\u0000-\u001f\u007f]/.test(value);
+    if (safeAttribute(candidate.attributeId)) {
+      proposals.push({target:{by:"id",value:candidate.attributeId},
+        locator:page.locator("css=[id="+JSON.stringify(candidate.attributeId)+"]")});
+    }
+    if (safeAttribute(candidate.attributeTestId)) {
+      proposals.push({target:{by:"testid",value:candidate.attributeTestId},
+        locator:page.getByTestId(candidate.attributeTestId)});
+    }
+    // Use only simple relative/hash paths; do not copy query strings,
+    // credentials or arbitrary external URLs into diagnostic suggestions.
+    if (role === "link" && safeAttribute(candidate.href) && /^(?:#[a-zA-Z0-9_-]+|\/[a-zA-Z0-9_./-]+)$/.test(candidate.href) && !candidate.href.startsWith("//")) {
+      const value = 'a[href='+cssAttribute(candidate.href)+']';
+      proposals.push({target:{by:"css",value},locator:page.locator("css="+value)});
+    }
+    for (const {target, locator} of proposals) {
+      if (await locator.count() !== 1 || await source.and(locator).count() !== 1 ||
+          !await locator.isVisible() || !await locator.isEnabled()) continue;
+      if (matches.some(x => x.target ? JSON.stringify(x.target) === JSON.stringify(target) :
+          target.by === "role" && x.role === target.role && x.name === target.name)) break;
+      matches.push({tag:candidate.tag,role,name:candidate.name,nearby:candidate.repairContext ?? candidate.nearby,
+        ...(target.by === "role" && role !== "radio" && role !== "combobox" ? {} : {target})});
+      break;
+    }
   }
   return {
     attempted,
@@ -297,21 +458,26 @@ export async function findAssertionAlternatives(
     const result: Array<{
       tag: string; role: string; name: string; text: string; nearby: string;
     }> = [];
-    // Collect leaf-most visible elements whose own rendered content is the
-    // requested text. Ancestor wrappers with the same content are excluded.
+    // Collect exact and partial visible text matches, preferring the smallest
+    // matching element over wrappers that merely repeat descendant content.
+    // Bound the scan and locator text; never use truncated text as a locator.
+    const excluded = '[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,input,textarea,select,option,[contenteditable],[role="textbox"]';
+    const visible = (node: HTMLElement) => !node.closest(excluded) &&
+      !!node.getClientRects().length && getComputedStyle(node).visibility === "visible";
+    const contains = (value: string) => value.includes(requested);
     const nodes = document.querySelectorAll<HTMLElement>("body *");
     for (const el of Array.from(nodes).slice(0, 12_000)) {
-      if (el.closest('[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,input,textarea,[contenteditable="true"]')) continue;
-      if (!el.getClientRects().length) continue;
-      const style = getComputedStyle(el);
-      if (style.display === "none" || style.visibility !== "visible") continue;
+      if (!visible(el)) continue;
       const displayed = normalized(el.innerText || "");
-      if (displayed !== requested) continue;
-      const hasExactChild = Array.from(el.children).some((child) =>
-        normalized((child as HTMLElement).innerText || "") === requested &&
-        !!(child as HTMLElement).getClientRects().length,
+      if (!contains(displayed) || displayed.length > 180) continue;
+      // Do not suggest broad page regions for a partial match. Descendant
+      // matches take precedence even when their full text differs.
+      if (displayed !== requested && el.matches('main,section,article,nav,header,footer,aside,form,table,ul,ol,[role="main"],[role="region"],[role="navigation"],[role="list"]')) continue;
+      const hasMatchingChild = Array.from(el.children).some(child =>
+        child instanceof HTMLElement && visible(child) &&
+        contains(normalized(child.innerText || "")),
       );
-      if (hasExactChild) continue;
+      if (hasMatchingChild) continue;
       const tag = el.tagName.toLowerCase();
       const role = el.getAttribute("role") ||
         (/^h[1-6]$/.test(tag) ? "heading" :
@@ -319,12 +485,12 @@ export async function findAssertionAlternatives(
          tag === "button" ? "button" : "");
       const name = clip(el.getAttribute("aria-label") || el.innerText || "", 130);
       result.push({
-        tag, role, name, text: clip(el.innerText || "", 130),
+        tag, role, name, text: displayed,
         nearby: clip((el.parentElement as HTMLElement | null)?.innerText || "", 180),
       });
-      if (result.length > 60) break;
     }
-    return result;
+    // Exact matches take precedence, including those later in DOM order.
+    return result.sort((a,b) => Number(b.text === requested) - Number(a.text === requested)).slice(0,61);
   }, request);
 
   const proposed: AssertionCandidate[] = [];
@@ -335,20 +501,20 @@ export async function findAssertionAlternatives(
         role === "heading" || role === "status" || role === "listitem") {
       const locator = page.getByRole(role, { name: candidate.name, exact: true });
       if (candidate.name && await locator.count() === 1 && await locator.isVisible() &&
-          norm((await locator.innerText()) || "") === request) {
+          norm((await locator.innerText()) || "") === candidate.text) {
         target = { by: "role", role, name: candidate.name };
       }
     }
     if (!target) {
       const locator = page.getByText(candidate.text, { exact: true });
       if (await locator.count() === 1 && await locator.isVisible() &&
-          norm((await locator.innerText()) || "") === request) {
+          norm((await locator.innerText()) || "") === candidate.text) {
         target = { by: "text", value: candidate.text };
       }
     }
     if (!target || proposed.some((c) => JSON.stringify(c.target) === JSON.stringify(target))) continue;
     proposed.push({ tag: candidate.tag, role: candidate.role,
-      name: candidate.name, nearby: candidate.nearby, target });
+      name: candidate.name, nearby: candidate.nearby, text: candidate.text, target });
   }
   return {
     attempted, query: request,
@@ -447,112 +613,6 @@ export function searchCapturedAssertionText(
 }
 
 
-/**
- * Shopping instructions name both an object and an action. Never treat
- * "Add Sauce Labs Backpack" as the accessible name of an Add to cart button.
- * Resolve the product TITLE first, then look for a single button in its
- * closest logical container. This is bounded, live-DOM-only, and fail-closed.
- */
-function cartProductPhrase(value: string): { product: string; explicitCart: boolean } | null {
-  const input = value.replace(/\s+/g, " ").trim();
-  const match = /^(?:add|put)\s+(.+)$/i.exec(input);
-  if (!match) return null;
-  const explicitCart = /\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(match[1]);
-  const product = match[1]
-    .replace(/\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i, "")
-    .replace(/^(?:the|a)\s+/i, "").trim();
-  if (!product || /^(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(product))
-    return null;
-  return { product, explicitCart };
-}
-
-async function productTitles(page: Page, product: string): Promise<string[]> {
-  return page.evaluate((raw) => {
-    const clean = (value: string) => value.replace(/\s+/g, " ").trim();
-    const query = clean(raw).toLocaleLowerCase();
-    const found: string[] = [];
-    // Titles may be <div>, <span> or headings, not necessarily semantic headings.
-    // Reject ancestor text that merely contains an entire product list.
-    for (const node of Array.from(document.querySelectorAll<HTMLElement>("body *")).slice(0, 12000)) {
-      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,button,[role="button"],[contenteditable="true"]')) continue;
-      if (!node.getClientRects().length || getComputedStyle(node).visibility !== "visible") continue;
-      const value = clean(node.innerText || "");
-      if (value.length < 3 || value.length > 120 || value.split(" ").length > 10) continue;
-      const lowered = value.toLocaleLowerCase();
-      if (lowered !== query && !lowered.endsWith(" " + query)) continue;
-      // Prefer the exact, leaf-most visible name rather than wrappers.
-      if (Array.from(node.children).some((child) =>
-        clean((child as HTMLElement).innerText || "").toLocaleLowerCase() === lowered &&
-        !!(child as HTMLElement).getClientRects().length)) continue;
-      found.push(value);
-      if (found.length > 20) break;
-    }
-    return found;
-  }, product);
-}
-
-async function resolveCartAction(
-  page: Page,
-  target: IntentTarget,
-): Promise<{
-  claimed: boolean;
-  detail?: string;
-  resolved?: { locator: Locator; evidence: DiscoveryEvidence };
-}> {
-  const parsed = cartProductPhrase(target.value);
-  if (!parsed || (target.role && target.role !== "button")) return { claimed: false };
-  const actions = page.getByRole("button", { name: /^add to (?:cart|basket)$/i });
-  const buttonCount = await actions.count();
-  if (!buttonCount && !parsed.explicitCart) return { claimed: false };
-  const names = await productTitles(page, parsed.product);
-  if (!parsed.explicitCart && names.length === 0) return { claimed: false };
-  if (names.length !== 1) {
-    return { claimed: true, detail: names.length
-      ? "Product " + JSON.stringify(parsed.product) + " matched multiple visible titles; no action was taken"
-      : "Product " + JSON.stringify(parsed.product) + " was not found as a unique visible title" };
-  }
-  const title = page.getByText(names[0], { exact: true });
-  if (await title.count() !== 1 || !await title.isVisible()) {
-    return { claimed: true, detail: "Product " + JSON.stringify(names[0]) +
-      " did not have a unique, visible title locator" };
-  }
-  let container = title;
-  for (let depth = 0; depth < 8; depth++) {
-    container = container.locator("..");
-    // Never escape a recognised product card into its product list or page.
-    // A sold-out card can lack Add to cart while a neighbouring card has one.
-    const boundary = await container.evaluate((node) =>
-      node.matches('main,body,html,[role="main"],[role="list"],[role="feed"]'));
-    if (boundary) break;
-    const scoped = container.getByRole("button", { name: /^add to (?:cart|basket)$/i });
-    const count = await scoped.count();
-    // One button inside the nearest matching container is meaningful evidence.
-    if (count === 1 && await scoped.isVisible() && await scoped.isEnabled()) {
-      const name = await scoped.innerText();
-      const nearby = await scoped.evaluate((element) =>
-        (element.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180));
-      return {
-        claimed: true,
-        resolved: {
-          locator: scoped,
-          evidence: {
-            intent: target.value, method: "live-dom",
-            tag: "button", role: "button", name: name.trim(), nearby,
-            locator: "product " + JSON.stringify(names[0]) +
-              " → closest card's unique Add to cart button",
-            candidatesInspected: buttonCount,
-          },
-        },
-      };
-    }
-    if (count > 1) break; // Reached an enclosing multi-product list: never choose first.
-    if (await container.evaluate((node) =>
-      node.matches('article,li,[role="listitem"],.inventory_item,.product-card,.product_item,[data-testid="product-card"],[data-testid="product-item"]'))) break;
-  }
-  return { claimed: true, detail: "No unique enabled Add to cart button within product " +
-    JSON.stringify(names[0]) + "; no action was taken" };
-}
-
 function cssAttribute(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 }
@@ -575,28 +635,24 @@ export async function discoverTarget(
   const deadline = Date.now() + timeoutMs;
   let detail = "No matching visible elements";
   while (true) {
-    if (operation === "click") {
-      const scoped = await resolveCartAction(page, target);
-      if (scoped.claimed) {
-        if (scoped.resolved) return scoped.resolved;
-        detail = scoped.detail ?? "Product-scoped cart action could not be verified";
-        if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
-        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
-        continue;
-      }
-    }
     const { selector, candidates } = await inspectCandidates(page, operation);
+    // Legacy role hints are retained in saved definitions but cannot relax a declared role.
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
-    const ranked = considered.flatMap((candidate) => {
-      const score = candidateScore(candidate, request);
-      return score === null ? [] : [{ candidate, score }];
-    }).sort((a, b) => b.score - a.score);
-    if (ranked.length) {
-      const bestScore = ranked[0].score;
-      const top = ranked.filter((entry) => entry.score === bestScore);
-      if (top.length !== 1) {
+    // Execution accepts exact normalized names, never relevance scores or borrowed context.
+    // Keep candidateScore for read-only repair suggestions.
+    const exactName = (value: string) => value.replace(/\s+/g, " ").trim();
+    const top = considered.filter(candidate =>
+      exactName(candidate.name) === exactName(target.value)
+    ).map(candidate => ({candidate}));
+    // Relevance may populate human repair choices, but never an executable match.
+    const suggestions = top.length === 0 ? considered.filter(candidate =>
+      request.length > 0 && candidateScore(candidate, request) !== null
+    ).map(candidate => ({candidate})) : [];
+    const ambiguous = top.length > 1 ? top : suggestions.length > 1 ? suggestions : [];
+    if (top.length || ambiguous.length) {
+      if (ambiguous.length) {
         const options: AmbiguousCandidate[] = [];
-        for (const { candidate } of top.slice(0, 20)) {
+        for (const { candidate } of ambiguous.slice(0, 20)) {
           const option: AmbiguousCandidate = {
             tag: candidate.tag, role: candidate.role,
             name: candidate.name, nearby: candidate.nearby,
@@ -629,47 +685,133 @@ export async function discoverTarget(
           options.push(option);
         }
         throw new AmbiguousIntentError({
-          intent: target.value, role: target.role, total: top.length,
+          intent: target.value, role: target.role, total: ambiguous.length,
           candidates: options,
         });
       }
       const match = top[0].candidate;
-      // Stable attributes preferred; positional fallback is resolved afresh
-      // each run, never stored as a brittle cross-run selector.
-      const options = [
-        ...(match.testId ? [{
-          locator: page.getByTestId(match.testId),
-          label: "data-testid=" + JSON.stringify(match.testId),
-        }] : []),
-        ...(match.id ? [{
-          locator: page.locator("[id=" + cssAttribute(match.id) + "]"),
-          label: "id=" + JSON.stringify(match.id),
-        }] : []),
-        {
-          locator: page.locator(selector).nth(match.index),
-          label: "current-DOM " + match.tag + " index=" + match.index,
-        },
-      ];
-      for (const option of options) {
-        if (await option.locator.count() === 1 && await option.locator.isVisible()) {
-          return {
-            locator: option.locator,
-            evidence: {
-              intent: target.value, method: "live-dom",
-              tag: match.tag, role: match.role, name: match.name,
-              nearby: match.nearby, locator: option.label,
-              candidatesInspected: candidates.length,
-            },
-          };
-        }
+      // Re-resolve by exact name at action time, never by DOM index or ID alone.
+      // Keep the operation's candidate set and accessibility exclusion as constraints.
+      const eligible = page.locator(selector).and(page.locator(':not([hidden], [inert], [aria-hidden="true" i], [hidden] *, [inert] *, [aria-hidden="true" i] *)'));
+      const role = match.role as Parameters<Page["getByRole"]>[0];
+      const semantic = match.role
+        ? page.getByRole(role, { name: target.value, exact: true })
+        : page.getByText(target.value, { exact: true });
+      const locator = eligible.and(semantic).filter({ visible: true });
+      if (await locator.count() === 1 && await locator.isVisible()) {
+        return {
+          locator,
+          evidence: {
+            intent: target.value, method: "live-dom",
+            tag: match.tag, role: match.role, name: match.name,
+            nearby: match.nearby,
+            locator: (match.role ? "exact role " + match.role + " name " : "exact text ") + JSON.stringify(target.value),
+            candidatesInspected: candidates.length,
+          },
+        };
       }
       detail = "Matching element was no longer visible";
     } else {
       detail = "No visible " + (target.role ?? operation) + " element matched " +
         JSON.stringify(target.value) + ". Candidates: " +
-        considered.slice(0, 5).map((c) => c.name || c.nearby || "<" + c.tag + ">").join("; ");
+        considered.slice(0, 5).map((c) => (c.name || c.nearby || "<" + c.tag + ">").slice(0, 130)).join("; ");
     }
     if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
     await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
   }
+}
+
+
+/** Bounded, read-only element evidence. Never reads form values or raw HTML. */
+export interface ElementSearchEntry extends AssertionSearchEntry {
+  actions: Array<"click"|"fill"|"check"|"uncheck"|"select-option"|"press"|"assert-visible"|"assert-text">;
+}
+export async function captureElementSearchIndex(page: Page): Promise<ElementSearchEntry[]> {
+  const selector = "body *";
+  const candidates = await page.locator(selector).evaluateAll(nodes => {
+    const norm = (s: string) => s.replace(/\s+/g," ").trim().slice(0,180);
+    const excluded = '[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,option,[contenteditable]';
+    const visible = (el: Element) => !el.closest(excluded) && !!el.getClientRects().length &&
+      getComputedStyle(el).visibility === "visible" && getComputedStyle(el).display !== "none";
+    const safeText = (el: Element) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let value = "", count = 0;
+      while(walker.nextNode() && count++ < 150 && value.length < 360) {
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        if(parent && !parent.closest("input,textarea,select,[contenteditable]") && visible(parent)) value += " " + node.textContent;
+      }
+      return norm(value);
+    };
+    const result: Array<{index:number;tag:string;role:string;name:string;text:string;nearby:string;id:string;testid:string;actions:ElementSearchEntry["actions"]}> = [];
+    for (let index=0; index<Math.min(nodes.length,12000) && result.length<350; index++) {
+      const el=nodes[index] as HTMLElement;
+      if(!visible(el)) continue;
+      const tag=el.tagName.toLowerCase();
+      const inputType=tag==="input"?(el.getAttribute("type")||"text").toLowerCase():"";
+      if(inputType==="hidden" || inputType==="password") continue;
+      const role=el.getAttribute("role") || (tag==="button" || ["button","submit","reset"].includes(inputType)?"button":
+        inputType==="radio"?"radio":inputType==="checkbox"?"checkbox":tag==="select"?"combobox":
+        tag==="textarea" || ["text","email","search","tel","url","number"].includes(inputType)?"textbox":
+        tag==="a" && el.hasAttribute("href")?"link":/^h[1-6]$/.test(tag)?"heading":tag==="li"?"listitem":"");
+      const control=["input","textarea","select","button","a"].includes(tag)||["button","textbox","checkbox","radio","combobox","link"].includes(role);
+      const id=(el.id||"").slice(0,180),testid=(el.getAttribute("data-testid")||"").slice(0,180);
+      if(!control && !id && !testid && !/^h[1-6]$|^p$|^li$|^span$/.test(tag)) continue;
+      const text=tag==="input"||tag==="textarea"||tag==="select"?"":safeText(el);
+      const labels = "labels" in el ? Array.from((el as HTMLInputElement).labels || []).map(safeText).join(" ") : "";
+      const labelled = (el.getAttribute("aria-labelledby")||"").split(/\s+/).map(id=>document.getElementById(id)).filter((x):x is HTMLElement=>!!x).map(safeText).join(" ");
+      const name=norm(el.getAttribute("aria-label")||labelled||labels||text||el.getAttribute("placeholder")||el.getAttribute("title")||"");
+      if(!control && !text) continue;
+      const record=el.closest("article,li,tr,[role=row],[role=group],[role=listitem]");
+      const nearby=record?safeText(record):"";
+      const actions:ElementSearchEntry["actions"]=["assert-visible"];
+      if(text) actions.push("assert-text");
+      if(!el.closest('[disabled],[aria-disabled="true"]')) {
+        if(role==="button"||role==="link"||role==="radio"||role==="checkbox") actions.push("click");
+        if(tag==="input" && (inputType==="radio"||inputType==="checkbox")) actions.push("check");
+        if(tag==="input" && inputType==="checkbox") actions.push("uncheck");
+        if(role==="textbox" && ["input","textarea"].includes(tag) && !el.hasAttribute("readonly")) actions.push("fill","press");
+        if(tag==="select") actions.push("select-option");
+      }
+      result.push({index,tag,role,name,text,nearby,id,testid,actions});
+    }
+    return result;
+  });
+  const entries: ElementSearchEntry[]=[];
+  const seen=new Set<string>();
+  const roles=["button","textbox","checkbox","radio","combobox","heading","status","listitem"];
+  for(const {index,id,testid,...candidate} of candidates) {
+    const source=page.locator(selector).nth(index);
+    const options:Array<{target:ExplicitTarget;locator:Locator}>=[];
+    if(id) options.push({target:{by:"id",value:id},locator:page.locator("[id="+JSON.stringify(id)+"]")});
+    if(testid) options.push({target:{by:"testid",value:testid},locator:page.getByTestId(testid)});
+    if(roles.includes(candidate.role) && candidate.name) {
+      const role=candidate.role as NonNullable<IntentTarget["role"]>;
+      options.push({target:{by:"role",role,name:candidate.name},locator:page.getByRole(role,{name:candidate.name,exact:true})});
+    }
+    if(candidate.text) options.push({target:{by:"text",value:candidate.text},locator:page.getByText(candidate.text,{exact:true})});
+    for(const {target,locator} of options) {
+      try {
+        if(await locator.count()!==1 || await source.and(locator).count()!==1 || !await locator.isVisible()) continue;
+        const key=JSON.stringify(target);
+        if(!seen.has(key)) {seen.add(key);entries.push({...candidate,target});}
+        break;
+      } catch { /* Invalid or stale locator: do not offer it. */ }
+    }
+  }
+  return entries;
+}
+
+export function searchCapturedElements(entries: ElementSearchEntry[], rawQuery: string): ElementSearchEntry[] {
+  const query=rawQuery.trim().toLocaleLowerCase();
+  if(!query) return [];
+  const score=(entry:ElementSearchEntry)=>{
+    const value=entry.target.by==="role"?entry.target.name||"":entry.target.value;
+    const direct=[entry.name,entry.text,value,entry.role,entry.tag].map(v=>v.toLocaleLowerCase());
+    if(direct.includes(query)) return 4;
+    if(direct.some(v=>v.startsWith(query))) return 3;
+    if(direct.some(v=>v.includes(query))) return 2;
+    return entry.nearby.toLocaleLowerCase().includes(query)?1:0;
+  };
+  return entries.filter(entry=>score(entry)>0).sort((a,b)=>score(b)-score(a)).slice(0,30);
 }
