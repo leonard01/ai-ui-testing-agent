@@ -134,14 +134,13 @@ async function intentLocator(
           ": " + tied.length + " equally plausible elements. Refine the target.");
       }
       const selected = tied[0].candidate;
-      const choices = [
-        ...(selected.testId ? [page.getByTestId(selected.testId)] : []),
-        ...(selected.id ? [page.locator("[id=" + JSON.stringify(selected.id) + "]")] : []),
-        page.locator(selector).nth(selected.index),
-      ];
-      for (const choice of choices) {
-        if (await choice.count() === 1 && await choice.isVisible()) return choice;
-      }
+      const eligible = page.locator(selector).and(page.locator(':not([hidden], [inert], [aria-hidden="true" i], [hidden] *, [inert] *, [aria-hidden="true" i] *)'));
+      const role = selected.role as Parameters<Page["getByRole"]>[0];
+      const semantic = selected.role
+        ? page.getByRole(role, { name: intent.value, exact: true })
+        : page.getByText(intent.value, { exact: true });
+      const locator = eligible.and(semantic).filter({ visible: true });
+      if (await locator.count() === 1 && await locator.isVisible()) return locator;
     }
     if (Date.now() >= deadline) {
       throw new Error("Could not resolve intent " + JSON.stringify(intent.value) +
