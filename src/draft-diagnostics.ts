@@ -68,7 +68,7 @@ export function draftQualityWarnings(
   }
   for (const [index, step] of definition.steps.entries()) {
     const action = step.action;
-    if (!("target" in action) || action.target.by !== "role") continue;
+    if (action.kind === "assert-count" || !("target" in action) || action.target.by !== "role") continue;
     const target = action.target;
     const requested = action.kind === "click" && target.name
       ? [...new Set(positionalRequests.filter(item => item.role === target.role &&
