@@ -165,7 +165,8 @@ test("unverified locator still offers direct manual edit of the failing assertio
     await expect(page.locator("#draft-title")).toContainText("Editing Verify Buy groceries item");
     const step = page.locator("#step-list .step").nth(3);
     await expect(step).toContainText("Locator strategy");
-    await expect(step.locator("select").first()).toHaveValue("role");
+    await expect(step.getByLabel("Action type", { exact: true })).toHaveValue("assert-visible");
+    await expect(step.getByLabel("Locator strategy", { exact: true })).toHaveValue("role");
     await expect(step).toContainText("Entirely absent phrase");
     await expect(page.locator("#draft-hint")).toContainText("Loaded an approved test for editing");
   } finally {
