@@ -204,16 +204,17 @@ function exportAction(action: TestAction, base: URL): string[] {
     ];
   }
   if (action.kind === "assert-text" && action.scope === "search-results") {
-    const escaped = action.expected.replace(/\s+/g, " ").trim().replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const expected = action.expected.replace(/\s+/g, " ").trim();
     return [
       "// Assertion provenance: " + action.provenance,
       "// Only identifiable search-result cards count; never the query box or whole page.",
       "const resultCards = page.locator(" + literal(SEARCH_RESULT_ITEM_SELECTOR) + ");",
-      "const resultPattern = new RegExp(" + literal(escaped) + ", 'i');",
+      "const expectedResultText = " + literal(expected) + ";",
       "await expect.poll(async () => {",
       "  const visibleRecords = await resultCards.filter({ visible: true }).evaluateAll(nodes =>",
       "    nodes.map(node => (node as HTMLElement).innerText ?? ''));",
-      "  return visibleRecords.some(value => resultPattern.test(value.replace(/\\s+/g, ' ').trim()));",
+      "  return visibleRecords.some(value => value.replace(/\\s+/g, ' ').trim()" +
+        (action.match === "contains" ? ".includes(expectedResultText)" : " === expectedResultText") + ");",
       "}, { timeout: STEP_TIMEOUT }).toBe(true);",
     ];
   }
