@@ -384,3 +384,41 @@ for(const scenario of [
     }
   });
 }
+
+
+for (const scenario of [
+  {label:"unique exact link",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a>',policy:"hint",passes:true},
+  {label:"strict role",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a>',policy:"strict",passes:false},
+  {label:"duplicate exact links",html:'<a href="#done" onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout</a><a href="#other">Logout</a>',policy:"hint",passes:false},
+  {label:"partial button decoy",html:'<a href="#done">Logout</a><button onclick="document.getElementById(\'status\').textContent=\'Done\'">Logout settings</button>',policy:"strict",passes:false},
+] as const) {
+  test("portable role recovery: "+scenario.label,async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><main>'+scenario.html+'<p id="status">Ready</p></main>');
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"portable-role",title:"Role recovery",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"click",description:"Click Logout",action:{kind:"click",target:{by:"intent",role:"button",value:"Logout",rolePolicy:scenario.policy}}},
+        {id:"verify",description:"Verify Done",action:{kind:"assert-text",target:{by:"id",value:"status"},expected:"Done",provenance:"requirements"}},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      if(scenario.passes){
+        const result=await executePortable(source,info.outputPath("portable-role"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try {await executePortable(source,info.outputPath("portable-role"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toMatch(/1 failed/);
+      }
+    }finally{
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
