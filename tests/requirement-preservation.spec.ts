@@ -64,7 +64,8 @@ test("first-open explanation is dismissible, persists across reload and remains 
 
 test("AI reinterpretation explains invalidated requirement mappings and allows explicit step association", async ({browser,page}) => {
   const dir=await mkdtemp(join(tmpdir(),"incremental-coverage-review-"));
-  const server=await createReviewServer(dir,browser);
+  // Browser routes supply all responses; injected provider enables the legacy test-only UI gate.
+  const server=await createReviewServer(dir,browser,async()=>{ throw new Error("Unexpected provider call in intercepted UI test"); });
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
   const url="http://127.0.0.1:"+(server.address() as AddressInfo).port;
   const source="Add a task called Review report.\nVerify Review report is visible.";
