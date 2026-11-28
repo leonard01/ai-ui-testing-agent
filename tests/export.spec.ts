@@ -444,3 +444,62 @@ for (const scenario of [
     }
   });
 }
+
+
+// Inject only a deterministic fixture mutation between the exported resolver
+// returning and the original exported interaction. No resolver/action code is replaced.
+for (const scenario of ["reorder","reuse-id","duplicate"] as const) {
+  test("portable intent remains strict after DOM mutation: "+scenario,async({},info)=>{
+    const fixture=createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end(`<!doctype html><main><button ${scenario==="reuse-id"?'id="action"':""} onclick="document.getElementById('status').textContent='Approved'">Approve</button><button onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><p id="status">Ready</p></main>`);
+    });
+    await new Promise<void>(done=>fixture.listen(0,"127.0.0.1",done));
+    const url="http://127.0.0.1:"+(fixture.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"portable-dynamic-intent",title:"Dynamic intent",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"click",description:"Approve",action:{kind:"click",target:{by:"intent",role:"button",value:"Approve"}}},
+        {id:"verify",description:"Verify approved",action:{kind:"assert-text",target:{by:"id",value:"status"},expected:"Approved",provenance:"requirements"}},
+      ]};
+      const source=generatePlaywrightSpec(definition,{baseURL:url,timeoutMs:1000});
+      const action="await target.click();";
+      expect(source.split(action)).toHaveLength(2);
+      const mutation=`await page.evaluate(() => {
+        const main=document.querySelector("main")!;
+        const approve=main.querySelector("button")!;
+        const cancel=main.querySelectorAll("button")[1];
+        if (${JSON.stringify(scenario)} === "reorder") main.prepend(cancel);
+        else if (${JSON.stringify(scenario)} === "reuse-id") {
+          cancel.id=approve.id;
+          approve.replaceWith(cancel);
+        } else {
+          const duplicate=document.createElement("button");
+          duplicate.textContent="Approve";
+          duplicate.onclick=()=>{document.getElementById("status")!.textContent="Wrong";};
+          main.prepend(duplicate);
+        }
+      });`;
+      // Negative scenarios must reject the actual click and leave state unchanged.
+      const interaction=scenario==="reorder"?action:`let rejected=false;
+        try { ${action} } catch { rejected=true; }
+        await expect(page.locator("#status")).toHaveText("Ready");
+        expect(rejected).toBe(true);
+        throw new Error("Expected strict click rejection verified");`;
+      const instrumented=source.replace(action,mutation+"\n"+interaction);
+      if(scenario==="reorder"){
+        const result=await executePortable(instrumented,info.outputPath("portable-dynamic"),url);
+        expect(result.stdout+result.stderr).toMatch(/1 passed/);
+      }else{
+        let failure:{code?:string|number;stdout?:string;stderr?:string}|undefined;
+        try{await executePortable(instrumented,info.outputPath("portable-dynamic"),url);}
+        catch(error){failure=error as typeof failure;}
+        expect(failure?.code).toBe(1);
+        expect((failure?.stdout??"")+(failure?.stderr??"")).toContain("Error: Expected strict click rejection verified");
+      }
+    } finally {
+      fixture.closeAllConnections();
+      await new Promise<void>((done,reject)=>fixture.close(error=>error?reject(error):done()));
+    }
+  });
+}
