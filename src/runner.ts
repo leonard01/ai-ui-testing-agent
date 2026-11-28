@@ -177,6 +177,11 @@ export async function runTest(
             const scope = action.target.within;
             await page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}).waitFor({state:"attached",timeout});
           }
+          if (["text","intent","label","placeholder"].includes(action.target.by)) {
+            result.observedIsDiagnostic = true;
+            result.observed = "Search-result assertions require an explicit record locator, not a query-text or form locator";
+            throw new Error(result.observed);
+          }
           const cards = locate(page, action.target);
           const deadline = performance.now() + timeout;
           while (true) {
