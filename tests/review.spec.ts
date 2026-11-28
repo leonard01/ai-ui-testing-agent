@@ -2397,3 +2397,27 @@ test("requirement mapping review starts concise and exposes linked step navigati
   await row.getByRole("button",{name:"Confirm mapping for R1"}).click();
   await expect(panel).toBeHidden();
 });
+
+
+test("visibility assertion draft states existential matching and preserves explicit ordinal @sanity", async ({page}) => {
+  const definition={schemaVersion:1,id:"visibility-semantics",title:"Visibility semantics",version:1,steps:[
+    {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+    {id:"any",description:"Verify Ready",action:{kind:"assert-visible",target:{by:"text",value:"Ready"},provenance:"requirements"}},
+    {id:"ordinal",description:"Verify second Save",action:{kind:"assert-visible",target:{by:"role",role:"button",name:"Save",nth:1},provenance:"requirements"}}
+  ]};
+  await page.goto(url);
+  await page.route("**/api/generate",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+    definition,needsReview:true,provider:"groq",generationAttempts:1,memorySuggestions:[],
+    diagnostics:{provider:"groq",model:"mock",attempts:1,snapshot:{url:"http://127.0.0.1:3000/",title:"Controls",headings:[],controls:[],statusText:[],sampleText:[]},warnings:[]},
+    message:"AI-generated draft"
+  })}));
+  await page.getByLabel("Your test instructions").fill("Verify Ready. Verify second Save button is visible.");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await clickGenerateDraft(page);
+  const any=page.locator("#step-list .step").nth(1);
+  const ordinal=page.locator("#step-list .step").nth(2);
+  await expect(any).toContainText('Verify at least one element matching visible text "Ready" is visible');
+  await expect(ordinal).toContainText('Verify button named "Save" (match 2, by DOM order) is visible');
+  await any.getByRole("button",{name:"Edit",exact:true}).click();
+  await expect(any).toContainText("At least one matching element must be visible");
+});
