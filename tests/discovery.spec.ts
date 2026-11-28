@@ -381,17 +381,15 @@ test("generic item checkbox resolution rejects shared container and partial item
 });
 
 
-// Role hints are opt-in; existing role constraints must remain strict.
-test("inferred button role can recover to unique exact link without destructive click", async ({ page }) => {
+// Legacy hints must not relax approved role constraints.
+test("legacy button hint rejects exact link without changing page state", async ({ page }) => {
   await page.setContent(`<main><ul id="tasks"><li>Review report</li></ul>
     <footer><a href="#/completed" onclick="document.body.dataset.filtered='yes'">Completed</a>
     <button onclick="document.querySelector('#tasks').replaceChildren()">Clear completed</button></footer>
     </main>`);
   const target = { by: "intent", value: "Completed", role: "button", rolePolicy: "hint" } as const;
-  const resolved = await discoverTarget(page, target, "click", 500);
-  expect(resolved.evidence.role).toBe("link");
-  await resolved.locator.click();
-  await expect(page.locator("body")).toHaveAttribute("data-filtered", "yes");
+  await expect(discoverTarget(page, target, "click", 500)).rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("body")).not.toHaveAttribute("data-filtered", "yes");
   await expect(page.locator("#tasks li")).toHaveText("Review report");
 });
 
