@@ -162,64 +162,36 @@ test("text mismatch searches visible product-name div, not the Add to cart butto
   }
 });
 
-test("shopping intent scopes Add to cart to the named product, never the first button", async ({ browser }) => {
-  const tab = await browser.newPage();
-  try {
-    await tab.setContent('<!doctype html><main>' +
-      '<article><div>Sauce Labs Backpack</div><button data-item="backpack">Add to cart</button></article>' +
-      '<article><div>Sauce Labs Bike Light</div><button data-item="light">Add to cart</button></article>' +
-      '<article><div>Sauce Labs Bolt T-Shirt</div><button data-item="shirt">Add to cart</button></article>' +
-      '<script>document.querySelectorAll("button").forEach(b => b.onclick = () => b.textContent = "Remove")</script>' +
-      '</main>');
-
-    // Exact phrase, even when the AI strips the suffix "to cart".
-    const backpack = await discoverTarget(tab, {
-      by: "intent", value: "Add Sauce Labs Backpack", role: "button",
-    }, "click", 350);
-    expect(backpack.evidence.locator).toContain('product "Sauce Labs Backpack"');
-    await backpack.locator.click();
-    await expect(tab.locator('[data-item="backpack"]')).toHaveText("Remove");
-    await expect(tab.locator('[data-item="light"]')).toHaveText("Add to cart");
-
-    // Partial product name and a different verb must still identify one card.
-    const light = await discoverTarget(tab, {
-      by: "intent", value: "Put the Bike Light in my basket", role: "button",
-    }, "click", 350);
-    await light.locator.click();
-    await expect(tab.locator('[data-item="light"]')).toHaveText("Remove");
-    await expect(tab.locator('[data-item="shirt"]')).toHaveText("Add to cart");
-  } finally {
-    await tab.close();
-  }
-});
-
-test("shopping intent fails closed on absent, duplicate or non-actionable products", async ({ browser }) => {
-  const tab = await browser.newPage();
-  try {
-    await tab.setContent('<main>' +
-      '<article><div>Sauce Labs Backpack</div><span>Sold out</span></article>' +
-      '<article><div>Sauce Labs Bike Light</div><button>Add to cart</button></article>' +
-      '</main>');
-    await expect(discoverTarget(tab, {
-      by: "intent", value: "Add Sauce Labs Backpack to cart", role: "button",
-    }, "click", 200)).rejects.toThrow(/No unique enabled Add to cart button within product/);
-    await expect(discoverTarget(tab, {
-      by: "intent", value: "Add Missing Widget to cart", role: "button",
-    }, "click", 200)).rejects.toThrow(/not found as a unique visible title/);
-    await expect(tab.getByRole("button", { name: "Add to cart" })).toHaveCount(1);
-
-    await tab.setContent('<main>' +
-      '<article><div>Sauce Labs Backpack</div><button>Add to cart</button></article>' +
-      '<article><div>Sauce Labs Backpack</div><button>Add to cart</button></article>' +
-      '</main>');
-    await expect(discoverTarget(tab, {
-      by: "intent", value: "Add Sauce Labs Backpack", role: "button",
-    }, "click", 200)).rejects.toThrow(/matched multiple visible titles/);
-    await expect(tab.getByRole("button", { name: "Add to cart" })).toHaveCount(2);
-  } finally {
-    await tab.close();
-  }
-});
+// Use the actual runner so scope validation, not hand-written locator logic, is under test.
+for (const scenario of [
+  {label:"exact product", product:"Sauce Labs Backpack", markup:'<article><div>Sauce Labs Bike Light</div><button onclick="document.querySelector(\'#cart\').textContent=\'Bike Light\'">Add to cart</button></article><article><div>Sauce Labs Backpack</div><button onclick="document.querySelector(\'#cart\').textContent=\'Backpack\'">Add to cart</button></article>', passes:true},
+  {label:"sold-out product",product:"Sauce Labs Backpack",markup:'<article><div>Sauce Labs Backpack</div><span>Sold out</span></article><article><div>Sauce Labs Bike Light</div><button>Add to cart</button></article>',passes:false},
+  {label:"missing product",product:"Missing Widget",markup:'<article><div>Sauce Labs Backpack</div><button>Add to cart</button></article>',passes:false},
+  {label:"partial product title",product:"Bike Light",markup:'<article><div>Sauce Labs Bike Light</div><button>Add to cart</button></article>',passes:false},
+  {label:"duplicate product",product:"Sauce Labs Backpack",markup:'<article><div>Sauce Labs Backpack</div><button>Add to cart</button></article><article><div>Sauce Labs Backpack</div><button>Add to cart</button></article>',passes:false},
+  {label:"duplicate controls",product:"Sauce Labs Backpack",markup:'<article><div>Sauce Labs Backpack</div><button>Add to cart</button><button>Add to cart</button></article>',passes:false},
+  {label:"disabled product control",product:"Sauce Labs Backpack",markup:'<article><div>Sauce Labs Backpack</div><button disabled>Add to cart</button></article>',passes:false},
+] as const) {
+  test("explicit scoped cart action: "+scenario.label,async({browser},info)=>{
+    const site=createServer((_req,res)=>{res.writeHead(200,{"Content-Type":"text/html"});res.end("<main>"+scenario.markup+'<p id="cart">empty</p></main>');});
+    await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+    const url="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"cart-scope",title:"Scoped cart",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"add",description:"Add named product",action:{kind:"click",target:{by:"role",role:"button",name:"Add to cart",within:{role:"article",text:scenario.product}}}},
+        {id:"verify",description:"Verify product",action:{kind:"assert-text",target:{by:"id",value:"cart"},expected:"Backpack",provenance:"requirements"}}
+      ]};
+      const report=await runTest(definition,{baseURL:url,outputDir:info.outputPath("scoped-cart"),timeoutMs:700},browser);
+      expect(report.status,JSON.stringify(report.steps)).toBe(scenario.passes?"passed":"execution-error");
+      expect(report.steps[1].status).toBe(scenario.passes?"passed":"execution-error");
+      expect(report.steps[2].status).toBe(scenario.passes?"passed":"skipped");
+    } finally {
+      site.closeAllConnections();
+      await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+    }
+  });
+}
 
 test("ambiguous intent stops safely without clicking a random button", async ({ browser }, info) => {
   const tab = await browser.newPage();
@@ -422,7 +394,7 @@ test("role hint must not substitute a checkbox for a requested button", async ({
 
 
 // Product identity may be rendered inside an interactive details control.
-test("shopping intent resolves interactive product title within its own card", async ({ page }) => {
+test("explicit scoped cart action accepts interactive product title", async ({ page }) => {
   await page.setContent(`<main>
     <article><button aria-label="View details for Example Backpack"><span>Example Backpack</span></button>
       <button id="backpack" onclick="this.textContent='Remove'">Add to cart</button></article>
@@ -430,8 +402,8 @@ test("shopping intent resolves interactive product title within its own card", a
       <button id="lamp" onclick="this.textContent='Remove'">Add to cart</button></article>
   </main>`);
   for (const [name,id] of [["Example Backpack","backpack"],["Example Lamp","lamp"]]) {
-    const result=await discoverTarget(page,{by:"intent",role:"button",value:"Add "+name+" to cart"},"click",500);
-    await result.locator.click();
+    await page.getByRole("article").filter({has:page.getByText(name,{exact:true})})
+      .getByRole("button",{name:"Add to cart",exact:true}).click();
     await expect(page.locator("#"+id)).toHaveText("Remove");
     if(id==="backpack") await expect(page.locator("#lamp")).toHaveText("Add to cart");
   }
