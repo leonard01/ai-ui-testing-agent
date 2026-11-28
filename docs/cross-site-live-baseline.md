@@ -60,3 +60,13 @@ After the current contextual recovery, candidate context and ranking work, freez
 - Partial-text discovery reproduction `b95b5dd`: 39 passed, two expected failures in the targeted suite. The hidden/input-content exclusion test passed.
 - Fix `53469a1`: 28 sanity and 41 targeted discovery/repair tests passed in [46106863867](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46106863867). Suggestions preserve the original assertion type and expected text; partial matches are case-sensitive and candidate text is bounded to 180 characters. These are advisory locator suggestions, not automatically weakened comparisons.
 - Request full deterministic regression before closing Sprint 2; do not equate these controlled-fixture results with independent cross-site or live model correctness. Live holdout evaluation remains outstanding.
+
+
+## Sprint 3 deterministic recovery validation — 28 November 2026
+
+- Direct failed-step editing (#152) validated with action-type correction, explicit assertion change confirmation, approval reset, unaffected step preservation and rerun.
+- Failure-time searchable element picker (#153) validated through capture, step-scoped search API, selection without silent action changes, amendment and rerun. Evidence is in memory, limited to 20 runs and 30 minutes of search availability; lazy pruning on subsequent activity. The unavailable-evidence UI fallback was tested by simulating the API error, not by exercising actual TTL expiry or eviction.
+- Unified assertion recovery (#154) validated with partial visible paragraph matches, hidden candidate exclusion, unchanged expected text, explicit comparison approval, and successful rerun. Explicit equality protection is a conservative lexical guard, not comprehensive semantic requirement interpretation. Search-result-scoped failures cannot use page-wide quick repair or accept diagnostics as observed text.
+- Targeted CI [46113222657](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46113222657) at `f8c9e97`: 235 unit, 37 sanity and 44 feature regression tests passed. These suites may overlap; not a count of unique tests.
+- Full deterministic regression requested by this commit. No claim of full regression success until CI completes.
+- Remaining limitations: full independent live holdout validation, dedicated evidence retention expiry/eviction tests, possible hidden-element text assertion false pass (requires isolated reproduction), and existing amendment lifecycle that replaces prior saved version and can remove its associated run history. Recovery candidate visibility does not imply text assertion visibility. No complete privacy redaction guarantee for visible page content.
