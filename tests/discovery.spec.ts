@@ -939,3 +939,39 @@ test("explicit approved hover reveals only the intended record control; export p
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+test("scoped role locator uses exact record identity and rejects ambiguous containers @sanity", async ({browser},info) => {
+  const row=(text:string,button:boolean)=>'<li><span>'+text+'</span>'+(button?'<button onclick="this.closest(\'li\').remove()">Delete</button>':'')+'</li>';
+  let markup='<ul>'+row("Target task",true)+row("Target task extra",true)+'</ul>';
+  const site=createServer((_req,res)=>{res.writeHead(200,{"Content-Type":"text/html"});res.end('<!doctype html><style>li button{display:none}li:hover button{display:inline-block}</style>'+markup);});
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const url="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition:TestDefinition={schemaVersion:1,id:"scoped-hover",title:"Scoped hover and delete",version:1,steps:[
+      {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+      {id:"hover",description:"Hover exact task",action:{kind:"hover",target:{by:"role",role:"listitem",hasText:"Target task"}}},
+      {id:"delete",description:"Delete in exact task",action:{kind:"click",target:{by:"role",role:"button",name:"Delete",within:{role:"listitem",text:"Target task"}}}},
+      {id:"absent",description:"Target removed",action:{kind:"assert-count",target:{by:"text",value:"Target task"},expected:0,provenance:"requirements"}},
+      {id:"retained",description:"Neighbour retained",action:{kind:"assert-visible",target:{by:"text",value:"Target task extra"},provenance:"requirements"}}
+    ]};
+    const opts={baseURL:url,timeoutMs:900,outputDir:info.outputPath("scoped-positive")};
+    const report=await runTest(definition,opts,browser);
+    expect(report.status,JSON.stringify(report.steps)).toBe("passed");
+    // Even when just one duplicate container has a control, scope is ambiguous.
+    markup='<ul>'+row("Target task",true)+row("Target task",false)+'</ul>';
+    const duplicate={...definition,steps:definition.steps.filter(s=>s.id!=="hover")};
+    const failed=await runTest(duplicate,{...opts,outputDir:info.outputPath("scoped-duplicate")},browser);
+    expect(failed.steps.find(s=>s.id==="delete")?.status).toBe("execution-error");
+    expect(failed.steps.find(s=>s.id==="delete")?.error).toContain("strict mode violation");
+    expect(failed.steps.find(s=>s.id==="absent")?.status).toBe("skipped");
+    const {generatePlaywrightSpec}=await import("../src/export.js");
+    const source=generatePlaywrightSpec(definition,{baseURL:url});
+    expect(source).toContain('const container = page.getByRole("listitem").filter({ has: page.getByText("Target task", { exact: true }) });');
+    expect(source).toContain('await container.waitFor({ state: "attached", timeout: STEP_TIMEOUT });');
+    expect(source).toContain('container.getByRole("button", { name: "Delete", exact: true })');
+  }finally{
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
