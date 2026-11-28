@@ -2006,3 +2006,61 @@ test("element search API retrieves only the selected failed run step evidence @s
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+test("element picker populates locator without silently changing action @sanity", async ({page}) => {
+  const site=createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+    res.end('<!doctype html><label for="choice">Default radio</label><input id="choice" type="radio"><label for="other">Second radio</label><input id="other" type="radio"><p>Form ready</p>');
+  });
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition={schemaVersion:1,id:"element-picker-ui",title:"Element picker UI",version:1,steps:[
+      {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+      {id:"choose",description:"Choose default radio",action:{kind:"select-option",target:{by:"id",value:"choice"},value:"yes"}},
+      {id:"verify",description:"Verify",action:{kind:"assert-visible",target:{by:"text",value:"Form ready"},provenance:"requirements"}}
+    ]};
+    const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
+    expect(response.status()).toBe(200);
+    const saved=await response.json();
+    await page.goto(url);
+    await page.locator("#nav-run").click();
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await page.locator("#run-steps .run-step").nth(1).getByRole("button",{name:"Edit failing step",exact:true}).click();
+    const editor=page.locator("#step-list .step").nth(1);
+    const search=editor.getByLabel("Search captured page elements");
+    await search.fill("radio");
+    await editor.getByRole("button",{name:"Search elements",exact:true}).click();
+    await editor.getByRole("radio",{name:/Second radio/}).check();
+    await editor.getByRole("button",{name:"Use selected element",exact:true}).click();
+    await expect(editor.getByLabel("HTML ID attribute value")).toHaveValue("other");
+    await expect(editor.getByLabel("Action type")).toHaveValue("select-option");
+    await expect(editor).toContainText("Compatible actions:");
+    await editor.getByLabel("Action type").selectOption("check");
+    await editor.getByRole("button",{name:"Apply changes"}).click();
+    await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
+    const original=await (await page.request.get(url+"/api/tests/"+encodeURIComponent(saved.id))).json();
+    expect(original.definition.steps).toEqual(definition.steps);
+    for(const box of await page.locator("#step-list .step input[type=checkbox]").all()) await box.check();
+    await page.getByRole("button",{name:"Save Test",exact:true}).click();
+    await expect(page.locator("#saved")).toContainText("Amended test saved; old version removed from the list. Ready to execute.");
+    const amendedId=await page.locator("#approved-tests").inputValue();
+    const amended=JSON.parse(await readFile(await approvedPath(outputDir,amendedId),"utf8"));
+    expect(amended.steps[1].action).toEqual({kind:"check",target:{by:"id",value:"other"}});
+    expect(amended.steps[0]).toEqual(definition.steps[0]);
+    expect(amended.steps[2]).toEqual(definition.steps[2]);
+    await page.locator("#nav-run").click();
+    await expect(page.locator("#approved-tests")).toHaveValue(amendedId);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+  }finally{
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
