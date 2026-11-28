@@ -1233,7 +1233,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       label.append(input);
       parent.append(label);
     }
-    function beginEdit(card, step, index) {
+    function beginEdit(card, step, index, failureEvidence) {
       const edits = make("div", null, "edits");
       const clone = JSON.parse(JSON.stringify(step));
       labeledInput(edits, "Description", clone.description, (v) => { clone.description = v; });
@@ -1483,6 +1483,98 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         renderActionFields();
       });
       renderActionFields();
+      if (failureEvidence) {
+        const picker = make("div", null, "locator-repair element-picker");
+        picker.append(make("h3", "Find an element on the failed page"));
+        picker.append(make("p", "Captured failure state only. Search does not open the website or replay actions. Results may no longer match the current page.", "muted"));
+        if (!failureEvidence.available) {
+          picker.append(make("p", "No captured element evidence is available for this step. Edit the locator manually, or explicitly rerun the test to capture a fresh failure.", "note"));
+        } else {
+          const label = make("label", "Search captured page elements");
+          const query = make("input");
+          query.type = "text";
+          query.maxLength = 180;
+          label.append(query);
+          const search = make("button", "Search elements", "secondary");
+          search.type = "button";
+          search.disabled = true;
+          const status = make("p", "Search names, roles, visible text, identifiers or nearby context.", "muted");
+          status.setAttribute("role", "status");
+          const choices = make("div");
+          const use = make("button", "Use selected element", "secondary");
+          use.type = "button";
+          use.disabled = true;
+          const recommendation = make("p", "", "note");
+          recommendation.hidden = true;
+          let chosen = null, revision = 0;
+          const canPopulate = () => !!clone.action.target && clone.action.scope !== "search-results" && clone.action.kind !== "assert-count";
+          query.addEventListener("input", () => {
+            revision++;
+            chosen = null;
+            choices.replaceChildren();
+            use.disabled = true;
+            search.disabled = !query.value.trim();
+            status.textContent = "Search again to refresh results.";
+          });
+          search.addEventListener("click", async () => {
+            const value = query.value.trim();
+            if (!value) return;
+            const requestRevision = ++revision;
+            chosen = null;
+            choices.replaceChildren();
+            use.disabled = true;
+            search.disabled = true;
+            status.textContent = "Searching captured elements...";
+            try {
+              const response = await requestJSON("/api/search-elements", {
+                method: "POST", headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({runId:failureEvidence.runId,stepId:step.id,query:value}),
+              });
+              if (!edits.isConnected || requestRevision !== revision) return;
+              const candidates = response.candidates || [];
+              for (const candidate of candidates) {
+                const option = make("label", null, "locator-option");
+                const radio = make("input");
+                radio.type = "radio";
+                radio.name = "element-picker-" + index;
+                const info = make("span");
+                info.append(make("strong", candidate.name || candidate.text || "(unnamed element)"));
+                info.append(make("small", candidate.role || candidate.tag));
+                info.append(make("small", describeTarget(candidate.target)));
+                if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
+                option.append(radio, info);
+                radio.addEventListener("change", () => {
+                  chosen = candidate;
+                  use.disabled = !canPopulate();
+                  status.textContent = canPopulate()
+                    ? "Element selected. Apply its locator without changing the action or expectation."
+                    : "This action has no compatible single-element locator. Change the action explicitly or edit manually.";
+                });
+                choices.append(option);
+              }
+              status.textContent = candidates.length
+                ? candidates.length + " verified captured element(s). Select one to review its locator."
+                : "No matching captured elements. Try another phrase or edit the locator manually.";
+            } catch (error) {
+              if (edits.isConnected && requestRevision === revision) status.textContent = error.message || String(error);
+            } finally {
+              if (edits.isConnected && requestRevision === revision) search.disabled = !query.value.trim();
+            }
+          });
+          use.addEventListener("click", () => {
+            if (!chosen || !canPopulate()) return;
+            clone.action.target = JSON.parse(JSON.stringify(chosen.target));
+            renderActionFields();
+            recommendation.hidden = false;
+            recommendation.textContent = "Compatible actions: " + chosen.actions.join(", ") +
+              ". The action and expectation have not been changed.";
+            status.textContent = "Locator populated in this unsaved edit. Review and apply changes.";
+          });
+          actionSelect.addEventListener("change", () => { use.disabled = !chosen || !canPopulate(); });
+          picker.append(label, search, status, choices, use, recommendation);
+        }
+        edits.append(picker);
+      }
       const buttons = make("div", null, "actions");
       const apply = make("button", "Apply changes");
       apply.type = "button";
@@ -2738,7 +2830,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           editStep.type = "button";
           editStep.disabled = !result.fileId;
           editStep.addEventListener("click", () => {
-            if (result.fileId) void loadSavedForEditing(result.fileId, step.id);
+            if (result.fileId) void loadSavedForEditing(result.fileId, step.id, {runId:result.id,available:step.elementSearchAvailable === true});
           });
           card.append(editStep);
         }
@@ -3781,7 +3873,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         $("run-management-error").textContent = error.message || String(error);
       }
     });
-    async function loadSavedForEditing(id, focusStepId) {
+    async function loadSavedForEditing(id, focusStepId, failureEvidence) {
       if (!id || running || saving || generatingDraft || editorLoading) return;
       if (!confirmReplaceWorkspace()) return;
       editorLoading = true;
@@ -3826,7 +3918,14 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (index >= 0) {
           const card = $("step-list").querySelectorAll(".step")[index];
           const edit = card?.querySelector("button.textbtn");
-          if (edit) edit.click();
+          if (edit && failureEvidence) {
+            const step = definition.steps[index];
+            const details = card.querySelector(".step-details");
+            if (details) details.open = true;
+            expandedStepIds.add(step.id);
+            edit.disabled = true;
+            beginEdit(card, step, index, failureEvidence);
+          } else if (edit) edit.click();
           card?.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
           $("draft").scrollIntoView({ behavior: "smooth", block: "start" });
