@@ -15,7 +15,6 @@ import { assertCredentialsReviewed } from "./credential-guard.js";
 import { coverageWarnings } from "./requirement-preservation.js";
 import { ensureAllowedNavigation } from "./inspect.js";
 import { installBrowserRequestPolicy } from "./browser-request-policy.js";
-import { SEARCH_RESULT_ITEM_SELECTOR } from "./search-results.js";
 import { AmbiguousIntentError, discoverTarget, findLocatorAlternatives, findAssertionAlternatives, captureAssertionSearchIndex, captureElementSearchIndex, type ElementSearchEntry, type AssertionSearchEntry } from "./discovery.js";
 import type { RunReport, TestAction, StepResult } from "./domain.js";
 
@@ -174,7 +173,11 @@ export async function runTest(
           result.expected = action.expected;
           result.textMatch = action.match ?? "exact";
           const expected = normalize(action.expected);
-          const cards = page.locator(SEARCH_RESULT_ITEM_SELECTOR);
+          if (action.target.by === "role" && action.target.within) {
+            const scope = action.target.within;
+            await page.getByRole(scope.role).filter({has:page.getByText(scope.text,{exact:true})}).waitFor({state:"attached",timeout});
+          }
+          const cards = locate(page, action.target);
           const deadline = performance.now() + timeout;
           while (true) {
             const count = await cards.count();
