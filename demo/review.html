@@ -1237,17 +1237,33 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       const edits = make("div", null, "edits");
       const clone = JSON.parse(JSON.stringify(step));
       labeledInput(edits, "Description", clone.description, (v) => { clone.description = v; });
+      const actionLabel = make("label", "Action type");
+      const actionSelect = make("select");
+      const kinds = ["navigate","click","fill","check","uncheck","select-option","press","assert-visible","assert-text","assert-count","assert-url"];
+      for (const kind of kinds) {
+        if (index === 0 && kind !== "navigate") continue;
+        const option = make("option", kind);
+        option.value = kind;
+        actionSelect.append(option);
+      }
+      actionSelect.value = clone.action.kind;
+      actionLabel.append(actionSelect);
+      edits.append(actionLabel);
+      const actionFields = make("div");
+      edits.append(actionFields);
+      const renderActionFields = () => {
+      actionFields.replaceChildren();
       if (clone.action.kind === "navigate") {
-        labeledInput(edits, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
+        labeledInput(actionFields, "Navigation path / URL", clone.action.url, (v) => { clone.action.url = v; });
       } else if (clone.action.kind === "assert-url") {
-        labeledInput(edits, "Expected URL / path", clone.action.expected, (v) => {
+        labeledInput(actionFields, "Expected URL / path", clone.action.expected, (v) => {
           clone.action.expected = v;
         });
       } else if (clone.action.kind === "assert-text" && clone.action.scope === "search-results") {
-        labeledInput(edits, "Expected text in a returned search result", clone.action.expected, (v) => {
+        labeledInput(actionFields, "Expected text in a returned search result", clone.action.expected, (v) => {
           clone.action.expected = v;
         });
-        edits.append(make("p", "This assertion checks visible returned search-result cards, not the search field, page heading, navigation or whole page. If result cards cannot be identified, it fails safely.", "note"));
+        actionFields.append(make("p", "This assertion checks visible returned search-result cards, not the search field, page heading, navigation or whole page. If result cards cannot be identified, it fails safely.", "note"));
       } else {
         const strategyLabel = make("label", "Locator strategy");
         const strategySelect = make("select");
@@ -1269,9 +1285,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         }
         strategySelect.value = clone.action.target.by;
         strategyLabel.append(strategySelect);
-        edits.append(strategyLabel);
+        actionFields.append(strategyLabel);
         const locatorFields = make("div");
-        edits.append(locatorFields);
+        actionFields.append(locatorFields);
         const renderLocatorFields = () => {
           locatorFields.replaceChildren();
           const t = clone.action.target;
@@ -1392,7 +1408,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         });
         renderLocatorFields();
         if (clone.action.kind === "fill" || clone.action.kind === "select-option") {
-          labeledInput(edits, clone.action.kind === "fill" ? "Value to enter" : "Option value",
+          labeledInput(actionFields, clone.action.kind === "fill" ? "Value to enter" : "Option value",
             clone.action.value, (v) => { clone.action.value = v; });
         }
         if (clone.action.kind === "press") {
@@ -1408,10 +1424,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           input.value = clone.action.key;
           input.addEventListener("change", () => { clone.action.key = input.value; });
           label.append(input);
-          edits.append(label);
+          actionFields.append(label);
         }
         if (clone.action.kind === "assert-text") {
-          labeledInput(edits, "Expected text", clone.action.expected, (v) => { clone.action.expected = v; });
+          labeledInput(actionFields, "Expected text", clone.action.expected, (v) => { clone.action.expected = v; });
           const comparison = make("label", "Text comparison");
           const mode = make("select");
           for (const [value, label] of [["exact", "Exact match"], ["contains", "Contains text"]]) {
@@ -1422,7 +1438,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           mode.value = clone.action.match || "exact";
           mode.addEventListener("change", () => { clone.action.match = mode.value; });
           comparison.append(mode);
-          edits.append(comparison);
+          actionFields.append(comparison);
         }
         if (clone.action.kind === "assert-count") {
           const label = make("label", "Expected element count");
@@ -1436,13 +1452,48 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             clone.action.expected = input.value === "" ? -1 : Number(input.value);
           });
           label.append(input);
-          edits.append(label);
+          actionFields.append(label);
         }
       }
+      };
+      actionSelect.addEventListener("change", () => {
+        const previous = clone.action;
+        const kind = actionSelect.value;
+        const target = previous.target ? JSON.parse(JSON.stringify(previous.target)) : {by:"role",role:"button"};
+        if (kind === "assert-count") {
+          if (target.by === "intent") {
+            target.by = "text";
+            delete target.role;
+            delete target.rolePolicy;
+          }
+          delete target.nth;
+        }
+        if (target.by === "intent" && kind !== "click") delete target.rolePolicy;
+        const assertion = kind.startsWith("assert-");
+        clone.action = {
+          kind,
+          ...(!["navigate","assert-url"].includes(kind) ? {target} : {}),
+          ...(kind === "navigate" ? {url:previous.url || ""} : {}),
+          ...(["fill","select-option"].includes(kind) ? {value:typeof previous.value === "string" ? previous.value : ""} : {}),
+          ...(kind === "press" ? {key:previous.key || "Enter"} : {}),
+          ...(kind === "assert-count" ? {expected:typeof previous.expected === "number" ? previous.expected : 1} : {}),
+          ...(["assert-text","assert-url"].includes(kind) ? {expected:typeof previous.expected === "string" ? previous.expected : ""} : {}),
+          ...(assertion ? {provenance:"human-confirmed"} : {}),
+        };
+        renderActionFields();
+      });
+      renderActionFields();
       const buttons = make("div", null, "actions");
       const apply = make("button", "Apply changes");
       apply.type = "button";
       apply.onclick = () => {
+        const wasAssertion = step.action.kind.startsWith("assert-");
+        const isAssertion = clone.action.kind.startsWith("assert-");
+        const expectationChanged = (wasAssertion || isAssertion) &&
+          (step.action.kind !== clone.action.kind ||
+           step.action.expected !== clone.action.expected ||
+           (step.action.match || "exact") !== (clone.action.match || "exact") ||
+           step.action.scope !== clone.action.scope);
         if ("target" in clone.action &&
             ["testid", "id", "css", "xpath"].includes(clone.action.target.by) &&
             !clone.action.target.value.trim()) {
@@ -1454,6 +1505,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           message.textContent = "Enter the actual locator value; an accessible name is not a CSS/XPath selector or HTML ID.";
           return;
         }
+        if (expectationChanged && step.action.kind !== clone.action.kind && !window.confirm("Confirm that this assertion change reflects the original test requirements.")) return;
+        if (expectationChanged && isAssertion) clone.action.provenance = "human-confirmed";
         invalidateCoverageForStep(definition.steps[index].id);
         definition.steps[index] = clone;
         approvals.delete(index);
@@ -2680,6 +2733,15 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           if (e.nearby) card.append(make("p", "Nearby text: " + e.nearby, "muted"));
         }
         if (step.error) card.append(make("pre", step.error));
+        if (step.status === "execution-error" || step.status === "assertion-failed") {
+          const editStep = make("button", "Edit failing step", "secondary");
+          editStep.type = "button";
+          editStep.disabled = !result.fileId;
+          editStep.addEventListener("click", () => {
+            if (result.fileId) void loadSavedForEditing(result.fileId, step.id);
+          });
+          card.append(editStep);
+        }
         const failedAssertion = (step.status === "execution-error" ||
           step.status === "assertion-failed") &&
           (step.actionKind === "assert-visible" || step.actionKind === "assert-text" ||
