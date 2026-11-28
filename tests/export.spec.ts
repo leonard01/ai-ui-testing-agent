@@ -329,7 +329,7 @@ for(const scenario of [
       const definition:TestDefinition={schemaVersion:1,id:"portable-results",title:"Scoped results",version:1,steps:[
         {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
         {id:"verify",description:"Verify returned result contains shoes",action:{
-          kind:"assert-text",target:"selector" in scenario ? {by:"css",value:scenario.selector} : {by:"text",value:"shoes"},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
+          kind:"assert-text",target:typeof scenario.selector === "string" ? {by:"css",value:scenario.selector} : {by:"text",value:"shoes"},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
         }},
       ]};
       const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-results")},browser);
