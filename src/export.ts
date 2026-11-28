@@ -326,6 +326,7 @@ function exportAction(action: TestAction, base: URL): string[] {
   const locator = targetExpression(action.target, operation);
   const lines = ["const target = " + locator + ";"];
   if (action.kind === "click") lines.push("await target.click();");
+  else if (action.kind === "hover") lines.push("await target.hover();");
   else if (action.kind === "fill") {
     lines.push("await target.fill(" + literal(action.value) + ");");
   } else if (action.kind === "check") lines.push("await target.check();");
