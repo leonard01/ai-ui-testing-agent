@@ -1221,7 +1221,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (action.kind === "uncheck") return "Uncheck " + describeTarget(action.target);
       if (action.kind === "select-option") return 'Select option value "' + action.value + '" in ' + describeTarget(action.target);
       if (action.kind === "press") return 'Press ' + action.key + " on " + describeTarget(action.target);
-      if (action.kind === "assert-text" && action.scope === "search-results") return 'Verify a returned search result ' + (action.match === "contains" ? 'contains "' : 'equals "') + action.expected + '" (result cards only, case-sensitive)';
+      if (action.kind === "assert-text" && action.scope === "search-results") return 'Verify a returned search result ' + (action.match === "contains" ? 'contains "' : 'equals "') + action.expected + '" (case-sensitive; any visible match of ' + describeTarget(action.target) + ')';
       if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + (action.match === "contains" ? ' contains "' : ' equals "') + action.expected + '"';
       if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
       if (action.kind === "assert-count") return "Verify " + describeTarget(action.target) + " matches " + action.expected + " elements";
@@ -1264,24 +1264,6 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         labeledInput(actionFields, "Expected URL / path", clone.action.expected, (v) => {
           clone.action.expected = v;
         });
-      } else if (clone.action.kind === "assert-text" && clone.action.scope === "search-results") {
-        labeledInput(actionFields, "Expected text in a returned search result", clone.action.expected, (v) => {
-          clone.action.expected = v;
-        });
-        const matchLabel = make("label", "Text match");
-        const matchSelect = make("select");
-        matchSelect.setAttribute("aria-label", "Text match");
-        for (const mode of ["exact", "contains"]) {
-          const option = make("option", mode);
-          option.value = mode;
-          matchSelect.append(option);
-        }
-        matchSelect.value = clone.action.match ?? "exact";
-        matchSelect.addEventListener("change", () => { clone.action.match = matchSelect.value; });
-        matchLabel.append(matchSelect);
-        actionFields.append(matchLabel);
-        actionFields.append(make("p", "Text matching is case-sensitive.", "note"));
-        actionFields.append(make("p", "This assertion checks visible returned search-result cards, not the search field, page heading, navigation or whole page. If result cards cannot be identified, it fails safely.", "note"));
       } else {
         const strategyLabel = make("label", "Locator strategy");
         const strategySelect = make("select");
@@ -1295,7 +1277,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           ["id", "Stable HTML id"],
           ["css", "CSS fallback (review brittleness)"],
           ["xpath", "XPath fallback (last resort)"],
-          ...(["assert-count","hover"].includes(clone.action.kind) ? [] :
+          ...((["assert-count","hover"].includes(clone.action.kind) || clone.action.scope === "search-results") ? [] :
             [["intent", "Live DOM intent (recommended for unknown elements)"]]),
         ]) {
           const option = make("option", title);
@@ -1462,6 +1444,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           mode.addEventListener("change", () => { clone.action.match = mode.value; });
           comparison.append(mode);
           actionFields.append(comparison);
+          if (clone.action.scope === "search-results") actionFields.append(make("p", "Any visible element matching the approved locator may satisfy this case-sensitive assertion. Choose result records, not the whole page or search field.", "note"));
         }
         if (clone.action.kind === "assert-count") {
           const label = make("label", "Expected element count");
