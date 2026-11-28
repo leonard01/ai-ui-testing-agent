@@ -397,6 +397,9 @@ for(const scenario of [
 
 
 for (const scenario of [
+  {label:"long HTML id must not redirect to prefix decoy",html:`<button id="${"a".repeat(100)}" onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><button id="${"a".repeat(100)}-actual" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:true},
+  {label:"long test id must not redirect to prefix decoy",html:`<button data-testid="${"b".repeat(100)}" onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><button data-testid="${"b".repeat(100)}-actual" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:true},
+  {label:"whitespace in HTML id must not redirect to normalized decoy",html:`<button id="a b" onclick="document.getElementById('status').textContent='Wrong'">Cancel</button><button id="a  b" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:true},
   {label:"long name prefix must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">${"A".repeat(130)} extra</button>`,intentName:"A".repeat(130),policy:"strict",passes:false},
   {label:"complete long name resolves",html:`<button onclick="document.getElementById('status').textContent='Done'">${"A".repeat(130)} extra</button>`,intentName:"A".repeat(130)+" extra",policy:"strict",passes:true},
   {label:"case mismatch must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">LOGOUT</button>`,policy:"strict",passes:false},
