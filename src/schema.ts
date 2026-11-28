@@ -96,7 +96,7 @@ const action = z.discriminatedUnion("kind", [
 
 export const testStepSchema = z.object({ id: text, description: text, action }).strict();
 
-export const testDefinitionSchema = z
+const testDefinitionBaseSchema = z
   .object({
     schemaVersion: z.literal(1),
     id: text,
@@ -134,8 +134,9 @@ export const testDefinitionSchema = z
       .min(1)
       .max(100),
   })
-  .strict()
-  .superRefine((definition, ctx) => {
+  .strict();
+
+function validateDefinition(definition: z.infer<typeof testDefinitionBaseSchema>, ctx: z.RefinementCtx, requireAssertion: boolean) {
     const seen = new Set<string>();
     definition.steps.forEach((step, index) => {
       if (seen.has(step.id))
@@ -175,15 +176,29 @@ export const testDefinitionSchema = z
         message: "First step must navigate to the application",
       });
     if (
-      !definition.steps.some((step) => step.action.kind.startsWith("assert-"))
+      requireAssertion && !definition.steps.some((step) => step.action.kind.startsWith("assert-"))
     )
       ctx.addIssue({
         code: "custom",
         path: ["steps"],
         message: "A test must contain at least one assertion",
       });
-  });
+}
+
+export const testDefinitionSchema = testDefinitionBaseSchema.superRefine((definition, ctx) =>
+  validateDefinition(definition, ctx, true));
+
+// A continuation is review-only, never a runnable definition. It uses the
+// same exact action and locator schema but can rely on preserved assertions.
+const continuationDefinitionSchema = testDefinitionBaseSchema.superRefine((definition, ctx) => {
+  validateDefinition(definition, ctx, false);
+  if (definition.steps.length < 2 || definition.steps.length > 26)
+    ctx.addIssue({code:"custom",path:["steps"],message:"Continuation requires an initial navigation envelope and 1 to 25 replacement steps"});
+});
 
 export function parseTestDefinition(input: unknown) {
   return testDefinitionSchema.parse(input);
+}
+export function parseContinuationDefinition(input: unknown) {
+  return continuationDefinitionSchema.parse(input);
 }
