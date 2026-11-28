@@ -798,3 +798,36 @@ test("runner captures dynamic failure-time elements only through opt-in evidence
   const without=await runTest(definition,{baseURL,outputDir:info.outputPath("picker-disabled"),timeoutMs:1200},browser);
   expect(without.steps.find(step=>step.id==="wrong")).not.toHaveProperty("elementSearchAvailable");
 });
+
+
+for (const scenario of ["hidden-target", "hidden-descendant", "visible-target"] as const) {
+  test("text assertion uses visible rendered evidence: " + scenario, async ({browser},info) => {
+    const markup = scenario === "hidden-target"
+      ? '<p id="message" hidden>Payment successful</p>'
+      : scenario === "hidden-descendant"
+        ? '<p id="message">Payment pending<span hidden>Payment successful</span></p>'
+        : '<p id="message">Payment successful<span hidden>Internal diagnostic</span></p>';
+    const site=createServer((_request,response)=>{
+      response.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      response.end("<!doctype html><main>"+markup+"</main>");
+    });
+    await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+    try {
+      const definition:TestDefinition={schemaVersion:1,id:"visible-text",title:"Visible text assertion",version:1,steps:[
+        {id:"open",description:"Open payment status",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify visible payment successful text",action:{kind:"assert-text",target:{by:"id",value:"message"},expected:"Payment successful",match:scenario==="hidden-descendant"?"contains":"exact",provenance:"requirements"}}
+      ]};
+      const report=await runTest(definition,{baseURL:"http://127.0.0.1:"+(site.address() as AddressInfo).port,outputDir:info.outputPath("visible-text"),timeoutMs:800},browser);
+      if(scenario==="visible-target"){
+        expect(report.status).toBe("passed");
+        expect(report.steps[1].observed).toBe("Payment successful");
+      }else{
+        expect(report.status).not.toBe("passed");
+        if(scenario==="hidden-descendant") expect(report.steps[1].observed).toBe("Payment pending");
+      }
+    }finally{
+      site.closeAllConnections();
+      await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+    }
+  });
+}
