@@ -211,15 +211,6 @@ async function intentLocator(
         });
       return { selector, candidates };
     }, operation);
-    // Preserve the same narrowly authorised recovery as the internal runner.
-    if (operation === "click" && intent.role === "button" && intent.rolePolicy === "hint") {
-      const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
-      const exact = candidates.filter(candidate => exactName(candidate.name) === exactName(intent.value));
-      if (exact.length === 1 && exact[0].role === "link") {
-        const link = page.getByRole("link", { name: exact[0].name, exact: true });
-        if (await link.count() === 1 && await link.isVisible() && await link.isEnabled()) return link;
-      }
-    }
     const ranked = candidates
       .filter((candidate) => !intent.role || candidate.role === intent.role)
       .flatMap((candidate) => {
