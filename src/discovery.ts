@@ -748,7 +748,7 @@ export async function recoverAmbiguousCartClick(
 }
 
 /** Resolve a named destructive action only within a uniquely identified record.
- * Hover is non-destructive; no forced click or positional guessing is allowed.
+ * No hover, forced click or other undeclared interaction is allowed.
  */
 async function resolveNamedDeletion(page: Page, target: IntentTarget): Promise<{
   claimed: boolean; resolved?: {locator: Locator; evidence: DiscoveryEvidence}; detail?: string;
@@ -777,9 +777,8 @@ async function resolveNamedDeletion(page: Page, target: IntentTarget): Promise<{
   }),item);
   if (indices.length !== 1) return failure("No unique deletion control within named item " + item);
   const locator = matching.nth(indices[0]);
-  if (!await locator.isVisible()) {
-    try { await row.hover({timeout:500}); } catch { return failure("Could not reveal deletion control for " + item); }
-  }
+  // Discovery must be observational: revealing a hidden control requires an approved action.
+  if (!await locator.isVisible()) return failure("Deletion control is hidden; an explicit prerequisite interaction is required for " + item);
   if (await names.count() !== 1 || await locator.count() !== 1 || !await locator.isVisible() || !await locator.isEnabled()) return failure("Deletion control is not uniquely actionable for " + item);
   return {claimed:true,resolved:{locator,evidence:{
     intent:target.value,method:"live-dom",tag:await locator.evaluate(el=>el.tagName.toLowerCase()),
