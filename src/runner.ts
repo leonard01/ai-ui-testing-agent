@@ -213,6 +213,7 @@ export async function runTest(
 
           }
           if (action.kind === "click") await target.click();
+          else if (action.kind === "hover") await target.hover();
           else if (action.kind === "fill") await target.fill(action.value);
           else if (action.kind === "check") await target.check();
           else if (action.kind === "uncheck") await target.uncheck();
