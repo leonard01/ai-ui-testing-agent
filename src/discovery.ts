@@ -809,24 +809,6 @@ export async function discoverTarget(
   const deadline = Date.now() + timeoutMs;
   let detail = "No matching visible elements";
   while (true) {
-    if (operation === "click") {
-      const deletion = await resolveNamedDeletion(page, target);
-      if (deletion.claimed) {
-        if (deletion.resolved) return deletion.resolved;
-        detail = deletion.detail ?? "Named deletion could not be verified";
-        if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
-        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
-        continue;
-      }
-      const scoped = await resolveCartAction(page, target);
-      if (scoped.claimed) {
-        if (scoped.resolved) return scoped.resolved;
-        detail = scoped.detail ?? "Product-scoped cart action could not be verified";
-        if (Date.now() >= deadline) throw new Error("Could not resolve intent: " + detail);
-        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
-        continue;
-      }
-    }
     const { selector, candidates } = await inspectCandidates(page, operation);
     // Legacy role hints are retained in saved definitions but cannot relax a declared role.
     const considered = candidates.filter((c) => !target.role || c.role === target.role);
