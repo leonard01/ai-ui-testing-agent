@@ -2883,7 +2883,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           const canReviewExpectation = mismatch && step.actionKind === "assert-text" &&
             typeof step.expected === "string";
           const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
-          const partialCorrection = candidate => !mismatch && step.actionKind === "assert-text" &&
+          const partialCorrection = candidate => !step.exactTextRequired && !mismatch && step.actionKind === "assert-text" &&
             typeof step.expected === "string" && !!normalize(step.expected) &&
             (step.textMatch ?? "exact") === "exact" && typeof candidate?.text === "string" &&
             normalize(candidate.text) !== normalize(step.expected) &&
@@ -2924,7 +2924,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             const changesExpectation = mode.value === "expectation" || mode.value === "both";
             expectationFields.hidden = !changesExpectation;
             expected.readOnly = !mismatch;
-            match.disabled = !mismatch;
+            match.disabled = !mismatch || step.exactTextRequired === true;
+            if (step.exactTextRequired) match.value = "exact";
             useText.hidden = !mismatch;
             save.textContent = changesExpectation
               ? mode.value === "both" ? "Save corrected target and expectation and rerun" : "Save corrected expectation and rerun"
@@ -3004,7 +3005,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                   : "This is already the assertion target. No locator change is possible.";
                 else searchStatus.textContent = partialCorrection(candidate)
                   ? "The visible element contains the expected phrase but has additional text. Use the combined correction only if Contains satisfies the original requirement; retain Exact if equality is required."
-                  : "Verified element selected. Review the correction before saving.";
+                  : step.exactTextRequired ? "Exact equality is required. A locator correction preserves the original comparison." : "Verified element selected. Review the correction before saving.";
               });
               choices.append(label);
             });
