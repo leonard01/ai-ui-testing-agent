@@ -303,11 +303,24 @@ export async function runTest(
                   );
                 }
                 const readTimeout = Math.max(150, Math.ceil(remaining));
-                result.observed = normalize(
-                  (await target.textContent({ timeout: readTimeout })) ?? "",
-                );
-                if (action.match === "contains"
-                  ? result.observed.includes(expectedText) : result.observed === expectedText) break;
+                // Read visibility and rendered text together so a hidden
+                // element cannot pass even an empty-text assertion. Never
+                // fall back to textContent, which includes hidden descendants.
+                const rendered = await target.evaluate(node => {
+                  if (!node.isConnected || !node.getClientRects().length ||
+                      getComputedStyle(node).visibility !== "visible" ||
+                      !node.getBoundingClientRect().width || !node.getBoundingClientRect().height) return null;
+                  return node instanceof HTMLElement ? node.innerText : null;
+                }, undefined, { timeout: readTimeout });
+                if (rendered !== null) {
+                  result.observed = normalize(rendered);
+                  result.observedIsDiagnostic = false;
+                  if (action.match === "contains"
+                    ? result.observed.includes(expectedText) : result.observed === expectedText) break;
+                } else {
+                  result.observed = "Assertion target is not visible or has no rendered HTML text";
+                  result.observedIsDiagnostic = true;
+                }
                 const timeLeft = deadline - performance.now();
                 if (timeLeft <= 0) {
                   throw new Error(
