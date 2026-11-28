@@ -1885,3 +1885,78 @@ test("failed radio selection can open direct step editor and change action witho
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+for (const scenario of ["fill", "assert-url"] as const) {
+  test("direct failed step editor supports " + scenario + " recovery without suggestions @sanity", async ({page}) => {
+    const site = createServer((_req,res)=>{
+      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      res.end('<!doctype html><button id="go" onclick="this.textContent=\'Done\'">Go</button><p id="ready">Ready</p>');
+    });
+    await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+    const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+    try {
+      const target={by:"id",value:"go"};
+      const definition={schemaVersion:1,id:"direct-"+scenario,title:"Direct "+scenario,version:1,
+        sourceInstructions:scenario==="fill"?"Click Go and verify Done.":"Verify Ready is visible.",
+        steps:[
+          {id:"open",description:"Open form",action:{kind:"navigate",url:"/"}},
+          {id:"failed",description:"Perform requested step",action:scenario==="fill"
+            ? {kind:"fill",target,value:"Go"}
+            : {kind:"assert-url",expected:"/missing",provenance:"requirements"}},
+          {id:"verify",description:"Verify result",action:{kind:"assert-visible",
+            target:{by:"text",value:scenario==="fill"?"Done":"Ready"},provenance:"requirements"}},
+        ]};
+      const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
+      expect(response.status()).toBe(200);
+      const saved=await response.json();
+      await page.goto(url);
+      await page.locator("#nav-run").click();
+      await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
+      await page.getByLabel("Execution URL").fill(baseURL);
+      await selectSavedScript(page,saved.id);
+      await page.getByRole("button",{name:"Run selected test"}).click();
+      await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+      await expect(page.locator("#run-summary")).toContainText("FAILED");
+      const failed=page.locator("#run-steps .run-step").nth(1);
+      await expect(failed).toHaveAttribute("data-status",scenario==="fill"?"execution-error":"assertion-failed");
+      await failed.getByRole("button",{name:"Edit failing step",exact:true}).click();
+      const editor=page.locator("#step-list .step").nth(1);
+      await expect(editor.getByLabel("Action type")).toHaveValue(scenario);
+      if(scenario==="fill"){
+        await editor.getByLabel("Action type").selectOption("click");
+        await expect(editor.getByLabel("HTML ID attribute value")).toHaveValue("go");
+        await expect(editor.getByLabel("Value to enter")).toHaveCount(0);
+      }else{
+        await editor.getByLabel("Action type").selectOption("assert-visible");
+        await editor.getByLabel("Locator strategy").selectOption("id");
+        await editor.getByLabel("HTML ID attribute value").fill("ready");
+        page.once("dialog",dialog=>dialog.dismiss());
+        await editor.getByRole("button",{name:"Apply changes"}).click();
+        await expect(editor.getByLabel("Action type")).toBeVisible();
+        page.once("dialog",dialog=>dialog.accept());
+      }
+      await editor.getByRole("button",{name:"Apply changes"}).click();
+      await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
+      for(const box of await page.locator("#step-list .step input[type=checkbox]").all()) await box.check();
+      await page.getByRole("button",{name:"Save Test",exact:true}).click();
+      await expect(page.locator("#saved")).toContainText("Amended test saved; old version removed from the list. Ready to execute.");
+      const amendedId=await page.locator("#approved-tests").inputValue();
+      const amended=JSON.parse(await readFile(await approvedPath(outputDir,amendedId),"utf8"));
+      expect(amended.steps[1].action).toEqual(scenario==="fill"
+        ? {kind:"click",target}
+        : {kind:"assert-visible",target:{by:"id",value:"ready"},provenance:"human-confirmed"});
+      expect(amended.steps[0]).toEqual(definition.steps[0]);
+      expect(amended.steps[2]).toEqual(definition.steps[2]);
+      expect(amended.sourceInstructions).toBe(definition.sourceInstructions);
+      await page.locator("#nav-run").click();
+      await expect(page.locator("#approved-tests")).toHaveValue(amendedId);
+      await page.getByRole("button",{name:"Run selected test"}).click();
+      await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+      await expect(page.locator("#run-summary")).toContainText("PASSED");
+    } finally {
+      site.closeAllConnections();
+      await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+    }
+  });
+}
