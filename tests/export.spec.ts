@@ -397,6 +397,8 @@ for(const scenario of [
 
 
 for (const scenario of [
+  {label:"long name prefix must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">${"A".repeat(130)} extra</button>`,intentName:"A".repeat(130),policy:"strict",passes:false},
+  {label:"complete long name resolves",html:`<button onclick="document.getElementById('status').textContent='Done'">${"A".repeat(130)} extra</button>`,intentName:"A".repeat(130)+" extra",policy:"strict",passes:true},
   {label:"case mismatch must not execute",html:`<button onclick="document.getElementById('status').textContent='Done'">LOGOUT</button>`,policy:"strict",passes:false},
   {label:"aria-hidden control must not execute",html:`<button aria-hidden="true" onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"strict",passes:false},
   {label:"exact button with legacy hint",html:`<button onclick="document.getElementById('status').textContent='Done'">Logout</button>`,policy:"hint",passes:true},
@@ -415,7 +417,7 @@ for (const scenario of [
     try {
       const definition:TestDefinition={schemaVersion:1,id:"portable-role",title:"Strict role",version:1,steps:[
         {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
-        {id:"click",description:"Click Logout",action:{kind:"click",target:{by:"intent",role:"button",value:"Logout",rolePolicy:scenario.policy}}},
+        {id:"click",description:"Click Logout",action:{kind:"click",target:{by:"intent",role:"button",value:typeof scenario.intentName === "string" ? scenario.intentName : "Logout",rolePolicy:scenario.policy}}},
         {id:"verify",description:"Verify Done",action:{kind:"assert-text",target:{by:"id",value:"status"},expected:"Done",provenance:"requirements"}},
       ]};
       const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-role")},browser);
