@@ -1223,7 +1223,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (action.kind === "press") return 'Press ' + action.key + " on " + describeTarget(action.target);
       if (action.kind === "assert-text" && action.scope === "search-results") return 'Verify a returned search result ' + (action.match === "contains" ? 'contains "' : 'equals "') + action.expected + '" (case-sensitive; any visible match of ' + describeTarget(action.target) + ')';
       if (action.kind === "assert-text") return 'Verify ' + describeTarget(action.target) + (action.match === "contains" ? ' contains "' : ' equals "') + action.expected + '"';
-      if (action.kind === "assert-visible") return "Verify " + describeTarget(action.target) + " is visible";
+      if (action.kind === "assert-visible") {
+        if (action.target.by === "intent" || Number.isInteger(action.target.nth)) return "Verify " + describeTarget(action.target) + " is visible";
+        return "Verify at least one element matching " + describeTarget(action.target) + " is visible";
+      }
       if (action.kind === "assert-count") return "Verify " + describeTarget(action.target) + " matches " + action.expected + " elements";
       if (action.kind === "assert-url") return 'Verify current URL equals "' + action.expected + '"';
       return "Unsupported action";
@@ -1445,6 +1448,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           comparison.append(mode);
           actionFields.append(comparison);
           if (clone.action.scope === "search-results") actionFields.append(make("p", "Any visible element matching the approved locator may satisfy this case-sensitive assertion. Choose result records, not the whole page or search field.", "note"));
+        }
+        if (clone.action.kind === "assert-visible") {
+          actionFields.append(make("p", "At least one matching element must be visible. An explicit match index checks only that position; live DOM intent requires a unique resolved element. To verify uniqueness, add a count assertion.", "note"));
         }
         if (clone.action.kind === "assert-count") {
           const label = make("label", "Expected element count");
