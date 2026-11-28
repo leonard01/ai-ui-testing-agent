@@ -10,6 +10,7 @@ import {
   type Locator,
 } from "playwright";
 import { parseTestDefinition } from "./schema.js";
+import { requiresExactText } from "./assertion-repair-policy.js";
 import { assertCredentialsReviewed } from "./credential-guard.js";
 import { coverageWarnings } from "./requirement-preservation.js";
 import { ensureAllowedNavigation } from "./inspect.js";
@@ -141,6 +142,7 @@ export async function runTest(
         const action = step.action;
         if (action.kind === "assert-text") {
           result.expected = action.expected;
+          result.exactTextRequired = requiresExactText(definition, step);
           result.textMatch = action.scope === "search-results" ? "contains" : action.match ?? "exact";
         }
         if (action.kind === "navigate") {
