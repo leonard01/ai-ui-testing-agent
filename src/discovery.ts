@@ -774,7 +774,7 @@ async function resolveNamedDeletion(page: Page, target: IntentTarget): Promise<{
     const isDelete = /^(?:delete|remove|destroy)$/.test(name) || name === "delete "+named || name === "remove "+named;
     const unnamedDelete = !name && Array.from(el.classList).some(token => /^(?:delete|remove|destroy)$/.test(token));
     return (isDelete || unnamedDelete) && !el.closest('[hidden],[inert],[aria-hidden="true"],[disabled],[aria-disabled="true"]') ? [index] : [];
-  },item);
+  }),item);
   if (indices.length !== 1) return failure("No unique deletion control within named item " + item);
   const locator = matching.nth(indices[0]);
   if (!await locator.isVisible()) {
