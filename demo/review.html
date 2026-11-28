@@ -2834,7 +2834,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           });
           card.append(editStep);
         }
-        const failedAssertion = (step.status === "execution-error" ||
+        if (step.assertionScope === "search-results" && step.status !== "passed" && step.status !== "skipped") {
+          card.append(make("p", "This assertion checks returned result cards only. The failure diagnostic is not observed application text. Review the scoped assertion using Edit failing step; page-wide replacement is not offered.", "note"));
+        }
+        const failedAssertion = step.assertionScope !== "search-results" && !step.observedIsDiagnostic && (step.status === "execution-error" ||
           step.status === "assertion-failed") &&
           (step.actionKind === "assert-visible" || step.actionKind === "assert-text" ||
            step.assertionSearchAvailable || step.assertionAlternatives);
@@ -3394,7 +3397,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           repair.append(save, feedback);
           card.append(repair);
         }
-        if (step.status === "assertion-failed" &&
+        if (step.status === "assertion-failed" && step.assertionScope !== "search-results" && !step.observedIsDiagnostic &&
             typeof step.expected === "string" && typeof step.observed === "string") {
           const review = make("div", null, "assertion-repair");
           review.append(make("h3", "Review failed text assertion"));
@@ -3421,6 +3424,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             matchSelect.append(option);
           }
           matchSelect.value = step.textMatch || "exact";
+          if (step.exactTextRequired) { matchSelect.value = "exact"; matchSelect.disabled = true; }
           comparisonField.append(matchSelect);
           review.append(comparisonField);
           const confirmLabel = make("label", null, "confirm-label");
