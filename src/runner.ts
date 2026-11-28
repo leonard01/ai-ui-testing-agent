@@ -139,6 +139,10 @@ export async function runTest(
       let checkingAssertion = false;
       try {
         const action = step.action;
+        if (action.kind === "assert-text") {
+          result.expected = action.expected;
+          result.textMatch = action.scope === "search-results" ? "contains" : action.match ?? "exact";
+        }
         if (action.kind === "navigate") {
           await page.goto(navigationURL(action.url, base), {
             waitUntil: "domcontentloaded",
@@ -398,6 +402,7 @@ export async function runTest(
               const alternatives = await findAssertionAlternatives(
                 page, step.action.target, step.action.kind,
                 step.action.kind === "assert-text" ? step.action.expected : undefined,
+                step.action.kind === "assert-text",
               );
               result.assertionAlternatives = alternatives; // Keep original locator/query even with no suggested matches.
             }
