@@ -1875,6 +1875,8 @@ test("failed radio selection can open direct step editor and change action witho
     expect(amended.steps[0]).toEqual(definition.steps[0]);
     expect(amended.steps[2]).toEqual(definition.steps[2]);
     expect(amended.sourceInstructions).toBe(definition.sourceInstructions);
+    await page.locator("#nav-run").click();
+    await expect(page.locator("#approved-tests")).toHaveValue(amendedId);
     await page.getByRole("button",{name:"Run selected test"}).click();
     await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
     await expect(page.locator("#run-summary")).toContainText("PASSED");
