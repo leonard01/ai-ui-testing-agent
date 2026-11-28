@@ -199,7 +199,8 @@ export async function runTest(
           }
         } else {
           let target: Locator;
-          if (action.target.by === "intent") {
+          // Hover has a concrete locator by schema and must never invoke discovery.
+          if (action.kind !== "hover" && action.target.by === "intent") {
             const { locator, evidence } = await discoverTarget(
               page, action.target,
               action.kind === "uncheck" ? "check" :
