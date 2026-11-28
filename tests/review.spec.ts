@@ -2123,3 +2123,63 @@ test("element picker falls back to manual editing when retained evidence is unav
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+test("partial paragraph assertion recovery combines verified locator and confirmed comparison @sanity", async ({page}) => {
+  const site=createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+    res.end('<!doctype html><main><p>Sed non urna. Donec et ante.</p><p hidden>Sed non urna</p></main>');
+  });
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition={schemaVersion:1,id:"partial-paragraph",title:"Partial paragraph recovery",version:1,
+      sourceInstructions:"Verify the paragraph contains Sed non urna.",steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify paragraph contains Sed non urna",action:{kind:"assert-text",target:{by:"text",value:"Sed non urna"},expected:"Sed non urna",match:"exact",provenance:"requirements"}}
+      ]};
+    const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
+    expect(response.status()).toBe(200);
+    const saved=await response.json();
+    await page.goto(url);
+    await page.locator("#nav-run").click();
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const failed=page.locator("#run-steps .run-step").nth(1);
+    const picker=failed.locator(".assertion-dom-repair");
+    await expect(picker.getByLabel("Search visible DOM text")).toHaveValue("Sed non urna");
+    await expect(picker.locator(".assertion-dom-option")).toHaveCount(1);
+    await expect(picker).toContainText("Partial match");
+    await picker.locator(".assertion-dom-option input").check();
+    await expect(picker.getByLabel("Assertion correction")).toHaveValue("both");
+    await expect(picker.getByLabel("Corrected expected text")).toHaveValue("Sed non urna");
+    await expect(picker.getByLabel("Corrected comparison")).toHaveValue("contains");
+    const confirm=picker.getByLabel("I confirm this expectation matches the test requirements.");
+    const save=picker.getByRole("button",{name:"Save corrected target and expectation and rerun",exact:true});
+    await expect(confirm).not.toBeChecked();
+    await expect(save).toBeDisabled();
+    const reportLink=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
+    const runId=reportLink!.split("/")[3];
+    const rejected=await page.request.post(url+"/api/repair-assertion-target",{data:{runId,stepId:"verify",candidateIndex:0,mode:"both",expected:"Sed non urna",match:"contains",confirmed:false}});
+    expect(rejected.status()).toBe(400);
+    const original=await (await page.request.get(url+"/api/tests/"+encodeURIComponent(saved.id))).json();
+    expect(original.definition.steps).toEqual(definition.steps);
+    await confirm.check();
+    await save.click();
+    await expect.poll(async()=>page.locator("#approved-tests").inputValue(),{timeout:30000}).not.toBe(saved.id);
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await expect(page.locator("#run-summary")).toContainText("PASSED");
+    const amendedId=await page.locator("#approved-tests").inputValue();
+    const amended=JSON.parse(await readFile(await approvedPath(outputDir,amendedId),"utf8"));
+    expect(amended.steps[1].action).toMatchObject({kind:"assert-text",expected:"Sed non urna",match:"contains",provenance:"human-confirmed"});
+    expect(amended.steps[0]).toEqual(definition.steps[0]);
+    expect(amended.sourceInstructions).toBe(definition.sourceInstructions);
+  }finally{
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
