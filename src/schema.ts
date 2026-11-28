@@ -32,7 +32,7 @@ const explicitTargets = [
   // Preserve old schema version and existing semantic strategies.
   z.object({ by: z.literal("testid"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("id"), value: z.string().trim().min(1).max(1000) }).strict(),
-  z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(1000) }).strict(),
+  z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(4000) }).strict(),
   z.object({ by: z.literal("xpath"), value: z.string().trim().min(1).max(1000) }).strict(),
 ] as const;
 const explicitTarget = z.discriminatedUnion("by", [...explicitTargets]);
