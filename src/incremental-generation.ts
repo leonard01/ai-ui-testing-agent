@@ -9,6 +9,7 @@ import type { TestDefinition, TestStep } from "./domain.js";
 import type { ModelProvider } from "./generation.js";
 import { groqResponsePolicy, isGroqJSONModeFailure } from "./hosted-providers.js";
 import { parseModelJSON } from "./model-json.js";
+import { normaliseMixedLocators } from "./locator-normalisation.js";
 import type { ResponseDiagnosticObserver } from "./response-diagnostics.js";
 
 const patchSchema = z.object({
@@ -83,7 +84,7 @@ export async function generateIncrementalProposal(
     "Every action MUST contain all mandatory fields for its kind, and no additional fields.",
     "A user request describes WHAT to accomplish; infer routine UI interaction steps from the available controls, without requiring users to name each click.",
     "To delete a named task, use a click action: {kind:'click',target:{by:'intent',value:'Delete Eggs',role:'button'}} (with the actual requested item name).",
-    "The demo task list renders one accessible Delete <name> button per created task. No preceding click to select the row is necessary.",
+    "A named delete intent may resolve to a contextual control inside the item row, including one revealed on hover. Do not assume an accessible Delete <name> button exists, or invent a selector. Do not use bulk Clear completed for a named item.",
     "When the task already exists due to preserved preceding steps, do not recreate it before deletion.",
     "If the task does not exist in the preserved state, do not invent the missing state; present only the steps supported by the known scenario.",
     "Never put 'expected' on a click, fill, or other interaction action; 'expected' is only for assert-text, assert-url and assert-count.",
@@ -118,7 +119,8 @@ export async function generateIncrementalProposal(
     JSON.stringify(snapshot).slice(0, 9000),
     original.instructionCoverage ? "Return a patch JSON object with steps and reconciliation." : "Return only a patch JSON object with a steps array.",
   ].join("\n\n");
-  const attempts = options.retryMalformedOutput && groqResponsePolicy() === "hybrid" ? 2 : 1;
+  const policy = groqResponsePolicy();
+  const attempts = options.retryMalformedOutput ? 2 : 1;
   let problem = "invalid JSON patch";
   let textFallback = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -135,8 +137,8 @@ export async function generateIncrementalProposal(
     } catch (error) {
       // Groq can intermittently reject its own JSON-mode generation before
       // returning text. Retry only that category, never network/auth/rate-limit errors.
-      if (!textFallback && isGroqJSONModeFailure(error) && attempt < attempts) {
-        textFallback = true;
+      if (policy !== "text" && !textFallback && isGroqJSONModeFailure(error) && attempt < attempts) {
+        textFallback = policy === "hybrid";
         problem = "GroqCloud JSON-mode validation failed";
         continue;
       }
@@ -144,8 +146,9 @@ export async function generateIncrementalProposal(
     }
     try {
       const recovered = parseModelJSON(raw);
-      options.observeResponse?.(attempt, {repairs: recovered.repairs, parsed: recovered.value});
-      const parsed = patchSchema.parse(recovered.value);
+      const normalised = normaliseMixedLocators(recovered.value, options.instructions);
+      options.observeResponse?.(attempt, {repairs: [...recovered.repairs, ...normalised.repairs], parsed: normalised.value});
+      const parsed = patchSchema.parse(normalised.value);
       if (original.instructionCoverage && parsed.reconciliation === undefined) {
         throw new Error("Reconciliation response is missing");
       }
