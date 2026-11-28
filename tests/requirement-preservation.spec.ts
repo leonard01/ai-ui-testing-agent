@@ -140,6 +140,9 @@ test("AI reinterpretation explains invalidated requirement mappings and allows e
     await expect(panel).toBeVisible();
     await page.locator("#accept-coverage-warning").uncheck();
     const first=panel.locator('[data-requirement-id="R2"]');
+    await expect(first.locator(".coverage-options")).not.toBeVisible();
+    await first.getByText("Review mapping for R2",{exact:true}).click();
+    await expect(first.locator(".coverage-options")).toBeVisible();
     await expect(first.getByRole("button",{name:"Confirm mapping for R2"})).toBeDisabled();
     await first.locator('input[value="verify-new"]').check();
     await first.getByRole("button",{name:"Confirm mapping for R2"}).click();
@@ -147,6 +150,9 @@ test("AI reinterpretation explains invalidated requirement mappings and allows e
     await expect(page.getByRole("button",{name:"Save Test"})).toBeDisabled();
 
     const second=panel.locator('[data-requirement-id="R3"]');
+    await expect(second.locator(".coverage-options")).not.toBeVisible();
+    await second.getByText("Review mapping for R3",{exact:true}).click();
+    await expect(second.locator(".coverage-options")).toBeVisible();
     await second.locator('input[value="verify-new"]').check();
     await second.getByRole("button",{name:"Confirm mapping for R3"}).click();
     await expect(panel).toBeHidden();
