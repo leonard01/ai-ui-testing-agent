@@ -897,3 +897,45 @@ for (const scenario of ["label-placeholder-fill", "label-placeholder-press", "am
     }
   });
 }
+
+
+test("explicit approved hover reveals only the intended record control; export preserves operation @sanity", async ({browser},info) => {
+  const {generatePlaywrightSpec}=await import("../src/export.js");
+  const {preflightSelectors}=await import("../src/preflight.js");
+  const {parseTestDefinition}=await import("../src/schema.js");
+  const markup=`<!doctype html><style>li button {display:none} li:hover button {display:inline-block}</style>
+    <ul><li id="other"><span>Other task</span><button class="destroy" onclick="this.closest('li').remove()">Delete</button></li>
+    <li id="selected"><span>Target task</span><button class="destroy" onclick="this.closest('li').remove()">Delete</button></li></ul>`;
+  const site=createServer((_request,response)=>{response.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});response.end(markup);});
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const url="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition:TestDefinition={schemaVersion:1,id:"explicit-hover",title:"Explicit hover",version:1,steps:[
+      {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+      {id:"hover",description:"Reveal target controls",action:{kind:"hover",target:{by:"id",value:"selected"}}},
+      {id:"delete",description:"Click target delete button",action:{kind:"click",target:{by:"css",value:"#selected button.destroy"}}},
+      {id:"absent",description:"Target removed",action:{kind:"assert-count",target:{by:"id",value:"selected"},expected:0,provenance:"requirements"}},
+      {id:"other",description:"Other retained",action:{kind:"assert-visible",target:{by:"id",value:"other"},provenance:"requirements"}}
+    ]};
+    const before=JSON.stringify(definition);
+    const preflight=await preflightSelectors(definition,url,browser);
+    expect(preflight.findings.find(f=>f.stepId==="delete")?.status).toBe("deferred");
+    expect(JSON.stringify(definition)).toBe(before);
+    const options={baseURL:url,timeoutMs:1000,outputDir:info.outputPath("explicit-hover")};
+    const report=await runTest(definition,options,browser);
+    expect(report.status,JSON.stringify(report.steps)).toBe("passed");
+    expect(report.steps.find(s=>s.id==="hover")).toMatchObject({actionKind:"hover",status:"passed"});
+    const without={...definition,steps:definition.steps.filter(s=>s.id!=="hover")};
+    const failed=await runTest(without,{...options,outputDir:info.outputPath("missing-hover")},browser);
+    expect(failed.steps.find(s=>s.id==="delete")?.status).toBe("execution-error");
+    expect(failed.steps.find(s=>s.id==="absent")?.status).toBe("skipped");
+    const invalid={...definition,steps:definition.steps.map(s=>s.id==="hover"?{...s,action:{kind:"hover",target:{by:"intent",value:"Target task"}}}:s)};
+    expect(()=>parseTestDefinition(invalid)).toThrow();
+    const spec=generatePlaywrightSpec(definition,{baseURL:url});
+    expect(spec).toContain("await target.hover();");
+    expect(spec.indexOf("await target.hover();")).toBeLessThan(spec.indexOf("await target.click();"));
+  }finally{
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
