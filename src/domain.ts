@@ -23,6 +23,8 @@ export interface StepResult {
   expected?: string;
   observed?: string;
   textMatch?: "exact" | "contains";
+  /** Quick comparison repair must preserve explicit equality requirements. */
+  exactTextRequired?: boolean;
   error?: string;
   resolution?: DiscoveryEvidence;
   ambiguity?: AmbiguousResolution;
