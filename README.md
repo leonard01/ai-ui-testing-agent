@@ -106,6 +106,8 @@ Users frequently clone `main` rather than install tagged releases. Treat `main` 
 
 Keep the current full automated CI suite for all PRs while runtime is acceptable. If execution becomes too costly, introduce a targeted internal-PR subset without weakening the full main promotion gate. A green deterministic CI run alone does not establish manual or live AI acceptance.
 
+From v0.3, follow the [manual release regression suite](docs/manual-release-regression.md) for cross-site breadth, rotating exploratory coverage and mandatory draft-to-execution fidelity. An unexplained mismatch between approved actions and actual execution blocks release.
+
 ### Definition of Done
 
 - Add happy-path, negative, boundary, state-transition, recovery and regression tests as applicable. Use controlled fixtures and mocked responses for deterministic coverage.
