@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { runTest } from "../src/runner.js";
 import { generateDraft } from "../src/generation.js";
 import { generatePlaywrightSpec } from "../src/export.js";
+import { SEARCH_RESULT_ITEM_SELECTOR } from "../src/search-results.js";
 
 test.use({ trace: "off" });
 
@@ -21,7 +22,7 @@ const steps = (url: string) => ({
       kind: "press", target: { by: "placeholder", value: "Search" }, key: "Enter",
     } },
     { id: "verify", description: "Verify returned result contains shoes", action: {
-      kind: "assert-text", target: { by: "text", value: "shoes" },
+      kind: "assert-text", target: { by: "css", value: SEARCH_RESULT_ITEM_SELECTOR },
       expected: "shoes", match: "contains", scope: "search-results", provenance: "requirements",
     } },
   ],
@@ -90,6 +91,7 @@ test("AI draft missing a query fill restores type-then-Enter and actually search
   const { server, url } = await fixturePage("match");
   try {
     const proposal = steps(url);
+    proposal.steps[3].action.target = {by:"text",value:"shoes"};
     // Reproduce the generated Google draft: description claims typing, but JSON only presses Enter.
     proposal.steps.splice(1, 1);
     proposal.steps[1].description = "Enter 'shoes' in search box and submit";
@@ -138,6 +140,7 @@ test("AI draft matching the user search query is deterministically scoped to res
   try {
     const proposed = steps(url);
     const last = proposed.steps[3].action as Record<string, unknown>;
+    last.target = {by:"text",value:"shoes"};
     delete last.scope;
     delete last.match;
     const generated = await generateDraft({
@@ -167,6 +170,7 @@ test("ordinary text assertions and unrelated expected values remain unscoped", a
   try {
     const proposed = steps(url);
     const action = proposed.steps[3].action as Record<string, unknown>;
+    action.target = {by:"text",value:"shoes"};
     delete action.scope;
     delete action.match;
     const generated = await generateDraft({
