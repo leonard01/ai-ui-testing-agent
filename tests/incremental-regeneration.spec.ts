@@ -577,3 +577,49 @@ test("live reinterpretation is temporarily disabled at UI and API boundary", asy
     await rm(liveDir, {recursive:true,force:true});
   }
 });
+
+
+test("continuation permits interaction-only replacement and withholds previous fill values",async({browser})=>{
+  const {generateIncrementalProposal}=await import("../src/incremental-generation.js");
+  const definition=await original();
+  definition.steps[2].action.value="PRIVATE_PREVIOUS_VALUE";
+  const before=JSON.stringify(definition);
+  const next={id:"enter",description:"Click Add",action:{kind:"click",target:{by:"role",role:"button",name:"Add"}}};
+  const proposal=await generateIncrementalProposal({definition,baseURL,stepId:"add",mode:"step",
+    instructions:"Click Add",approvedStepIds:definition.steps.map((s:{id:string})=>s.id),model:"fixture"},
+    async request=>{
+      expect(request.prompt).not.toContain("PRIVATE_PREVIOUS_VALUE");
+      expect(request.system).toContain("synthetic envelope");
+      return continuationResponse([next]);
+    },browser);
+  expect(JSON.stringify(definition)).toBe(before);
+  expect(proposal.replacement).toHaveLength(1);
+  expect(proposal.replacement[0].action).toEqual(next.action);
+  expect(proposal.replacement[0].id).not.toBe("enter");
+  expect(proposal.definition.steps.slice(0,3)).toEqual(definition.steps.slice(0,3));
+  expect(proposal.definition.steps.slice(4)).toEqual(definition.steps.slice(4));
+  expect(proposal.preservedApprovedStepIds).not.toContain("add");
+});
+
+test("continuation rejects assertion-free combined test and empty replacement",async({browser})=>{
+  const {generateIncrementalProposal}=await import("../src/incremental-generation.js");
+  const definition=await original();
+  const options={definition,baseURL,stepId:"empty",mode:"from" as const,instructions:"Click Add",
+    approvedStepIds:["open"],model:"fixture"};
+  const next={id:"click",description:"Click Add",action:{kind:"click",target:{by:"role",role:"button",name:"Add"}}};
+  await expect(generateIncrementalProposal(options,async()=>continuationResponse([next]),browser)).rejects.toThrow(/combined test must contain at least one assertion/);
+  await expect(generateIncrementalProposal(options,async()=>continuationResponse([]),browser)).rejects.toThrow(/valid replacement test steps/);
+});
+
+test("continuation rejects cross-origin navigation and discards only synthetic entry",async({browser})=>{
+  const {generateIncrementalProposal}=await import("../src/incremental-generation.js");
+  const definition=await original();
+  const options={definition,baseURL,stepId:"empty",mode:"step" as const,instructions:"Navigate to tasks",
+    approvedStepIds:["open"],model:"fixture"};
+  const navigation={id:"next",description:"Navigate",action:{kind:"navigate",url:"https://unrelated.example/"}};
+  await expect(generateIncrementalProposal(options,async()=>continuationResponse([navigation]),browser)).rejects.toThrow(/origin/);
+  const next={...navigation,action:{kind:"navigate",url:"/health"}};
+  const proposal=await generateIncrementalProposal(options,async()=>continuationResponse([next]),browser);
+  expect(proposal.replacement.map(s=>s.action)).toEqual([next.action]);
+  expect(proposal.definition.steps[0]).toEqual(definition.steps[0]);
+});
