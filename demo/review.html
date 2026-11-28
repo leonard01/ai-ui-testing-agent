@@ -2259,7 +2259,25 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
         if (row.issue) reasons.push(row.issue);
         if (!row.stepIds.length && !row.issue) reasons.push("No current test step is associated with this statement.");
         section.append(make("p", reasons.join(" ") || "Review this mapping against the revised test.", "coverage-reason"));
-        section.append(make("p", "Select every current step needed to satisfy this statement:", "muted"));
+        for (const [index, step] of definition.steps.entries()) {
+          if (!row.stepIds.includes(step.id)) continue;
+          const review = make("button", "Review step " + (index + 1), "secondary");
+          review.type = "button";
+          review.addEventListener("click", () => {
+            const currentIndex = definition.steps.findIndex(item => item.id === step.id);
+            if (currentIndex < 0) return;
+            const card = document.querySelectorAll("#step-list .step")[currentIndex];
+            if (!card) return;
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+            const edit = Array.from(card.querySelectorAll("button"))
+              .find(button => button.textContent.trim() === "Edit fields");
+            if (edit && !card.querySelector(".edits")) edit.click();
+          });
+          section.append(review);
+        }
+        const details = make("details");
+        details.append(make("summary", "Review mapping for " + row.id));
+        details.append(make("p", "Select every current step needed to satisfy this statement:", "muted"));
         const options = make("div", null, "coverage-options");
         for (const [index, step] of definition.steps.entries()) {
           const label = make("label");
@@ -2291,7 +2309,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           target.confirmed = true;
           updateApproval();
         });
-        section.append(options, confirm);
+        details.append(options, confirm);
+        section.append(details);
         panel.append(section);
       }
       syncReviewFeedback();
