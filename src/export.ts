@@ -88,7 +88,7 @@ async function intentLocator(
         (value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
       const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector))
         .slice(0, 250).flatMap((el, index) => {
-          if (!el.getClientRects().length || el.closest("[hidden], [inert]")) return [];
+          if (!el.getClientRects().length || el.closest('[hidden], [inert], [aria-hidden="true" i]')) return [];
           const style = getComputedStyle(el);
           if (style.visibility === "hidden" || style.display === "none") return [];
           const input = el as HTMLInputElement;
@@ -122,7 +122,7 @@ async function intentLocator(
         });
       return { selector, candidates };
     }, operation);
-    const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+    const exactName = (value: string) => value.replace(/\s+/g, " ").trim();
     const tied = candidates.filter(candidate =>
       (!intent.role || candidate.role === intent.role) &&
       exactName(candidate.name) === exactName(intent.value)
