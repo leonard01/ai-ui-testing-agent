@@ -34,7 +34,7 @@ async function fixturePage(result: "match" | "unrelated" | "none", customResults
       // A submit with no entered query must not magically return results.
       const searched = new URL(req.url, "http://127.0.0.1").searchParams.get("q");
       const cards = searched !== "shoes" ? "" : result === "match"
-        ? '<article data-testid="search-result">Comfortable running SHOES for women</article>'
+        ? '<article data-testid="search-result">Comfortable running shoes for women</article>'
         : result === "unrelated"
           ? '<article data-testid="search-result">Waterproof boots for hiking</article>'
           : "";
@@ -70,7 +70,7 @@ for (const result of ["match", "unrelated", "none"] as const) {
       if (result === "match") {
         expect(report.status).toBe("passed");
         expect(assertion).toMatchObject({ status: "passed", textMatch: "contains" });
-        expect(assertion.observed).toContain("SHOES");
+        expect(assertion.observed).toContain("shoes");
       } else {
         expect(report.status).toBe("assertion-failed");
         expect(assertion.status).toBe("assertion-failed");
@@ -152,7 +152,9 @@ test("AI draft matching the user search query is deterministically scoped to res
     }
     const exported = generatePlaywrightSpec(generated.definition, { baseURL: url });
     expect(exported).toContain("const resultCards = page.locator(");
-    expect(exported).toContain("const resultPattern = new RegExp(");
+    expect(exported).toContain('const expectedResultText = "shoes";');
+    expect(exported).toContain(".includes(expectedResultText)");
+    expect(exported).not.toContain("const resultPattern = new RegExp(");
     expect(exported).not.toContain('getByText("shoes"');
   } finally {
     await new Promise<void>((resolve, reject) =>
