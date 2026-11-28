@@ -13,6 +13,15 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
     inputs:
+      suite:
+        description: 'Deterministic test scope'
+        type: choice
+        options: [full, sanity, assertions, locators, ui, generation, schema, export, compile, custom]
+        default: full
+      spec_files:
+        description: 'Custom: space-separated tests/*.spec.ts paths'
+        type: string
+        default: ''
       live_groq:
         description: 'Run one live Groq generation against the local demo (uses quota)'
         type: boolean
@@ -31,9 +40,6 @@ concurrency:
 
 jobs:
   validate:
-    # Integration branches and ready PRs retain the full release gate.
-    env:
-      FULL_REGRESSION: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/feature/'))) || (github.event_name == 'pull_request' && !github.event.pull_request.draft && (github.base_ref == 'main' || startsWith(github.base_ref, 'feature/'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -41,16 +47,46 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 2
-      - name: Honour explicit full-regression request on development commits
+      - name: Select regression scope
         env:
           TEST_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE_REF: ${{ github.base_ref }}
+          REQUESTED_SUITE: ${{ inputs.suite }}
+          CUSTOM_SPECS: ${{ inputs.spec_files }}
         shell: bash
         run: |
+          set -euo pipefail
+          suite=sanity
           message="$(git show -s --format=%B "$TEST_COMMIT")"
-          if [[ "$message" == *"[full-regression]"* ]]; then
-            echo "FULL_REGRESSION=true" >> "$GITHUB_ENV"
-            echo "Full deterministic regression explicitly requested."
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            suite="${REQUESTED_SUITE:-full}"
+          elif [[ "$EVENT" == push && ( "$REF" == refs/heads/main || "$REF" == refs/heads/feature/* ) ]] ||
+               [[ "$EVENT" == pull_request && "$BASE_REF" == main ]] ||
+               [[ "$message" == *"[full-regression]"* ]]; then
+            suite=full
+          elif [[ "$message" =~ \[test:([a-z]+)\] ]]; then
+            suite="${BASH_REMATCH[1]}"
           fi
+          case "$suite" in
+            full|sanity|assertions|locators|ui|generation|schema|export|compile|custom) ;;
+            *) echo "::error::Unknown regression suite: $suite"; exit 1 ;;
+          esac
+          if [[ "$suite" == custom ]]; then
+            read -r -a specs <<< "$CUSTOM_SPECS"
+            if [[ ${#specs[@]} -eq 0 ]]; then
+              echo "::error::Specify at least one test file"; exit 1
+            fi
+            for spec in "${specs[@]}"; do
+              if [[ ! "$spec" =~ ^tests/[a-zA-Z0-9_/-]+\.spec\.ts$ || ! -f "$spec" ]]; then
+                echo "::error::Invalid test file: $spec"; exit 1
+              fi
+            done
+            echo "CUSTOM_SPECS=${specs[*]}" >> "$GITHUB_ENV"
+          fi
+          echo "TEST_SUITE=$suite" >> "$GITHUB_ENV"
+          echo "Regression scope: $suite" >> "$GITHUB_STEP_SUMMARY"
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -63,20 +99,38 @@ jobs:
       - name: Build
         run: npm run build
       - name: Validate case schema and rejection before browser launch
+        if: env.TEST_SUITE != 'compile'
         run: npm run test:unit
       - name: Install Chromium
+        if: env.TEST_SUITE != 'compile'
         run: npx playwright install --with-deps chromium
       - name: Run development sanity suite
-        if: env.FULL_REGRESSION != 'true'
+        if: env.TEST_SUITE != 'full' && env.TEST_SUITE != 'compile'
         run: npm run test:sanity
-      - name: Run development feature regression
-        if: env.FULL_REGRESSION != 'true'
-        run: npm test -- tests/discovery.spec.ts tests/duplicate-repair.spec.ts
+      - name: Run targeted regression
+        if: env.TEST_SUITE != 'full' && env.TEST_SUITE != 'sanity' && env.TEST_SUITE != 'compile'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TEST_SUITE" in
+            assertions) specs=(tests/search-result-assertions.spec.ts tests/browser-actions.spec.ts tests/export.spec.ts tests/discovery.spec.ts) ;;
+            locators) specs=(tests/discovery.spec.ts tests/duplicate-repair.spec.ts tests/nested-navigation.spec.ts tests/browser-actions.spec.ts tests/export.spec.ts) ;;
+            ui) specs=(tests/review.spec.ts tests/traceability.spec.ts tests/requirement-preservation.spec.ts) ;;
+            generation) specs=(tests/incremental-regeneration.spec.ts tests/json-response-recovery.spec.ts tests/requirement-preservation.spec.ts) ;;
+            schema) specs=(tests/browser-actions.spec.ts tests/discovery.spec.ts tests/export.spec.ts tests/json-response-recovery.spec.ts) ;;
+            export) specs=(tests/export.spec.ts) ;;
+            custom) read -r -a specs <<< "$CUSTOM_SPECS" ;;
+            *) exit 1 ;;
+          esac
+          for spec in "${specs[@]}"; do
+            [[ -f "$spec" ]] || { echo "::error::Missing suite file: $spec"; exit 1; }
+          done
+          npm test -- "${specs[@]}"
       - name: Run independent Playwright E2E smoke gate
-        if: env.FULL_REGRESSION == 'true'
+        if: env.TEST_SUITE == 'full'
         run: npm run test:smoke
       - name: Run browser and structured runner tests
-        if: env.FULL_REGRESSION == 'true'
+        if: env.TEST_SUITE == 'full'
         run: npm test
       - name: Upload browser reports and evidence
         if: ${{ !cancelled() }}
