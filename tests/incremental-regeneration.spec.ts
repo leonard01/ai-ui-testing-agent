@@ -550,14 +550,29 @@ test("UI explains malformed AI response and allows retry without editing instruc
   expect(prompts.at(-1)).toContain("Replace the selected step and all following steps");
 });
 
-test("JSON-only malformed incremental response is captured once and does not save a test",async()=>{
+test("JSON-only malformed incremental response is recovered once and does not save a test",async()=>{
   mockRawResponses=['{"steps":[INCOMPLETE',JSON.stringify({steps:[newStatus]})];
   const res=await regenerate({});
-  expect(res.status).toBe(422);
-  expect(mockCalls).toBe(1);
+  expect(res.status).toBe(200);
+  expect(mockCalls).toBe(2);
   const data=await res.json();
-  expect(data.aiUsage.responseDiagnostics).toHaveLength(1);
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(2);
   expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
   expect(data.aiUsage.responseDiagnostics[0].accepted).not.toBe(true);
+  expect(data.aiUsage.responseDiagnostics[1].accepted).toBe(true);
+  expect(data.replacement[0].action).toEqual(newStatus.action);
+  expect((await (await fetch(url+"/api/tests")).json()).tests).toHaveLength(0);
+});
+
+test("JSON-only incremental recovery stops after two malformed responses without saving",async()=>{
+  mockRawResponses=['{"steps":[INCOMPLETE','{"steps":[STILL_INCOMPLETE'];
+  const res=await regenerate({});
+  expect(res.status).toBe(422);
+  expect(mockCalls).toBe(2);
+  const data=await res.json();
+  expect(data.aiUsage.responseDiagnostics).toHaveLength(2);
+  expect(data.aiUsage.responseDiagnostics[0].raw).toContain("INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics[1].raw).toContain("STILL_INCOMPLETE");
+  expect(data.aiUsage.responseDiagnostics.every((attempt:{accepted?:boolean})=>attempt.accepted!==true)).toBe(true);
   expect((await (await fetch(url+"/api/tests")).json()).tests).toHaveLength(0);
 });
