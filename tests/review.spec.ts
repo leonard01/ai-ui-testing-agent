@@ -2248,7 +2248,7 @@ test("search-result assertion recovery preserves scope and never promotes diagno
     const definition={schemaVersion:1,id:"scoped-recovery",title:"Scoped assertion recovery",version:1,
       sourceInstructions:"Verify search results contain Blue Top.",steps:[
         {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
-        {id:"verify",description:"Verify search results contain Blue Top",action:{kind:"assert-text",target:{by:"text",value:"Blue Top"},expected:"Blue Top",match:"contains",scope:"search-results",provenance:"requirements"}}
+        {id:"verify",description:"Verify search results contain Blue Top",action:{kind:"assert-text",target:{by:"css",value:"[data-testid=search-result]"},expected:"Blue Top",match:"contains",scope:"search-results",provenance:"requirements"}}
       ]};
     const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
     expect(response.status()).toBe(200);
@@ -2277,7 +2277,9 @@ test("search-result assertion recovery preserves scope and never promotes diagno
     }
     await failed.getByRole("button",{name:"Edit failing step",exact:true}).click();
     const editor=page.locator("#step-list .step").nth(1);
-    await expect(editor.getByLabel("Expected text in a returned search result")).toHaveValue("Blue Top");
+    await expect(editor.getByLabel("Expected text",{exact:true})).toHaveValue("Blue Top");
+    await expect(editor.getByLabel("Locator strategy")).toHaveValue("css");
+    await expect(editor.getByLabel("CSS selector",{exact:true})).toHaveValue("[data-testid=search-result]");
     const original=await (await page.request.get(url+"/api/tests/"+encodeURIComponent(saved.id))).json();
     expect(original.definition.steps).toEqual(definition.steps);
   }finally{
