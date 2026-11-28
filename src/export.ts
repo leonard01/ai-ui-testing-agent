@@ -265,9 +265,12 @@ function literal(value: string | number | object): string {
 
 function targetExpression(target: Target, operation: string): string {
   if (target.by === "role") {
-    const base = "page.getByRole(" + literal(target.role) + ", " +
+    const scope = "within" in target ? target.within : undefined;
+    const parent = scope ? "container" : "page";
+    let base = parent + ".getByRole(" + literal(target.role) + ", " +
       (target.name === undefined ? "{ exact: true }" :
         "{ name: " + literal(target.name) + ", exact: true }") + ")";
+    if ("hasText" in target && target.hasText) base += ".filter({ has: page.getByText(" + literal(target.hasText) + ", { exact: true }) })";
     return "nth" in target && target.nth !== undefined
       ? base + ".nth(" + target.nth + ")" : base;
   }
@@ -324,7 +327,13 @@ function exportAction(action: TestAction, base: URL): string[] {
   const operation = action.kind === "uncheck" ? "check" : action.kind === "assert-count"
     ? "assert-visible" : action.kind;
   const locator = targetExpression(action.target, operation);
-  const lines = ["const target = " + locator + ";"];
+  const lines: string[] = [];
+  if (action.target.by === "role" && "within" in action.target && action.target.within) {
+    const scope = action.target.within;
+    lines.push("const container = page.getByRole(" + literal(scope.role) + ").filter({ has: page.getByText(" + literal(scope.text) + ", { exact: true }) });");
+    lines.push('await container.waitFor({ state: "attached", timeout: STEP_TIMEOUT });');
+  }
+  lines.push("const target = " + locator + ";");
   if (action.kind === "click") lines.push("await target.click();");
   else if (action.kind === "hover") lines.push("await target.hover();");
   else if (action.kind === "fill") {
