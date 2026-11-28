@@ -143,6 +143,7 @@ export async function runTest(
         if (action.kind === "assert-text") {
           result.expected = action.expected;
           result.exactTextRequired = requiresExactText(definition, step);
+          if (action.scope === "search-results") result.assertionScope = action.scope;
           result.textMatch = action.scope === "search-results" ? "contains" : action.match ?? "exact";
         }
         if (action.kind === "navigate") {
@@ -181,9 +182,11 @@ export async function runTest(
             const matched = visibleRecords.map(normalize).find(value =>
               value.toLowerCase().includes(expected.toLowerCase()));
             if (matched !== undefined) {
+              result.observedIsDiagnostic = false;
               result.observed = matched.slice(0, 500);
               break;
             }
+            result.observedIsDiagnostic = true;
             result.observed = count === 0
               ? "No identifiable search-result cards on the page"
               : count + " result card(s) found, but none contains " + JSON.stringify(expected) + " in visible record text";
