@@ -702,3 +702,27 @@ test("generalised container relationships never rank hidden or shared context as
   ]);
   expect(choices.candidates.every(c=>!c.nearby.includes("Annual budget"))).toBe(true);
 });
+
+
+test("partial assertion discovery suggests unique rendered paragraph without changing expected text", async ({ page }) => {
+  await page.setContent('<main><section><p>Sed non urna. Donec et ante.</p><p>Unrelated content</p></section></main>');
+  const attempted = {by:"text",value:"Sed non urna"} as const;
+  const choices = await findAssertionAlternatives(page,attempted,"assert-text","Sed non urna",true);
+  expect(choices.attempted).toEqual(attempted);
+  expect(choices.query).toBe("Sed non urna");
+  expect(choices.candidates.map(c=>c.target)).toEqual([{by:"text",value:"Sed non urna. Donec et ante."}]);
+});
+
+test("partial assertion discovery prioritises exact matches and excludes hidden and shared wrappers", async ({ page }) => {
+  await page.setContent('<main><section><p>Annual budget approved</p><p>Annual budget</p><p hidden>Annual budget rejected</p></section><input value="Annual budget confidential"></main>');
+  const choices = await findAssertionAlternatives(page,{by:"text",value:"Annual budget"},"assert-visible");
+  expect(choices.candidates.map(c=>c.target)).toEqual([
+    {by:"text",value:"Annual budget"},{by:"text",value:"Annual budget approved"},
+  ]);
+});
+
+test("partial assertion discovery does not invent matches from hidden or input content", async ({ page }) => {
+  await page.setContent('<main><p hidden>Annual budget approved</p><input value="Annual budget approved"><p>Quarterly report</p></main>');
+  const choices = await findAssertionAlternatives(page,{by:"text",value:"Annual budget"},"assert-text","Annual budget",true);
+  expect(choices.candidates).toEqual([]);
+});
