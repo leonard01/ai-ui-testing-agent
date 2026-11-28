@@ -189,7 +189,12 @@ export function diagnoseRun(report: RunReport): { kind: string; explanation: str
  * there is deliberately no public-network listener or user authentication.
  */
 export async function createReviewServer(outputDir = "generated", suppliedBrowser?: Browser, groqOverride?: ModelProvider) {
-  const html = await readFile(new URL("../demo/review.html", import.meta.url));
+  // Temporary release gate: production reinterpretation is disabled; injected mock providers retain regression coverage.
+  const incrementalReinterpretationEnabled = groqOverride !== undefined;
+  const html = (await readFile(new URL("../demo/review.html", import.meta.url), "utf8")).replace(
+    "const incrementalReinterpretationEnabled = false;",
+    "const incrementalReinterpretationEnabled = " + incrementalReinterpretationEnabled + ";",
+  );
   const savedDir = resolve(outputDir);
   const resultsDir = resolve(outputDir === "generated" ? "run-results" : join(outputDir, "run-results"));
   const usageStore = createUsageStore(join(savedDir,"ai-usage"));
@@ -1742,6 +1747,10 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         return;
       }
       if (path === "/api/regenerate-steps") {
+        if (!incrementalReinterpretationEnabled) {
+          json(res, 503, { error: "AI reinterpretation is temporarily disabled while execution fidelity is being improved. Use manual step editing." });
+          return;
+        }
         const tracked=trackAI("reinterpret");
         if (activeRun || activePreflight || activeDeletion) {
           json(res, 409, { error: "Finish the active browser operation before regenerating steps" });
