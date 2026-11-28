@@ -1,5 +1,5 @@
 /**
- * Narrow, review-only structural recovery for model-authored click targets.
+ * Narrow, review-only structural recovery for model-authored action targets.
  * Never apply to saved tests or discard unknown extra fields.
  */
 export function normaliseMixedLocators(value: unknown): {value: unknown; repairs: string[]} {
@@ -9,8 +9,17 @@ export function normaliseMixedLocators(value: unknown): {value: unknown; repairs
   const repairs: string[] = [];
   const words = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.filter(w => !["the","a","an"].includes(w)) ?? [];
   const steps = value.steps.map((step: unknown, index: number) => {
-    if (!record(step) || !record(step.action) || step.action.kind !== "click") return step;
+    if (!record(step) || !record(step.action)) return step;
     const target = step.action.target;
+    // A native textarea has the accessible role textbox. Recover only
+    // fill drafts with known locator fields, preserving explicit position.
+    if (step.action.kind === "fill" && record(target) && target.role === "textarea" &&
+        ((target.by === "role" && Object.keys(target).every(k => ["by","role","name","nth"].includes(k))) ||
+         (target.by === "intent" && Object.keys(target).every(k => ["by","role","value","rolePolicy"].includes(k))))) {
+      repairs.push("textarea-role-alias:steps[" + index + "].action.target");
+      return {...step, action:{...step.action, target:{...target, role:"textbox"}}};
+    }
+    if (step.action.kind !== "click") return step;
     if (!record(target) || target.by !== "role" || target.role !== "button" ||
         Object.keys(target).length !== 4 ||
         !Object.keys(target).every(k => ["by","role","name","intent"].includes(k)) ||
