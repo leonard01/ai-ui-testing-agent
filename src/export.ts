@@ -21,7 +21,7 @@ type IntentRole = "button" | "textbox" | "checkbox" | "radio" | "combobox" |
   "heading" | "status" | "listitem";
 type IntentOperation = "click" | "fill" | "check" | "select-option" | "press" |
   "assert-text" | "assert-visible";
-type IntentQuery = { value: string; role?: IntentRole };
+type IntentQuery = { value: string; role?: IntentRole; rolePolicy?: "hint" | "strict" };
 type Candidate = {
   index: number; role: string; name: string; text: string;
   nearby: string; testId: string; id: string; tag: string;
@@ -211,9 +211,25 @@ async function intentLocator(
         });
       return { selector, candidates };
     }, operation);
+    // Preserve the same narrowly authorised recovery as the internal runner.
+    if (operation === "click" && intent.role === "button" && intent.rolePolicy === "hint") {
+      const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+      const exact = candidates.filter(candidate => exactName(candidate.name) === exactName(intent.value));
+      if (exact.length === 1 && exact[0].role === "link") {
+        const link = page.getByRole("link", { name: exact[0].name, exact: true });
+        if (await link.count() === 1 && await link.isVisible() && await link.isEnabled()) return link;
+      }
+    }
     const ranked = candidates
       .filter((candidate) => !intent.role || candidate.role === intent.role)
       .flatMap((candidate) => {
+        // A conflicting exact action is not permission to click a partial match.
+        if (operation === "click" && intent.role && query.length &&
+            candidates.some(other => other.role !== intent.role &&
+              terms(other.name).length === query.length &&
+              query.every(word => terms(other.name).includes(word))) &&
+            !(terms(candidate.name).length === query.length &&
+              query.every(word => terms(candidate.name).includes(word)))) return [];
         const score = candidateScore(candidate, query);
         return score === null ? [] : [{ candidate, score }];
       }).sort((a, b) => b.score - a.score);
@@ -269,7 +285,7 @@ function targetExpression(target: Target, operation: string): string {
   if (target.by === "css") return "page.locator(" + literal("css=" + target.value) + ")";
   if (target.by === "xpath") return "page.locator(" + literal("xpath=" + target.value) + ")";
   return "await intentLocator(page, " +
-    literal({ value: target.value, ...(target.role ? { role: target.role } : {}) }) +
+    literal({ value: target.value, ...(target.role ? { role: target.role } : {}), ...(target.rolePolicy ? { rolePolicy: target.rolePolicy } : {}) }) +
     ", " + literal(operation) + ")";
 }
 
