@@ -211,22 +211,12 @@ async function intentLocator(
         });
       return { selector, candidates };
     }, operation);
-    const ranked = candidates
-      .filter((candidate) => !intent.role || candidate.role === intent.role)
-      .flatMap((candidate) => {
-        // A conflicting exact action is not permission to click a partial match.
-        if (operation === "click" && intent.role && query.length &&
-            candidates.some(other => other.role !== intent.role &&
-              terms(other.name).length === query.length &&
-              query.every(word => terms(other.name).includes(word))) &&
-            !(terms(candidate.name).length === query.length &&
-              query.every(word => terms(candidate.name).includes(word)))) return [];
-        const score = candidateScore(candidate, query);
-        return score === null ? [] : [{ candidate, score }];
-      }).sort((a, b) => b.score - a.score);
-    if (ranked.length) {
-      const best = ranked[0].score;
-      const tied = ranked.filter((entry) => entry.score === best);
+    const exactName = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+    const tied = candidates.filter(candidate =>
+      (!intent.role || candidate.role === intent.role) &&
+      exactName(candidate.name) === exactName(intent.value)
+    ).map(candidate => ({candidate}));
+    if (tied.length) {
       if (tied.length !== 1) {
         throw new Error("Ambiguous intent " + JSON.stringify(intent.value) +
           ": " + tied.length + " equally plausible elements. Refine the target.");
