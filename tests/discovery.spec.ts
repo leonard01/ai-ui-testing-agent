@@ -831,3 +831,27 @@ for (const scenario of ["hidden-target", "hidden-descendant", "visible-target"] 
     }
   });
 }
+
+
+test("named deletion reveals a row-local control and preserves other records @sanity", async ({page}) => {
+  await page.setContent('<style>li button {display:none} li:hover button {display:inline-block}</style><ul><li><label>sbf</label><button class="destroy" onclick="this.closest(\'li\').remove()"></button></li><li><label>test activity</label><button class="destroy" onclick="this.closest(\'li\').remove()"></button></li></ul><button>Clear completed</button>');
+  const target = {by:"intent",role:"button",value:"Delete test activity"} as const;
+  await expect(page.locator("li").nth(1).locator("button")).toBeHidden();
+  const resolved = await discoverTarget(page,target,"click",1500);
+  await resolved.locator.click();
+  await expect(page.getByText("test activity",{exact:true})).toHaveCount(0);
+  await expect(page.getByText("sbf",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Clear completed"})).toBeVisible();
+});
+
+test("named deletion refuses duplicate item identities, unrelated controls and bulk actions @sanity", async ({page}) => {
+  for (const html of [
+    '<ul><li><label>Draft report</label><button class="destroy"> </button></li><li><label>Draft report</label><button class="destroy"> </button></li></ul>',
+    '<ul><li><label>Draft report</label><button>Edit</button></li><li><label>Other report</label><button>Delete</button></li></ul>',
+    '<ul><li><label>Draft report</label><button>Clear completed</button></li></ul>',
+    '<ul><li><label>Draft report</label><button>Delete</button><button>Remove</button></li></ul>',
+  ]) {
+    await page.setContent(html);
+    await expect(discoverTarget(page,{by:"intent",role:"button",value:"Delete Draft report"},"click",250)).rejects.toThrow(/Could not resolve intent/);
+  }
+});
