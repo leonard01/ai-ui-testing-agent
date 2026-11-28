@@ -58,6 +58,8 @@ export interface MissingLocatorChoices {
 
 /** Explicitly selected correction for a missing assertion target. */
 export interface AssertionCandidate extends AmbiguousCandidate {
+  /** Full verified rendered text, not diagnostic output or accessible name. */
+  text?: string;
   /** Verified Playwright selector, grounded in the live DOM. */
   target: ExplicitTarget;
 }
@@ -511,7 +513,7 @@ export async function findAssertionAlternatives(
     }
     if (!target || proposed.some((c) => JSON.stringify(c.target) === JSON.stringify(target))) continue;
     proposed.push({ tag: candidate.tag, role: candidate.role,
-      name: candidate.name, nearby: candidate.nearby, target });
+      name: candidate.name, nearby: candidate.nearby, text: candidate.text, target });
   }
   return {
     attempted, query: request,
