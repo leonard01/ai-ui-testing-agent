@@ -25,6 +25,9 @@ export interface StepResult {
   textMatch?: "exact" | "contains";
   /** Quick comparison repair must preserve explicit equality requirements. */
   exactTextRequired?: boolean;
+  assertionScope?: "search-results";
+  /** Diagnostic explanation, not observed application text. */
+  observedIsDiagnostic?: boolean;
   error?: string;
   resolution?: DiscoveryEvidence;
   ambiguity?: AmbiguousResolution;
