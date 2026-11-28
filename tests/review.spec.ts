@@ -2235,3 +2235,53 @@ test("explicit equality assertion recovery must not offer weaker comparison @san
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+test("search-result assertion recovery preserves scope and never promotes diagnostic text @sanity", async ({page}) => {
+  const site=createServer((_req,res)=>{
+    res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+    res.end('<!doctype html><main><h1>Blue Top</h1><input value="Blue Top"><p>No results available</p></main>');
+  });
+  await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+  const baseURL="http://127.0.0.1:"+(site.address() as AddressInfo).port;
+  try {
+    const definition={schemaVersion:1,id:"scoped-recovery",title:"Scoped assertion recovery",version:1,
+      sourceInstructions:"Verify search results contain Blue Top.",steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"verify",description:"Verify search results contain Blue Top",action:{kind:"assert-text",target:{by:"text",value:"Blue Top"},expected:"Blue Top",match:"contains",scope:"search-results",provenance:"requirements"}}
+      ]};
+    const response=await page.request.post(url+"/api/save",{data:{testName:fixtureName(),definition,baseURL}});
+    expect(response.status()).toBe(200);
+    const saved=await response.json();
+    await page.goto(url);
+    await page.locator("#nav-run").click();
+    await page.getByLabel("Test suite (website URL)").selectOption(baseURL);
+    await page.getByLabel("Execution URL").fill(baseURL);
+    await selectSavedScript(page,saved.id);
+    await page.getByRole("button",{name:"Run selected test"}).click();
+    await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:30000});
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    const failed=page.locator("#run-steps .run-step").nth(1);
+    await expect(failed).toContainText("No identifiable search-result cards");
+    await expect(failed.locator(".assertion-dom-repair")).toHaveCount(0);
+    await expect(failed.getByRole("button",{name:"Use observed text as draft"})).toHaveCount(0);
+    const reportLink=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
+    const runId=reportLink!.split("/")[3];
+    for(const [endpoint,data] of [
+      ["/api/search-assertion-dom",{query:"Blue Top"}],
+      ["/api/repair-assertion-target",{candidateIndex:0,mode:"target"}],
+      ["/api/repair-assertion",{expected:"No identifiable search-result cards on the page",match:"contains",confirmed:true}]
+    ] as const){
+      const rejected=await page.request.post(url+endpoint,{data:{runId,stepId:"verify",...data}});
+      expect(rejected.status()).toBe(400);
+    }
+    await failed.getByRole("button",{name:"Edit failing step",exact:true}).click();
+    const editor=page.locator("#step-list .step").nth(1);
+    await expect(editor.getByLabel("Expected text in a returned search result")).toHaveValue("Blue Top");
+    const original=await (await page.request.get(url+"/api/tests/"+encodeURIComponent(saved.id))).json();
+    expect(original.definition.steps).toEqual(definition.steps);
+  }finally{
+    site.closeAllConnections();
+    await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+  }
+});
