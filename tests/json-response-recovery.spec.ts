@@ -25,6 +25,7 @@ const replacement = { id: "new-verify", description: "Verify initial count", act
   match: "contains", provenance: "requirements",
 } };
 const fence = (json: string) => "```json\n" + json + "\n```";
+const continuation=(steps:unknown[])=>JSON.stringify({schemaVersion:1,id:"continuation",title:"Continuation",version:1,steps:[{id:"envelope",description:"Synthetic entry",action:{kind:"navigate",url:baseURL}},...steps]});
 
 test("initial generation falls back to text after explicit HTTP 400 JSON failure @sanity", async ({browser}) => {
   const source = await original();
@@ -53,7 +54,7 @@ test("incremental text fallback preserves earlier and later steps and review gat
   const proposal = await generateIncrementalProposal(options, async req => {
     calls.push(req);
     if (calls.length === 1) throw error();
-    return '{steps:[' + JSON.stringify(replacement) + ',],}';
+    return continuation([replacement]).replace(/\]\}$/,',],}');
   }, browser);
   expect(calls).toHaveLength(2);
   expect(calls[1].responseMode).toBe("text");
@@ -153,7 +154,7 @@ test("JSON-only incremental retry repairs captured mixed locator shape and prese
   const proposal = await generateIncrementalProposal({definition,baseURL,stepId:"empty",mode:"step",instructions:"Delete Draft report",approvedStepIds:["open"],model:"fixture",retryMalformedOutput:true},async req=>{
     calls.push(req);
     if(calls.length===1) return '{"steps":[';
-    return JSON.stringify({steps:[{id:"delete-report",description:"Delete Draft report",action:{kind:"click",target:{by:"role",role:"button",name:"Delete",intent:"Delete Draft report"}}}]});
+    return continuation([{id:"delete-report",description:"Delete Draft report",action:{kind:"click",target:{by:"role",role:"button",name:"Delete",intent:"Delete Draft report"}}}]);
   },browser);
   expect(calls).toHaveLength(2);
   expect(calls.every(call=>(call.responseMode ?? "json")==="json")).toBe(true);
