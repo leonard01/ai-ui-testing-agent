@@ -2324,3 +2324,41 @@ test("action compatibility design warning links to editor and refreshes after co
   await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
   await expect(page.locator("#save")).toBeDisabled();
 });
+
+
+test("positional requirement warnings refresh after index correction @sanity", async ({page}) => {
+  const definition={schemaVersion:1,id:"position-editor",title:"Second Delete",version:1,steps:[
+    {id:"open",description:"Open",action:{kind:"navigate",url:"http://127.0.0.1:3000/"}},
+    {id:"delete",description:"Click Delete",action:{kind:"click",target:{by:"role",role:"button",name:"Delete",nth:0}}},
+    {id:"verify",description:"Verify",action:{kind:"assert-visible",target:{by:"text",value:"Ready"},provenance:"requirements"}}
+  ]};
+  const warning="Step 2: positional index 0 does not match the requested position (index 1). Review the original instruction and locator before approval.";
+  await page.goto(url);
+  await page.route("**/api/generate",route=>route.fulfill({
+    status:200,contentType:"application/json",body:JSON.stringify({
+      definition,needsReview:true,provider:"groq",generationAttempts:1,memorySuggestions:[],
+      diagnostics:{provider:"groq",model:"mock",attempts:1,
+        snapshot:{url:"http://127.0.0.1:3000/",title:"Controls",headings:[],controls:[],statusText:[],sampleText:[]},
+        warnings:[warning,"Unrelated inspection advisory."]},
+      message:"AI-generated draft"
+    })
+  }));
+  await page.getByLabel("Your test instructions").fill("Click the second Delete button.");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await clickGenerateDraft(page);
+  const panel=page.locator("#test-design-issues");
+  await panel.locator("summary").click();
+  await expect(panel).toContainText("does not match the requested position");
+  await expect(panel).toContainText("Positional role locator relies on DOM order");
+  await page.getByRole("button",{name:"Approve all steps",exact:true}).click();
+  await panel.locator("#test-design-issues-list > div").filter({hasText:"does not match the requested position"}).getByRole("button",{name:"Review step 2",exact:true}).click();
+  const editor=page.locator("#step-list .step").nth(1);
+  await editor.getByLabel("Match index (0 = first; blank requires a unique match)").fill("1");
+  await editor.getByRole("button",{name:"Apply changes"}).click();
+  await expect(panel).not.toContainText("does not match the requested position");
+  await expect(panel).toContainText("Positional role locator relies on DOM order");
+  await expect(page.locator("#draft-quality-warnings")).not.toContainText("does not match the requested position");
+  await expect(page.locator("#draft-quality-warnings")).toContainText("Unrelated inspection advisory");
+  await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
+  await expect(page.locator("#save")).toBeDisabled();
+});
