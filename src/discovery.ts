@@ -911,3 +911,98 @@ export async function discoverTarget(
     await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())));
   }
 }
+
+
+/** Bounded, read-only element evidence. Never reads form values or raw HTML. */
+export interface ElementSearchEntry extends AssertionSearchEntry {
+  actions: Array<"click"|"fill"|"check"|"uncheck"|"select-option"|"press"|"assert-visible"|"assert-text">;
+}
+export async function captureElementSearchIndex(page: Page): Promise<ElementSearchEntry[]> {
+  const selector = "body *";
+  const candidates = await page.locator(selector).evaluateAll(nodes => {
+    const norm = (s: string) => s.replace(/\s+/g," ").trim().slice(0,180);
+    const excluded = '[hidden],[inert],[aria-hidden="true"],script,style,noscript,template,svg,option,[contenteditable]';
+    const visible = (el: Element) => !el.closest(excluded) && !!el.getClientRects().length &&
+      getComputedStyle(el).visibility === "visible" && getComputedStyle(el).display !== "none";
+    const safeText = (el: Element) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let value = "", count = 0;
+      while(walker.nextNode() && count++ < 150 && value.length < 360) {
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        if(parent && !parent.closest("input,textarea,select,[contenteditable]") && visible(parent)) value += " " + node.textContent;
+      }
+      return norm(value);
+    };
+    const result: Array<{index:number;tag:string;role:string;name:string;text:string;nearby:string;id:string;testid:string;actions:ElementSearchEntry["actions"]}> = [];
+    for (let index=0; index<Math.min(nodes.length,12000) && result.length<350; index++) {
+      const el=nodes[index] as HTMLElement;
+      if(!visible(el)) continue;
+      const tag=el.tagName.toLowerCase();
+      const inputType=tag==="input"?(el.getAttribute("type")||"text").toLowerCase():"";
+      if(inputType==="hidden" || inputType==="password") continue;
+      const role=el.getAttribute("role") || (tag==="button" || ["button","submit","reset"].includes(inputType)?"button":
+        inputType==="radio"?"radio":inputType==="checkbox"?"checkbox":tag==="select"?"combobox":
+        tag==="textarea" || ["text","email","search","tel","url","number"].includes(inputType)?"textbox":
+        tag==="a" && el.hasAttribute("href")?"link":/^h[1-6]$/.test(tag)?"heading":tag==="li"?"listitem":"");
+      const control=["input","textarea","select","button","a"].includes(tag)||["button","textbox","checkbox","radio","combobox","link"].includes(role);
+      const id=(el.id||"").slice(0,180),testid=(el.getAttribute("data-testid")||"").slice(0,180);
+      if(!control && !id && !testid && !/^h[1-6]$|^p$|^li$|^span$/.test(tag)) continue;
+      const text=tag==="input"||tag==="textarea"||tag==="select"?"":safeText(el);
+      const labels = "labels" in el ? Array.from((el as HTMLInputElement).labels || []).map(safeText).join(" ") : "";
+      const labelled = (el.getAttribute("aria-labelledby")||"").split(/\s+/).map(id=>document.getElementById(id)).filter((x):x is HTMLElement=>!!x).map(safeText).join(" ");
+      const name=norm(el.getAttribute("aria-label")||labelled||labels||text||el.getAttribute("placeholder")||el.getAttribute("title")||"");
+      if(!control && !text) continue;
+      const record=el.closest("article,li,tr,[role=row],[role=group],[role=listitem]");
+      const nearby=record?safeText(record):"";
+      const actions:ElementSearchEntry["actions"]=["assert-visible"];
+      if(text) actions.push("assert-text");
+      if(!el.closest('[disabled],[aria-disabled="true"]')) {
+        if(role==="button"||role==="link"||role==="radio"||role==="checkbox") actions.push("click");
+        if(tag==="input" && (inputType==="radio"||inputType==="checkbox")) actions.push("check");
+        if(tag==="input" && inputType==="checkbox") actions.push("uncheck");
+        if(role==="textbox" && ["input","textarea"].includes(tag) && !el.hasAttribute("readonly")) actions.push("fill","press");
+        if(tag==="select") actions.push("select-option");
+      }
+      result.push({index,tag,role,name,text,nearby,id,testid,actions});
+    }
+    return result;
+  });
+  const entries: ElementSearchEntry[]=[];
+  const seen=new Set<string>();
+  const roles=["button","textbox","checkbox","radio","combobox","heading","status","listitem"];
+  for(const {index,id,testid,...candidate} of candidates) {
+    const source=page.locator(selector).nth(index);
+    const options:Array<{target:ExplicitTarget;locator:Locator}>=[];
+    if(id) options.push({target:{by:"id",value:id},locator:page.locator("[id="+JSON.stringify(id)+"]")});
+    if(testid) options.push({target:{by:"testid",value:testid},locator:page.getByTestId(testid)});
+    if(roles.includes(candidate.role) && candidate.name) {
+      const role=candidate.role as NonNullable<IntentTarget["role"]>;
+      options.push({target:{by:"role",role,name:candidate.name},locator:page.getByRole(role,{name:candidate.name,exact:true})});
+    }
+    if(candidate.text) options.push({target:{by:"text",value:candidate.text},locator:page.getByText(candidate.text,{exact:true})});
+    for(const {target,locator} of options) {
+      try {
+        if(await locator.count()!==1 || await source.and(locator).count()!==1 || !await locator.isVisible()) continue;
+        const key=JSON.stringify(target);
+        if(!seen.has(key)) {seen.add(key);entries.push({...candidate,target});}
+        break;
+      } catch { /* Invalid or stale locator: do not offer it. */ }
+    }
+  }
+  return entries;
+}
+
+export function searchCapturedElements(entries: ElementSearchEntry[], rawQuery: string): ElementSearchEntry[] {
+  const query=rawQuery.trim().toLocaleLowerCase();
+  if(!query) return [];
+  const score=(entry:ElementSearchEntry)=>{
+    const value=entry.target.by==="role"?entry.target.name||"":entry.target.value;
+    const direct=[entry.name,entry.text,value,entry.role,entry.tag].map(v=>v.toLocaleLowerCase());
+    if(direct.includes(query)) return 4;
+    if(direct.some(v=>v.startsWith(query))) return 3;
+    if(direct.some(v=>v.includes(query))) return 2;
+    return entry.nearby.toLocaleLowerCase().includes(query)?1:0;
+  };
+  return entries.filter(entry=>score(entry)>0).sort((a,b)=>score(b)-score(a)).slice(0,30);
+}
