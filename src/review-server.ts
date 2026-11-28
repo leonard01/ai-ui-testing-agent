@@ -19,7 +19,7 @@ import { assertCredentialsReviewed, unresolvedCredentialSteps } from "./credenti
 import { getApplicationMemory, getMemorySuggestions, observeSuccessfulRun } from "./application-memory.js";
 import { listDraftsWithDiagnostics, readDraft, saveDraft, draftSchema, deleteDraft } from "./draft-storage.js";
 import { ensureAllowedNavigation } from "./inspect.js";
-import { searchCapturedAssertionText, type AssertionSearchEntry } from "./discovery.js";
+import { searchCapturedAssertionText, searchCapturedElements, type ElementSearchEntry, type AssertionSearchEntry } from "./discovery.js";
 import { runTest } from "./runner.js";
 import { preflightSelectors } from "./preflight.js";
 import { generatePlaywrightSpec } from "./export.js";
@@ -35,6 +35,8 @@ const MAX_RUN_HISTORY = 1000;
 const MAX_SUITE_HISTORY = 1000;
 const HISTORY_PAGE_SIZE = 10;
 const MAX_SUITE_CASES = 10;
+const MAX_ELEMENT_EVIDENCE_RUNS = 20;
+const ELEMENT_EVIDENCE_TTL_MS = 30 * 60 * 1000;
 
 type RunJob = {
   id: string;
@@ -46,6 +48,7 @@ type RunJob = {
   error?: string;
   /** Short-lived DOM evidence held in memory, never included in reports. */
   assertionSearchIndex?: Map<string, AssertionSearchEntry[]>;
+  elementSearchIndex?: { capturedAt: number; entries: Map<string, ElementSearchEntry[]> };
   suiteId?: string;
   baseURL?: string;
 };
@@ -218,7 +221,25 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
   let activePreflight = false;
   let activeDeletion = false;
 
+  function pruneElementEvidence() {
+    const now = Date.now();
+    const retained = [...jobs.values()].filter(job => {
+      if (job.elementSearchIndex && now - job.elementSearchIndex.capturedAt >= ELEMENT_EVIDENCE_TTL_MS) delete job.elementSearchIndex;
+      return !!job.elementSearchIndex;
+    });
+    while (retained.length > MAX_ELEMENT_EVIDENCE_RUNS) {
+      const oldest = retained.shift();
+      if (oldest) delete oldest.elementSearchIndex;
+    }
+  }
+  function retainElementEvidence(job: RunJob, stepId: string, entries: ElementSearchEntry[]) {
+    if (!entries.length) return;
+    job.elementSearchIndex ??= { capturedAt: Date.now(), entries: new Map() };
+    job.elementSearchIndex.entries.set(stepId, entries);
+    pruneElementEvidence();
+  }
   function registerRun(fileId: string, suiteId?: string, baseURL?: string): RunJob {
+    pruneElementEvidence();
     const id = randomUUID();
     const job: RunJob = {
       id, fileId, state: "running", startedAt: new Date().toISOString(),
@@ -786,7 +807,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
-      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom", "/api/ai-usage/assessment", "/api/estimate-tokens"].includes(path)) {
+      if (req.method !== "POST" || !["/api/generate", "/api/regenerate-steps", "/api/save", "/api/drafts/save", "/api/drafts/delete", "/api/run", "/api/suites", "/api/preflight", "/api/delete-test", "/api/delete-site", "/api/assign-site", "/api/history/delete-all", "/api/repair", "/api/repair-target", "/api/repair-target-preview", "/api/repair-submit", "/api/repair-assertion", "/api/repair-assertion-target", "/api/search-assertion-dom", "/api/search-elements", "/api/ai-usage/assessment", "/api/estimate-tokens"].includes(path)) {
         json(res, 404, { error: "Not found" });
         return;
       }
@@ -1289,6 +1310,33 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         }
         return;
       }
+      if (path === "/api/search-elements") {
+        try {
+          if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Expected an element search request");
+          const input = body as Record<string, unknown>;
+          if (typeof input.runId !== "string" || !RUN_ID.test(input.runId) ||
+              typeof input.stepId !== "string" || !input.stepId.trim() ||
+              typeof input.query !== "string" || !input.query.trim() || input.query.trim().length > 180) {
+            throw new Error("Valid run and failed step IDs and a 1–180 character search query are required");
+          }
+          pruneElementEvidence();
+          const job = jobs.get(input.runId);
+          const failed = job?.report?.steps.find(step => step.id === input.stepId &&
+            (step.status === "execution-error" || step.status === "assertion-failed") &&
+            step.elementSearchAvailable === true);
+          const entries = job?.elementSearchIndex?.entries.get(input.stepId);
+          if (!job || job.state !== "finished" || !failed || !entries ||
+              (job.report?.status !== "execution-error" && job.report?.status !== "assertion-failed")) {
+            throw new Error("No retained element evidence for this failed step. Edit the locator manually or run the test again.");
+          }
+          json(res, 200, { candidates: searchCapturedElements(entries, input.query),
+            source: "captured-failure-state",
+            message: "Search uses retained failure-time DOM evidence. No browser actions are replayed." });
+        } catch (error) {
+          json(res, 400, { error: error instanceof Error ? error.message : "Invalid element search" });
+        }
+        return;
+      }
       if (path === "/api/search-assertion-dom") {
         try {
           if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -1577,6 +1625,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
                   baseURL: base.href, outputDir: run.outputDir, timeoutMs,
                   onAssertionSearchIndex: (stepId, evidence) =>
                     run.assertionSearchIndex?.set(stepId, evidence),
+                  onElementSearchIndex: (stepId, entries) => retainElementEvidence(run, stepId, entries),
                 }, suppliedBrowser);
                 run.report = report;
                 // Store only an abstract prerequisite signal after a complete
@@ -1655,6 +1704,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
         void runTest(definition, {
           baseURL: base.href, outputDir: job.outputDir, timeoutMs,
           onAssertionSearchIndex: (stepId, entries) => job.assertionSearchIndex?.set(stepId, entries),
+          onElementSearchIndex: (stepId, entries) => retainElementEvidence(job, stepId, entries),
         }, suppliedBrowser).then(async (report) => {
           job.report = report;
           await observeSuccessfulRun(savedDir, base.href, definition, report).catch(() => {});
