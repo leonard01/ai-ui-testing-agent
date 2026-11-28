@@ -147,7 +147,7 @@ export async function runTest(
           result.expected = action.expected;
           result.exactTextRequired = requiresExactText(definition, step);
           if (action.scope === "search-results") result.assertionScope = action.scope;
-          result.textMatch = action.scope === "search-results" ? "contains" : action.match ?? "exact";
+          result.textMatch = action.match ?? "exact";
         }
         if (action.kind === "navigate") {
           await page.goto(navigationURL(action.url, base), {
@@ -172,7 +172,7 @@ export async function runTest(
           // satisfy a search-result requirement. Inspect result CARDS only.
           checkingAssertion = true;
           result.expected = action.expected;
-          result.textMatch = "contains";
+          result.textMatch = action.match ?? "exact";
           const expected = normalize(action.expected);
           const cards = page.locator(SEARCH_RESULT_ITEM_SELECTOR);
           const deadline = performance.now() + timeout;
@@ -183,7 +183,7 @@ export async function runTest(
             const visibleRecords = await cards.filter({ visible: true }).evaluateAll(nodes =>
               nodes.map(node => (node as HTMLElement).innerText ?? ""));
             const matched = visibleRecords.map(normalize).find(value =>
-              value.toLowerCase().includes(expected.toLowerCase()));
+              action.match === "contains" ? value.includes(expected) : value === expected);
             if (matched !== undefined) {
               result.observedIsDiagnostic = false;
               result.observed = matched.slice(0, 500);
@@ -192,7 +192,7 @@ export async function runTest(
             result.observedIsDiagnostic = true;
             result.observed = count === 0
               ? "No identifiable search-result cards on the page"
-              : count + " result card(s) found, but none contains " + JSON.stringify(expected) + " in visible record text";
+              : count + " result card(s) found, but none " + (action.match === "contains" ? "contains " : "equals ") + JSON.stringify(expected) + " in visible record text";
             const remaining = deadline - performance.now();
             if (remaining <= 0) {
               throw new Error("Search-result assertion failed: " + result.observed +
