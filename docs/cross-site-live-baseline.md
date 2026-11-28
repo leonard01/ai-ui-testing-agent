@@ -52,3 +52,11 @@ After the current contextual recovery, candidate context and ranking work, freez
 - Report generation success, requirement fidelity, independent unassisted execution correctness, false positives/wrong actions, safe rejection, assisted success, human correction effort, token use and latency by application and scenario family. Do not count unavailable environments as execution passes or silently discard failed attempts.
 - Treat cross-site deterioration and false positives as release-review blockers; classify and reproduce defects before fixing. Prefer general DOM relationships and evidence over site-specific hardcoding. Record exceptions and agree final acceptance thresholds after reviewing initial evidence, not by retroactively redefining successes.
 - This is a manual live validation expansion for v0.3, not implementation of the v0.4 stochastic evaluation framework (#139) or optional exploration (#148).
+
+
+## Deterministic assertion validation — 28 November 2026
+
+- Baseline commit `ba57ce0`: 235 unit tests, 12 independent smoke tests and 265 full browser regression tests passed in CI run [46105566799](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46105566799).
+- Partial-text discovery reproduction `b95b5dd`: 39 passed, two expected failures in the targeted suite. The hidden/input-content exclusion test passed.
+- Fix `53469a1`: 28 sanity and 41 targeted discovery/repair tests passed in [46106863867](https://github.com/leonard01/ai-ui-testing-agent/actions/runs/46106863867). Suggestions preserve the original assertion type and expected text; partial matches are case-sensitive and candidate text is bounded to 180 characters. These are advisory locator suggestions, not automatically weakened comparisons.
+- Request full deterministic regression before closing Sprint 2; do not equate these controlled-fixture results with independent cross-site or live model correctness. Live holdout evaluation remains outstanding.
