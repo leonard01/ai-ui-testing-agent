@@ -109,10 +109,11 @@ async function intentLocator(
             .map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
           const label = input.labels?.[0]?.textContent;
           const text = clean(el.innerText || el.textContent);
-          const name = clean(el.getAttribute("aria-label") || labelledBy || label ||
+          const name = (el.getAttribute("aria-label") || labelledBy || label ||
             el.getAttribute("placeholder") || el.getAttribute("title") ||
             (el.tagName === "INPUT" ? input.value &&
-              ["submit", "button"].includes(input.type) ? input.value : "" : text));
+              ["submit", "button"].includes(input.type) ? input.value : "" : el.innerText || el.textContent) || "")
+            .replace(/\s+/g, " ").trim();
           const nearby = clean(el.parentElement?.innerText, 180);
           return [{
             index, tag: el.tagName.toLowerCase(), role, name, text, nearby,
