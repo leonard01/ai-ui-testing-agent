@@ -221,8 +221,15 @@ test("TodoMVC fill repair followed by explicit Enter locator repair completes th
     await repair.locator(".locator-option input").check();
     await repair.getByRole("button",{name:"Save corrected locator and rerun from start",exact:true}).click();
     await expect(page.locator("#run-status")).toContainText("Run complete",{timeout:25000});
-    const reportURL=await page.getByRole("link",{name:"View full JSON report"}).getAttribute("href");
-    const second=await (await page.request.get(reviewURL+reportURL)).json();
+    await expect(page.locator("#run-summary")).toContainText("FAILED");
+    await expect(page.locator("#run-summary")).toBeVisible();
+    const reportLink=page.getByRole("link",{name:"View full JSON report"});
+    await expect(reportLink).toBeVisible();
+    const reportURL=await reportLink.getAttribute("href");
+    if(!reportURL) throw new Error("Missing second run report link");
+    const response=await page.request.get(new URL(reportURL,reviewURL).href);
+    expect(response.status(),await response.text()).toBe(200);
+    const second=await response.json();
     expect(second.steps.map((s:{status:string})=>s.status)).toEqual(["passed","passed","execution-error","skipped"]);
     expect(second.steps[2].locatorAlternatives?.candidates).toHaveLength(1);
     await expect(repair).toContainText("What needs to be done?");
