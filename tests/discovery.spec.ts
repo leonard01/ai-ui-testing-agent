@@ -726,3 +726,46 @@ test("partial assertion discovery does not invent matches from hidden or input c
   const choices = await findAssertionAlternatives(page,{by:"text",value:"Annual budget"},"assert-text","Annual budget",true);
   expect(choices.candidates).toEqual([]);
 });
+
+
+test("captured element picker includes uniquely identifiable controls and excludes sensitive input values", async ({page}) => {
+  const module=await import("../src/discovery.js");
+  const {captureElementSearchIndex,searchCapturedElements}=module as unknown as {captureElementSearchIndex:(page:import("@playwright/test").Page)=>Promise<Array<{target:{by:string;value?:string};actions:string[];nearby:string}>>;searchCapturedElements:(entries:Array<{target:{by:string;value?:string};actions:string[];nearby:string}>,query:string)=>Array<{target:{by:string;value?:string};actions:string[];nearby:string}>};
+  await page.setContent(`
+    <label for="choice">Default radio</label><input type="radio" id="choice" name="choice" value="yes">
+    <label for="other">Second radio</label><input type="radio" id="other" name="choice" value="no">
+    <input id="account" aria-label="Account" value="private-account-value">
+    <input id="password" type="password" value="private-password-value">
+    <button id="submit_search" aria-label="Search"></button>
+    <button id="hidden" hidden>Hidden control</button>
+    <p id="ready">Form ready</p>
+  `);
+  const entries=await captureElementSearchIndex(page);
+  const radios=searchCapturedElements(entries,"radio");
+  expect(radios.map(entry=>entry.target)).toEqual(expect.arrayContaining([
+    {by:"id",value:"choice"},{by:"id",value:"other"}
+  ]));
+  expect(radios.find(entry=>entry.target.by==="id" && entry.target.value==="choice")?.actions).toContain("check");
+  expect(searchCapturedElements(entries,"submit_search")[0]?.target).toEqual({by:"id",value:"submit_search"});
+  expect(searchCapturedElements(entries,"Form ready")[0]?.target).toEqual({by:"id",value:"ready"});
+  expect(searchCapturedElements(entries,"Hidden control")).toEqual([]);
+  expect(JSON.stringify(entries)).not.toContain("private-account-value");
+  expect(JSON.stringify(entries)).not.toContain("private-password-value");
+});
+
+test("captured element picker distinguishes duplicate controls using verified stable identifiers", async ({page}) => {
+  const module=await import("../src/discovery.js");
+  const {captureElementSearchIndex,searchCapturedElements}=module as unknown as {captureElementSearchIndex:(page:import("@playwright/test").Page)=>Promise<Array<{target:{by:string;value?:string};actions:string[];nearby:string}>>;searchCapturedElements:(entries:Array<{target:{by:string;value?:string};actions:string[];nearby:string}>,query:string)=>Array<{target:{by:string;value?:string};actions:string[];nearby:string}>};
+  await page.setContent(`
+    <article><h2>Annual report</h2><button id="annual-edit">Edit</button></article>
+    <article><h2>Quarterly report</h2><button id="quarterly-edit">Edit</button></article>
+    <button id="duplicate">Edit</button><button id="duplicate">Edit</button>
+  `);
+  const entries=await captureElementSearchIndex(page);
+  const matches=searchCapturedElements(entries,"Edit");
+  expect(matches.filter(entry=>entry.actions.includes("click")).map(entry=>entry.target)).toEqual([
+    {by:"id",value:"annual-edit"},{by:"id",value:"quarterly-edit"}
+  ]);
+  expect(matches.find(entry=>entry.target.by==="id" && entry.target.value==="annual-edit")?.nearby).toContain("Annual report");
+  expect(searchCapturedElements(entries,"Annual report").some(entry=>entry.target.by==="id" && entry.target.value==="annual-edit")).toBe(true);
+});
