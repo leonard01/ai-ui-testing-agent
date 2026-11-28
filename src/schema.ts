@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const text = z.string().trim().min(1).max(2000);
-const target = z.discriminatedUnion("by", [
+const explicitTargets = [
   z
     .object({
       by: z.literal("role"),
@@ -30,6 +30,9 @@ const target = z.discriminatedUnion("by", [
   z.object({ by: z.literal("id"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("css"), value: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ by: z.literal("xpath"), value: z.string().trim().min(1).max(1000) }).strict(),
+] as const;
+const explicitTarget = z.discriminatedUnion("by", [...explicitTargets]);
+const target = z.discriminatedUnion("by", [...explicitTargets,
   z.object({ by: z.literal("intent"), value: text, role: z.enum(["button", "textbox", "checkbox", "radio", "combobox", "heading", "status", "listitem"]).optional(), rolePolicy: z.enum(["strict", "hint"]).optional() }).strict(),
 ]);
 // Count assertions require an explicit multi-match locator. Intent discovery
@@ -62,6 +65,7 @@ const requirement = z.object({
 const action = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("navigate"), url: text }).strict(),
   z.object({ kind: z.literal("click"), target }).strict(),
+  z.object({ kind: z.literal("hover"), target: explicitTarget }).strict(),
   z.object({ kind: z.literal("check"), target }).strict(),
   z.object({ kind: z.literal("uncheck"), target }).strict(),
   z.object({ kind: z.literal("select-option"), target, value: z.string().max(2000) }).strict(),
