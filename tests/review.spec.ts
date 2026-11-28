@@ -2285,3 +2285,42 @@ test("search-result assertion recovery preserves scope and never promotes diagno
     await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
   }
 });
+
+
+test("action compatibility design warning links to editor and refreshes after correction @sanity", async ({page}) => {
+  const definition={schemaVersion:1,id:"compatibility-editor",title:"Radio selection",version:1,steps:[
+    {id:"open",description:"Open form",action:{kind:"navigate",url:"http://127.0.0.1:3000/"}},
+    {id:"choose",description:"Choose radio",action:{kind:"select-option",target:{by:"role",role:"radio",name:"Choice"},value:"yes"}},
+    {id:"verify",description:"Verify status",action:{kind:"assert-visible",target:{by:"text",value:"Ready"},provenance:"inferred"}}
+  ]};
+  const warning="Step 2: action select-option may be incompatible with target role radio. Expected role: combobox. Review the action type and locator together before approval.";
+  await page.goto(url);
+  await page.route("**/api/generate",route=>route.fulfill({
+    status:200,contentType:"application/json",body:JSON.stringify({
+      definition,needsReview:true,provider:"groq",generationAttempts:1,memorySuggestions:[],
+      diagnostics:{provider:"groq",model:"mock",attempts:1,
+        snapshot:{url:"http://127.0.0.1:3000/",title:"Form",headings:[],controls:[],statusText:[],sampleText:[]},
+        warnings:[warning,"Unrelated inspection advisory."]},
+      message:"AI-generated draft"
+    })
+  }));
+  await page.getByLabel("Your test instructions").fill("Choose radio and verify status");
+  await page.getByLabel("Generate with").selectOption("groq");
+  await clickGenerateDraft(page);
+  const panel=page.locator("#test-design-issues");
+  await panel.locator("summary").click();
+  await expect(panel).toContainText("select-option may be incompatible with target role radio");
+  await expect(panel).toContainText("Expected result was inferred by AI");
+  await page.getByRole("button",{name:"Approve all steps",exact:true}).click();
+  await panel.getByRole("button",{name:"Review step 2",exact:true}).click();
+  const editor=page.locator("#step-list .step").nth(1);
+  await expect(editor.getByLabel("Action type")).toHaveValue("select-option");
+  await editor.getByLabel("Action type").selectOption("check");
+  await editor.getByRole("button",{name:"Apply changes"}).click();
+  await expect(panel).not.toContainText("select-option may be incompatible");
+  await expect(panel).toContainText("Expected result was inferred by AI");
+  await expect(page.locator("#draft-quality-warnings")).not.toContainText("select-option may be incompatible");
+  await expect(page.locator("#draft-quality-warnings")).toContainText("Unrelated inspection advisory");
+  await expect(editor.locator('input[type="checkbox"]')).not.toBeChecked();
+  await expect(page.locator("#save")).toBeDisabled();
+});
