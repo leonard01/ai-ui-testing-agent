@@ -443,8 +443,8 @@ test("shopping intent rejects interactive titles when the named card has no cart
 });
 
 
-// Reproduce a valid model draft whose role locator drops the item context.
-test("ambiguous role click recovers the named item without selecting a neighbouring button", async ({ browser }, info) => {
+// Explicitly ambiguous drafts must fail; a reviewed concrete locator must succeed.
+test("ambiguous role click fails until a concrete item locator is explicitly reviewed", async ({ browser }, info) => {
   const html = `<!doctype html><main>
     <article><a href="#" role="button"><span>Example Lamp</span></a><button onclick="document.getElementById('selection').textContent='Lamp'">Add to cart</button></article>
     <article><a href="#" role="button"><span>Example Backpack</span></a><button onclick="document.getElementById('selection').textContent='Backpack'">Add to cart</button></article>
@@ -462,8 +462,15 @@ test("ambiguous role click recovers the named item without selecting a neighbour
       ],
     };
     const report=await runTest(definition,{baseURL:url,outputDir:info.outputPath("contextual-role"),timeoutMs:1500},browser);
-    expect(report.status,JSON.stringify(report.steps,null,2)).toBe("passed");
-    expect(report.steps.find(s=>s.id==="add")?.resolution?.intent).toBe("Add Example Backpack to cart");
+    expect(report.status,JSON.stringify(report.steps,null,2)).toBe("execution-error");
+    expect(report.steps.find(s=>s.id==="add")?.resolution).toBeUndefined();
+    expect(report.steps.find(s=>s.id==="verify")?.status).toBe("skipped");
+    const repaired: TestDefinition = {...definition,steps:definition.steps.map(step =>
+      step.id === "add" ? {...step,action:{kind:"click",target:{by:"css",value:"article:has-text('Example Backpack') button"}}} : step)};
+    const rerun=await runTest(repaired,{baseURL:url,outputDir:info.outputPath("reviewed-contextual-role"),timeoutMs:1500},browser);
+    expect(rerun.status,JSON.stringify(rerun.steps,null,2)).toBe("passed");
+    expect(rerun.steps.find(s=>s.id==="verify")?.observed).toBe("Backpack");
+    expect(rerun.steps.find(s=>s.id==="add")?.resolution).toBeUndefined();
   } finally {
     await new Promise<void>((resolve,reject)=>fixture.close(err=>err?reject(err):resolve()));
   }
