@@ -1370,6 +1370,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const step = definition.steps.find((entry) => entry.id === failed.id);
           if (!step || (step.action.kind !== "assert-text" &&
               step.action.kind !== "assert-visible") ||
+              (step.action.kind === "assert-text" && step.action.scope === "search-results") ||
               (failed.status === "assertion-failed" &&
                (step.action.kind !== "assert-text" ||
                 failed.expected !== step.action.expected))) {
@@ -1436,6 +1437,7 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           const definition = await readSaved(job.fileId);
           const step = definition.steps.find((entry) => entry.id === failed.id);
           if (!step || (step.action.kind !== "assert-visible" && step.action.kind !== "assert-text") ||
+              (step.action.kind === "assert-text" && step.action.scope === "search-results") ||
               JSON.stringify(step.action.target) !== JSON.stringify(evidence.attempted) ||
               (failed.status === "assertion-failed" &&
                 (step.action.kind !== "assert-text" ||
@@ -1551,7 +1553,13 @@ export async function createReviewServer(outputDir = "generated", suppliedBrowse
           if (input.match !== undefined && input.match !== "exact" && input.match !== "contains") {
             throw new Error("Text comparison must be Exact or Contains");
           }
+          if (step.action.scope === "search-results" || failed.observedIsDiagnostic) {
+            throw new Error("Scoped assertion diagnostics are not observed application text. Review the requirement in the full editor without broadening its scope.");
+          }
           const newMatch = input.match ?? (step.action.match ?? "exact");
+          if (newMatch === "contains" && requiresExactText(definition, step)) {
+            throw new Error("The original instructions require exact text; preserve equality.");
+          }
           if (input.expected === step.action.expected &&
               newMatch === (step.action.match ?? "exact")) {
             throw new Error("Expected text and comparison mode are unchanged");
