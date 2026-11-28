@@ -211,7 +211,7 @@ function exportAction(action: TestAction, base: URL): string[] {
         "const container = page.getByRole(" + literal(action.target.within.role) + ").filter({ has: page.getByText(" + literal(action.target.within.text) + ", { exact: true }) });",
         'await container.waitFor({ state: "attached", timeout: STEP_TIMEOUT });',
       ] : []),
-      "const resultCards = " + (action.target.by === "intent" ? '(() => { throw new Error("Search-result assertions require an explicit locator"); })() as Locator' : targetExpression(action.target, "assert-text")) + ";",
+      "const resultCards = " + (["text","intent","label","placeholder"].includes(action.target.by) ? '(() => { throw new Error("Search-result assertions require an explicit record locator"); })() as Locator' : targetExpression(action.target, "assert-text")) + ";",
       "const expectedResultText = " + literal(expected) + ";",
       "await expect.poll(async () => {",
       "  const visibleRecords = await resultCards.filter({ visible: true }).evaluateAll(nodes =>",
