@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { createReviewServer } from "../src/review-server.js";
 import { generatePlaywrightSpec } from "../src/export.js";
 import { runTest } from "../src/runner.js";
+import { SEARCH_RESULT_ITEM_SELECTOR } from "../src/search-results.js";
 import type { TestDefinition } from "../src/domain.js";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -329,7 +330,7 @@ for(const scenario of [
       const definition:TestDefinition={schemaVersion:1,id:"portable-results",title:"Scoped results",version:1,steps:[
         {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
         {id:"verify",description:"Verify returned result contains shoes",action:{
-          kind:"assert-text",target:typeof scenario.selector === "string" ? {by:"css",value:scenario.selector} : {by:"text",value:"shoes"},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
+          kind:"assert-text",target:typeof scenario.selector === "string" ? {by:"css",value:scenario.selector} : {by:"css",value:SEARCH_RESULT_ITEM_SELECTOR},expected:"shoes",match:"match" in scenario ? scenario.match : "contains",scope:"search-results",provenance:"requirements",
         }},
       ]};
       const report=await runTest(definition,{baseURL:url,timeoutMs:800,outputDir:info.outputPath("runner-results")},browser);
