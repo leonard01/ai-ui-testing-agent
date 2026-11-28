@@ -866,34 +866,25 @@ export async function discoverTarget(
         });
       }
       const match = top[0].candidate;
-      // Stable attributes preferred; positional fallback is resolved afresh
-      // each run, never stored as a brittle cross-run selector.
-      const options = [
-        ...(match.testId ? [{
-          locator: page.getByTestId(match.testId),
-          label: "data-testid=" + JSON.stringify(match.testId),
-        }] : []),
-        ...(match.id ? [{
-          locator: page.locator("[id=" + cssAttribute(match.id) + "]"),
-          label: "id=" + JSON.stringify(match.id),
-        }] : []),
-        {
-          locator: page.locator(selector).nth(match.index),
-          label: "current-DOM " + match.tag + " index=" + match.index,
-        },
-      ];
-      for (const option of options) {
-        if (await option.locator.count() === 1 && await option.locator.isVisible()) {
-          return {
-            locator: option.locator,
-            evidence: {
-              intent: target.value, method: "live-dom",
-              tag: match.tag, role: match.role, name: match.name,
-              nearby: match.nearby, locator: option.label,
-              candidatesInspected: candidates.length,
-            },
-          };
-        }
+      // Re-resolve by exact name at action time, never by DOM index or ID alone.
+      // Keep the operation's candidate set and accessibility exclusion as constraints.
+      const eligible = page.locator(selector).and(page.locator(':not([hidden], [inert], [aria-hidden="true" i], [hidden] *, [inert] *, [aria-hidden="true" i] *)'));
+      const role = match.role as Parameters<Page["getByRole"]>[0];
+      const semantic = match.role
+        ? page.getByRole(role, { name: target.value, exact: true })
+        : page.getByText(target.value, { exact: true });
+      const locator = eligible.and(semantic).filter({ visible: true });
+      if (await locator.count() === 1 && await locator.isVisible()) {
+        return {
+          locator,
+          evidence: {
+            intent: target.value, method: "live-dom",
+            tag: match.tag, role: match.role, name: match.name,
+            nearby: match.nearby,
+            locator: (match.role ? "exact role " + match.role + " name " : "exact text ") + JSON.stringify(target.value),
+            candidatesInspected: candidates.length,
+          },
+        };
       }
       detail = "Matching element was no longer visible";
     } else {
