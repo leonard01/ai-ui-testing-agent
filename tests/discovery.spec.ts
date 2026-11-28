@@ -833,13 +833,13 @@ for (const scenario of ["hidden-target", "hidden-descendant", "visible-target"] 
 }
 
 
-test("named deletion reveals a row-local control and preserves other records @sanity", async ({page}) => {
+test("named deletion must not introduce an unapproved hover @sanity", async ({page}) => {
   await page.setContent('<style>li button {display:none} li:hover button {display:inline-block}</style><ul><li><label>sbf</label><button class="destroy" onclick="this.closest(\'li\').remove()"></button></li><li><label>test activity</label><button class="destroy" onclick="this.closest(\'li\').remove()"></button></li></ul><button>Clear completed</button>');
   const target = {by:"intent",role:"button",value:"Delete test activity"} as const;
   await expect(page.locator("li").nth(1).locator("button")).toBeHidden();
-  const resolved = await discoverTarget(page,target,"click",1500);
-  await resolved.locator.click();
-  await expect(page.getByText("test activity",{exact:true})).toHaveCount(0);
+  await expect(discoverTarget(page,target,"click",500)).rejects.toThrow(/Could not resolve intent/);
+  await expect(page.locator("li").nth(1).locator("button")).toBeHidden();
+  await expect(page.getByText("test activity",{exact:true})).toBeVisible();
   await expect(page.getByText("sbf",{exact:true})).toBeVisible();
   await expect(page.getByRole("button",{name:"Clear completed"})).toBeVisible();
 });
@@ -855,3 +855,38 @@ test("named deletion refuses duplicate item identities, unrelated controls and b
     await expect(discoverTarget(page,{by:"intent",role:"button",value:"Delete Draft report"},"click",250)).rejects.toThrow(/Could not resolve intent/);
   }
 });
+
+
+// Reproduce the fidelity violations against the real runner, not just locator helpers.
+for (const scenario of ["label-placeholder-fill", "label-placeholder-press", "ambiguous-cart-description"] as const) {
+  test("approved exact locator must not be silently corrected: " + scenario, async ({browser},info) => {
+    const isCart = scenario === "ambiguous-cart-description";
+    const markup = isCart
+      ? '<article><h2>Alpha product</h2><button onclick="document.querySelector(\'#changed\').textContent=\'Alpha\'">Add to cart</button></article><article><h2>Beta product</h2><button onclick="document.querySelector(\'#changed\').textContent=\'Beta\'">Add to cart</button></article><p id="changed">unchanged</p>'
+      : '<input placeholder="Search term" oninput="document.querySelector(\'#changed\').textContent=\'filled\'" onkeydown="document.querySelector(\'#changed\').textContent=\'pressed\'"><p id="changed">unchanged</p>';
+    const site=createServer((_request,response)=>{
+      response.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
+      response.end("<!doctype html><main>"+markup+"</main>");
+    });
+    await new Promise<void>(resolve=>site.listen(0,"127.0.0.1",resolve));
+    try {
+      const action:TestDefinition["steps"][number]["action"] = isCart
+        ? {kind:"click",target:{by:"role",role:"button",name:"Add to cart"}}
+        : scenario === "label-placeholder-fill"
+          ? {kind:"fill",target:{by:"label",value:"Search term"},value:"unexpected"}
+          : {kind:"press",target:{by:"label",value:"Search term"},key:"Enter"};
+      const definition:TestDefinition={schemaVersion:1,id:"fidelity",title:"Exact locator fidelity",version:1,steps:[
+        {id:"open",description:"Open",action:{kind:"navigate",url:"/"}},
+        {id:"wrong",description:isCart?"Add Alpha product to cart":"Search term",action},
+        {id:"after",description:"Must not run after failure",action:{kind:"assert-text",target:{by:"id",value:"changed"},expected:"unchanged",provenance:"requirements"}}
+      ]};
+      const report=await runTest(definition,{baseURL:"http://127.0.0.1:"+(site.address() as AddressInfo).port,outputDir:info.outputPath("fidelity"),timeoutMs:800},browser);
+      expect(report.steps.find(step=>step.id==="wrong")?.status).toBe("execution-error");
+      expect(report.steps.find(step=>step.id==="wrong")?.resolution).toBeUndefined();
+      expect(report.steps.find(step=>step.id==="after")?.status).toBe("skipped");
+    }finally{
+      site.closeAllConnections();
+      await new Promise<void>((resolve,reject)=>site.close(error=>error?reject(error):resolve()));
+    }
+  });
+}
