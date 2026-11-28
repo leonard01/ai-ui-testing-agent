@@ -17,7 +17,6 @@ interface DomCandidate {
   name: string;
   text: string;
   nearby: string;
-  localCheckboxCount: number;
   testId: string;
   id: string;
   href?: string;
@@ -259,7 +258,6 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
       }
       return [{
         index, tag: el.tagName.toLowerCase(), role, name, text: ownText,
-        localCheckboxCount: el.parentElement?.querySelectorAll('input[type="checkbox"],[role="checkbox"]').length ?? 0,
         nearby, testId: el.getAttribute("data-testid") ?? "",
         id: el.id,
         href: el.tagName === "A" ? el.getAttribute("href") ?? undefined : undefined,
@@ -613,181 +611,6 @@ export function searchCapturedAssertionText(
   };
 }
 
-
-/**
- * Shopping instructions name both an object and an action. Never treat
- * "Add Sauce Labs Backpack" as the accessible name of an Add to cart button.
- * Resolve the product TITLE first, then look for a single button in its
- * closest logical container. This is bounded, live-DOM-only, and fail-closed.
- */
-function cartProductPhrase(value: string): { product: string; explicitCart: boolean } | null {
-  const input = value.replace(/\s+/g, " ").trim();
-  const match = /^(?:add|put)\s+(.+)$/i.exec(input);
-  if (!match) return null;
-  const explicitCart = /\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(match[1]);
-  const product = match[1]
-    .replace(/\s+(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i, "")
-    .replace(/^(?:the|a)\s+/i, "").trim();
-  if (!product || /^(?:to|in|into)\s+(?:(?:my|the)\s+)?(?:cart|basket)$/i.test(product))
-    return null;
-  return { product, explicitCart };
-}
-
-async function productTitles(page: Page, product: string): Promise<string[]> {
-  return page.evaluate((raw) => {
-    const clean = (value: string) => value.replace(/\s+/g, " ").trim();
-    const query = clean(raw).toLocaleLowerCase();
-    const found: string[] = [];
-    // Titles may be <div>, <span> or headings, not necessarily semantic headings.
-    // Reject ancestor text that merely contains an entire product list.
-    for (const node of Array.from(document.querySelectorAll<HTMLElement>("body *")).slice(0, 12000)) {
-      if (node.closest('script,style,noscript,template,[hidden],[inert],[aria-hidden="true"],input,textarea,select,[contenteditable="true"]')) continue;
-      if (!node.getClientRects().length || getComputedStyle(node).visibility !== "visible") continue;
-      const value = clean(node.innerText || "");
-      if (value.length < 3 || value.length > 120 || value.split(" ").length > 10) continue;
-      const lowered = value.toLocaleLowerCase();
-      if (lowered !== query && !lowered.endsWith(" " + query)) continue;
-      // An interactive title can identify an item, but do not mistake
-      // an action caption such as "Remove Example Backpack" for its title.
-      // For interactive content require the exact visible item name.
-      if (node.closest('button,[role="button"],a[href],[role="link"]') && lowered !== query) continue;
-      // Prefer the exact, leaf-most visible name rather than wrappers.
-      if (Array.from(node.children).some((child) =>
-        clean((child as HTMLElement).innerText || "").toLocaleLowerCase() === lowered &&
-        !!(child as HTMLElement).getClientRects().length)) continue;
-      found.push(value);
-      if (found.length > 20) break;
-    }
-    return found;
-  }, product);
-}
-
-async function resolveCartAction(
-  page: Page,
-  target: IntentTarget,
-): Promise<{
-  claimed: boolean;
-  detail?: string;
-  resolved?: { locator: Locator; evidence: DiscoveryEvidence };
-}> {
-  const parsed = cartProductPhrase(target.value);
-  if (!parsed || (target.role && target.role !== "button")) return { claimed: false };
-  const actions = page.getByRole("button", { name: /^add to (?:cart|basket)$/i });
-  const buttonCount = await actions.count();
-  if (!buttonCount && !parsed.explicitCart) return { claimed: false };
-  const names = await productTitles(page, parsed.product);
-  if (!parsed.explicitCart && names.length === 0) return { claimed: false };
-  if (names.length !== 1) {
-    return { claimed: true, detail: names.length
-      ? "Product " + JSON.stringify(parsed.product) + " matched multiple visible titles; no action was taken"
-      : "Product " + JSON.stringify(parsed.product) + " was not found as a unique visible title" };
-  }
-  const title = page.getByText(names[0], { exact: true });
-  if (await title.count() !== 1 || !await title.isVisible()) {
-    return { claimed: true, detail: "Product " + JSON.stringify(names[0]) +
-      " did not have a unique, visible title locator" };
-  }
-  let container = title;
-  for (let depth = 0; depth < 8; depth++) {
-    container = container.locator("..");
-    // Never escape a recognised product card into its product list or page.
-    // A sold-out card can lack Add to cart while a neighbouring card has one.
-    const boundary = await container.evaluate((node) =>
-      node.matches('main,body,html,[role="main"],[role="list"],[role="feed"]'));
-    if (boundary) break;
-    const scoped = container.getByRole("button", { name: /^add to (?:cart|basket)$/i });
-    const count = await scoped.count();
-    // One button inside the nearest matching container is meaningful evidence.
-    if (count === 1 && await scoped.isVisible() && await scoped.isEnabled()) {
-      const name = await scoped.innerText();
-      const nearby = await scoped.evaluate((element) =>
-        (element.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 180));
-      return {
-        claimed: true,
-        resolved: {
-          locator: scoped,
-          evidence: {
-            intent: target.value, method: "live-dom",
-            tag: "button", role: "button", name: name.trim(), nearby,
-            locator: "product " + JSON.stringify(names[0]) +
-              " → closest card's unique Add to cart button",
-            candidatesInspected: buttonCount,
-          },
-        },
-      };
-    }
-    if (count > 1) break; // Reached an enclosing multi-product list: never choose first.
-    if (await container.evaluate((node) =>
-      node.matches('article,li,[role="listitem"],.inventory_item,.product-card,.product_item,[data-testid="product-card"],[data-testid="product-item"]'))) break;
-  }
-  return { claimed: true, detail: "No unique enabled Add to cart button within product " +
-    JSON.stringify(names[0]) + "; no action was taken" };
-}
-
-/**
- * Recover only a proven contextual cart click from an ambiguous exact role
- * locator. Never fall through to generic intent scoring or relax the locator.
- */
-export async function recoverAmbiguousCartClick(
-  page: Page, original: Locator, name: string, description: string,
-): Promise<{ locator: Locator; evidence: DiscoveryEvidence } | undefined> {
-  if (!/^add to (?:cart|basket)$/i.test(name) || await original.count() < 2) return;
-  const phrase = cartProductPhrase(description);
-  if (!phrase?.explicitCart) return;
-  const titles = await productTitles(page, phrase.product);
-  if (titles.length !== 1 ||
-      titles[0].toLocaleLowerCase() !== phrase.product.toLocaleLowerCase()) return;
-  const outcome = await resolveCartAction(page, {by:"intent",role:"button",value:description});
-  if (!outcome.resolved) return;
-  // Keep the original role AND exact accessible name as hard constraints.
-  const locator = original.and(outcome.resolved.locator);
-  if (await locator.count() !== 1 || !await locator.isVisible() || !await locator.isEnabled()) return;
-  return {
-    locator,
-    evidence: {...outcome.resolved.evidence,
-      locator: "ambiguous exact role recovery: " + outcome.resolved.evidence.locator},
-  };
-}
-
-/** Resolve a named destructive action only within a uniquely identified record.
- * No hover, forced click or other undeclared interaction is allowed.
- */
-async function resolveNamedDeletion(page: Page, target: IntentTarget): Promise<{
-  claimed: boolean; resolved?: {locator: Locator; evidence: DiscoveryEvidence}; detail?: string;
-}> {
-  if (target.role && target.role !== "button") return {claimed:false};
-  const match = /^(?:delete|remove)\s+(.+)$/i.exec(target.value.trim());
-  if (!match) return {claimed:false};
-  const item = match[1].replace(/^(?:the\s+)?(?:task|todo|item|record)\s+(?:called\s+|named\s+)?/i,"").replace(/^["']|["']$/g,"").trim();
-  if (!item || /^(?:all|every|completed|selected)\b/i.test(item) || /\bfrom (?:the )?(?:cart|basket)\b/i.test(item)) return {claimed:false};
-  const names = page.getByText(item,{exact:true}).filter({visible:true});
-  const nameCount = await names.count();
-  if (!nameCount) return {claimed:false};
-  const failure = (detail:string) => ({claimed:true,detail});
-  if (nameCount !== 1) return failure("Named deletion requires a unique visible item: " + item);
-  const row = names.locator("xpath=ancestor-or-self::*[self::li or self::tr or self::article or @role='listitem' or @role='row'][1]");
-  if (await row.count() !== 1) return {claimed:false};
-  const controls = row.locator("button, [role=button], input[type=button]");
-  const matching = controls.filter({hasNot:page.locator("button")});
-  const indices = await matching.evaluateAll((nodes, itemName) => nodes.flatMap((el,index) => {
-    const norm = (s:string) => s.trim().replace(/\s+/g," ").toLowerCase();
-    const name = norm(el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || (el instanceof HTMLInputElement ? el.value : ""));
-    const named = norm(itemName);
-    const isDelete = /^(?:delete|remove|destroy)$/.test(name) || name === "delete "+named || name === "remove "+named;
-    const unnamedDelete = !name && Array.from(el.classList).some(token => /^(?:delete|remove|destroy)$/.test(token));
-    return (isDelete || unnamedDelete) && !el.closest('[hidden],[inert],[aria-hidden="true"],[disabled],[aria-disabled="true"]') ? [index] : [];
-  }),item);
-  if (indices.length !== 1) return failure("No unique deletion control within named item " + item);
-  const locator = matching.nth(indices[0]);
-  // Discovery must be observational: revealing a hidden control requires an approved action.
-  if (!await locator.isVisible()) return failure("Deletion control is hidden; an explicit prerequisite interaction is required for " + item);
-  if (await names.count() !== 1 || await locator.count() !== 1 || !await locator.isVisible() || !await locator.isEnabled()) return failure("Deletion control is not uniquely actionable for " + item);
-  return {claimed:true,resolved:{locator,evidence:{
-    intent:target.value,method:"live-dom",tag:await locator.evaluate(el=>el.tagName.toLowerCase()),
-    role:"button",name:await locator.evaluate(el=>el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent || ""),
-    nearby:item,locator:"unique named record → verified local deletion control",candidatesInspected:await controls.count(),
-  }}};
-}
 
 function cssAttribute(value: string): string {
   return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
