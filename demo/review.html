@@ -1619,10 +1619,37 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
     function findTestDesignIssues() {
       if (!definition) return [];
       const issues = [];
+      // Mirror draft-diagnostics.ts for live, local review after edits.
+      const ordinalWords = ["first","second","third","fourth","fifth","sixth","seventh","eighth","ninth","tenth"];
+      const normaliseName = value => value.trim().replace(/\s+/g, " ").toLowerCase();
+      const positionalRequests = [];
+      for (const clause of ($("requirements").value || definition.workingInstructions || definition.sourceInstructions || "").split(/[.\n;!?]+/)) {
+        const match = /^\s*(?:please\s+)?click\s+(?:on\s+)?(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\s+(.+?)\s+(button|checkbox|radio|combobox|textbox)\s*$/i.exec(clause);
+        if (!match) continue;
+        const ordinal = match[1].toLowerCase();
+        const wordIndex = ordinalWords.indexOf(ordinal);
+        const nth = wordIndex >= 0 ? wordIndex : Number.parseInt(ordinal, 10) - 1;
+        if (nth < 0 || nth > 249) continue;
+        positionalRequests.push({name:normaliseName(match[2].replace(/^["']|["']$/g, "")),role:match[3].toLowerCase(),nth});
+      }
       for (const [index, step] of definition.steps.entries()) {
         const action = step.action;
         const target = action.target;
         const add = (severity, message) => issues.push({ stepNumber: index + 1, severity, message });
+        if (target?.by === "role" && action.kind !== "assert-count") {
+          const requested = action.kind === "click" && target.name
+            ? [...new Set(positionalRequests.filter(item => item.role === target.role &&
+                item.name === normaliseName(target.name)).map(item => item.nth))]
+            : [];
+          if (target.nth !== undefined && (requested.length !== 1 || requested[0] !== target.nth)) {
+            add("Review", "Positional index " + target.nth +
+              (requested.length === 1 ? " does not match the requested position (index " + requested[0] + ")." :
+                " cannot be verified against a unique explicit position for this control.") +
+              " Review the original instruction and locator before approval.");
+          } else if (target.nth === undefined && requested.length > 0) {
+            add("Review", "Explicit position requested for this control but the locator has no index. Review the original instruction before approval.");
+          }
+        }
         if ((target?.by === "role" || target?.by === "intent") && target.role) {
           const compatible = ({
             fill: ["textbox"], "select-option": ["combobox"],
@@ -4092,7 +4119,8 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
       if (!evidence || !evidence.snapshot) return;
       const warnings = Array.isArray(evidence.warnings)
         ? evidence.warnings.filter(item => typeof item === "string" &&
-          !/^Step \d+: action (?:fill|select-option|check|uncheck) may be incompatible with target role /.test(item)) : [];
+          !/^Step \d+: action (?:fill|select-option|check|uncheck) may be incompatible with target role /.test(item) &&
+          !/^Step \d+: (?:positional index \d+|explicit position requested for this control)/.test(item)) : [];
       const notice = $("draft-quality-warnings");
       notice.textContent = warnings.length
         ? "Other quality checks (" + warnings.length + "):\n" +
