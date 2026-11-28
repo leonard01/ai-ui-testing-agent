@@ -2860,7 +2860,7 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           searchInput.type = "text";
           searchInput.maxLength = 180;
           searchInput.value = step.assertionAlternatives?.query ||
-            (mismatch && typeof step.expected === "string" ? step.expected : "");
+            (typeof step.expected === "string" ? step.expected : "");
           field.append(searchInput);
           repair.append(field);
           const searchButton = make("button", "Search captured DOM", "secondary");
@@ -2882,6 +2882,12 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           let savingRepair = false;
           const canReviewExpectation = mismatch && step.actionKind === "assert-text" &&
             typeof step.expected === "string";
+          const normalize = value => String(value ?? "").replace(/\s+/g, " ").trim();
+          const partialCorrection = candidate => !mismatch && step.actionKind === "assert-text" &&
+            typeof step.expected === "string" && !!normalize(step.expected) &&
+            (step.textMatch ?? "exact") === "exact" && typeof candidate?.text === "string" &&
+            normalize(candidate.text) !== normalize(step.expected) &&
+            normalize(candidate.text).includes(normalize(step.expected));
           const review = make("div", null, "repair-scope");
           review.hidden = true;
           const modeLabel = make("label", "Assertion correction");
@@ -2917,6 +2923,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             const candidate = selectedCandidate();
             const changesExpectation = mode.value === "expectation" || mode.value === "both";
             expectationFields.hidden = !changesExpectation;
+            expected.readOnly = !mismatch;
+            match.disabled = !mismatch;
+            useText.hidden = !mismatch;
             save.textContent = changesExpectation
               ? mode.value === "both" ? "Save corrected target and expectation and rerun" : "Save corrected expectation and rerun"
               : "Save corrected assertion target and rerun";
@@ -2927,9 +2936,10 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
           }
           function selectCorrection() {
             mode.replaceChildren();
+            const partial = partialCorrection(selectedCandidate()) && !sameTarget();
             const options = sameTarget()
               ? (canReviewExpectation ? [["expectation", "Update expected text or comparison"]] : [])
-              : [["target", "Replace assertion target"], ...(canReviewExpectation ? [["both", "Update target and expectation"]] : [])];
+              : [["target", "Replace assertion target"], ...(canReviewExpectation || partial ? [["both", "Update target and expectation"]] : [])];
             for (const [value, label] of options) {
               const option = make("option", label);
               option.value = value;
@@ -2938,7 +2948,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
             expected.value = step.expected ?? "";
             match.value = step.textMatch ?? "exact";
             confirm.checked = false;
-            review.hidden = !canReviewExpectation || options.length === 0;
+            if (partial) {
+              mode.value = "both";
+              match.value = "contains";
+            }
+            review.hidden = !(canReviewExpectation || partial) || options.length === 0;
             updateRepair();
           }
           mode.addEventListener("change", () => { confirm.checked = false; updateRepair(); });
@@ -2971,6 +2985,11 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 ? 'Visible text "' + candidate.target.value + '"'
                 : candidate.target.role + ' named "' + candidate.target.name + '"';
               info.append(make("strong", description));
+              if (typeof candidate.text === "string") {
+                const query = normalize(evidence.query);
+                const rendered = normalize(candidate.text);
+                info.append(make("small", (rendered === query ? "Exact match" : rendered.includes(query) ? "Partial match" : "Rendered text") + ": " + candidate.text));
+              }
               info.append(make("small", "<" + candidate.tag + "> · role: " +
                 (candidate.role || "no explicit role")));
               if (candidate.nearby) info.append(make("small", "Nearby: " + candidate.nearby));
@@ -2983,7 +3002,9 @@ GROQ_MODEL=openai/gpt-oss-20b</code></pre>
                 if (unchanged) searchStatus.textContent = canReviewExpectation
                   ? "This is already the correct assertion target. Review the expected text or comparison below, then explicitly confirm your correction."
                   : "This is already the assertion target. No locator change is possible.";
-                else searchStatus.textContent = "Verified element selected. Review the correction before saving.";
+                else searchStatus.textContent = partialCorrection(candidate)
+                  ? "The visible element contains the expected phrase but has additional text. Use the combined correction only if Contains satisfies the original requirement; retain Exact if equality is required."
+                  : "Verified element selected. Review the correction before saving.";
               });
               choices.append(label);
             });
