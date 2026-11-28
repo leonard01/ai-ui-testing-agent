@@ -51,6 +51,28 @@ export function draftQualityWarnings(
       missing.map((phrase) => JSON.stringify(phrase)).join(", ") +
       ". Check whether the model changed the test's purpose.");
   }
+  // Semantic roles are evidence of likely incompatibility, not proof of
+  // the underlying widget implementation. Keep these warnings advisory;
+  // do not rewrite actions, values or requirement links.
+  for (const [index, step] of definition.steps.entries()) {
+    const action = step.action;
+    if (!("target" in action)) continue;
+    const target = action.target;
+    if (target.by !== "role" && target.by !== "intent") continue;
+    const role = target.role;
+    if (!role) continue;
+    const compatible: string[] | undefined =
+      action.kind === "fill" ? ["textbox"] :
+      action.kind === "select-option" ? ["combobox"] :
+      action.kind === "check" ? ["checkbox", "radio"] :
+      action.kind === "uncheck" ? ["checkbox"] : undefined;
+    if (compatible && !compatible.includes(role)) {
+      warnings.push("Step " + (index + 1) + ": action " + action.kind +
+        " may be incompatible with target role " + role +
+        ". Expected role: " + compatible.join(" or ") +
+        ". Review the action type and locator together before approval.");
+    }
+  }
   for (const step of definition.steps) {
     if (step.action.kind !== "assert-text") continue;
     const expected = step.action.expected;
