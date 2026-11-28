@@ -271,7 +271,7 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
 }
 
 /**
- * Diagnose a failed *explicit* click or fill locator against the live DOM.
+ * Diagnose a failed *explicit* click, fill or keyboard locator against the live DOM.
  * Only offer role/name pairs that Playwright confirms uniquely identify
  * a visible element. A user must select; this does NOT click or fill.
  * Potentially sensitive input values and arbitrary page text are excluded.
@@ -279,7 +279,7 @@ async function inspectCandidates(page: Page, operation: TargetOperation, repairO
 export async function findLocatorAlternatives(
   page: Page,
   attempted: ExplicitTarget,
-  operation: "click" | "fill",
+  operation: "click" | "fill" | "press",
   instruction?: string,
 ): Promise<MissingLocatorChoices> {
   // A strict-mode violation can come from multiple *identically named*
@@ -371,6 +371,7 @@ export async function findLocatorAlternatives(
   const instructionTerms = keywords(instruction ?? "");
   const { selector, candidates } = await inspectCandidates(page, operation, true);
   const allowed = operation === "fill" ? new Set(["textbox"]) :
+    operation === "press" ? new Set(["textbox", "button", "checkbox", "radio", "link", "combobox"]) :
     new Set(["button", "checkbox", "radio", "link", "clickable"]);
   const ranked = candidates.flatMap((candidate) => {
     if (!allowed.has(candidate.role)) return [];
@@ -389,7 +390,7 @@ export async function findLocatorAlternatives(
     const role = candidate.role;
     const proposals: Array<{target: ExplicitTarget; locator: Locator}> = [];
     // Keep existing named-role repair behaviour for supported roles.
-    if (candidate.name && (role === "button" || role === "checkbox" || role === "textbox" || role === "radio")) {
+    if (candidate.name && (role === "button" || role === "checkbox" || role === "textbox" || role === "radio" || (operation === "press" && role === "combobox"))) {
       proposals.push({target:{by:"role",role,name:candidate.name},
         locator:page.getByRole(role,{name:candidate.name,exact:true})});
     }
@@ -415,7 +416,7 @@ export async function findLocatorAlternatives(
       if (matches.some(x => x.target ? JSON.stringify(x.target) === JSON.stringify(target) :
           target.by === "role" && x.role === target.role && x.name === target.name)) break;
       matches.push({tag:candidate.tag,role,name:candidate.name,nearby:candidate.repairContext ?? candidate.nearby,
-        ...(target.by === "role" && role !== "radio" ? {} : {target})});
+        ...(target.by === "role" && role !== "radio" && role !== "combobox" ? {} : {target})});
       break;
     }
   }
